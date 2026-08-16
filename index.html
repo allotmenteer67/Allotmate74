@@ -6113,15 +6113,30 @@ async function applyRemotePayload(payload){
     lastSnapshot = snapshotState();
   } finally { applyingRemote = false; }
 }
-async function connectSync(url, key, code){
+async function connectSync(url, key, code, isOwner){
   supa = window.supabase.createClient(url, key);
   await setMeta('syncUrl', url); await setMeta('syncKey', key); await setMeta('syncCode', code);
   try{
     const { data } = await supa.from('plots').select('data').eq('code', code).maybeSingle();
     if(data && data.data) await applyRemotePayload(data.data);
-    else await pushNow();
+    else if(isOwner) await pushNow();
+    else await retryFindRemotePlot(code, 0);
   }catch(e){ /* will retry once online */ }
   subscribeSync(code);
+}
+async function retryFindRemotePlot(code, attempt){
+  // Joining never pushes local data if the shared plot isn't found straight away - that data
+  // could be genuinely stale or blank, and pushing it would overwrite whatever's really there.
+  // Retries a few times first, in case this is just the owner's own initial push still landing,
+  // before finally telling the person honestly rather than silently overwriting anything.
+  if(attempt >= 4){ toast("Couldn't find that shared plot yet — ask them to check sharing is still on, then try the invite again"); return; }
+  await new Promise(r=>setTimeout(r, 2000));
+  if(!supa) return;
+  try{
+    const { data } = await supa.from('plots').select('data').eq('code', code).maybeSingle();
+    if(data && data.data){ await applyRemotePayload(data.data); return; }
+  }catch(e){}
+  await retryFindRemotePlot(code, attempt+1);
 }
 function subscribeSync(code){
   if(syncChannel) supa.removeChannel(syncChannel);
@@ -6192,7 +6207,7 @@ function renderSharePanel(){
     document.getElementById('btnStartSharing').addEventListener('click', async ()=>{
       if(!requireGardenerName()) return;
       const code = randomCode();
-      await connectSync(SHARED_SYNC_URL, SHARED_SYNC_KEY, code);
+      await connectSync(SHARED_SYNC_URL, SHARED_SYNC_KEY, code, true);
       await afterChange();
       openInviteScreen(code);
     });
