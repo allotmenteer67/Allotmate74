@@ -682,6 +682,10 @@ const DB_NAME='plotbook4', DB_VERSION=5; let db;
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
 const SHARED_SYNC_KEY = 'sb_publishable_SOm8jCpzc-ZXFYzsgdKQ8Q_XaAAfpfm';
+// The app's own real, live address - used to build invite links directly, rather than reading
+// window.location, which can report something misleading (e.g. "null") if the page is ever
+// opened as a local file preview rather than from its real, hosted address.
+const SHARED_APP_URL = 'https://allotmenteer67.github.io/Allotmate74/index.html';
 function openDB(){ return new Promise((resolve,reject)=>{
   const req = indexedDB.open(DB_NAME, DB_VERSION);
   req.onupgradeneeded = (e)=>{ const d=e.target.result;
@@ -6214,9 +6218,8 @@ function requireGardenerName(){
   return true;
 }
 function buildInviteLink(code){
-  const base = window.location.origin + window.location.pathname;
   const params = new URLSearchParams({su: STATE.settings.syncUrl, sk: STATE.settings.syncKey, sc: code, sn: STATE.settings.gardenerName});
-  return `${base}?${params.toString()}`;
+  return `${SHARED_APP_URL}?${params.toString()}`;
 }
 function openInviteScreen(code){
   const link = buildInviteLink(code);
