@@ -6195,18 +6195,24 @@ async function applyRemotePayload(payload, updatedAt, isJoin){
   } finally { applyingRemote = false; }
 }
 async function connectSync(url, key, code, isOwner){
+  // A genuine first-time connection to this specific code should replace local data outright;
+  // a routine reconnect on a device already established with this exact code (happens on every
+  // app open, not just the first) must merge instead, or a normal reconnect would silently wipe
+  // out anything not yet pushed, every single time the app is opened.
+  const isGenuinelyNew = STATE.settings.syncCode !== code;
   supa = window.supabase.createClient(url, key);
   await setMeta('syncUrl', url); await setMeta('syncKey', key); await setMeta('syncCode', code);
+  STATE.settings.syncCode = code;
   try{
     const { data, error } = await supa.from('plots').select('data, updated_at').eq('code', code).maybeSingle();
     if(error) throw error;
-    if(data && data.data) await applyRemotePayload(data.data, data.updated_at, true);
+    if(data && data.data) await applyRemotePayload(data.data, data.updated_at, isGenuinelyNew);
     else if(isOwner) await pushNow();
-    else await retryFindRemotePlot(code, 0);
+    else await retryFindRemotePlot(code, 0, isGenuinelyNew);
   }catch(e){ subscribeSync(code); throw e; }
   subscribeSync(code);
 }
-async function retryFindRemotePlot(code, attempt){
+async function retryFindRemotePlot(code, attempt, isGenuinelyNew){
   // Joining never pushes local data if the shared plot isn't found straight away - that data
   // could be genuinely stale or blank, and pushing it would overwrite whatever's really there.
   // Retries a few times first, in case this is just the owner's own initial push still landing,
@@ -6217,9 +6223,9 @@ async function retryFindRemotePlot(code, attempt){
   try{
     const { data, error } = await supa.from('plots').select('data, updated_at').eq('code', code).maybeSingle();
     if(error){ toast('Sync problem: ' + error.message); return; }
-    if(data && data.data){ await applyRemotePayload(data.data, data.updated_at, true); return; }
+    if(data && data.data){ await applyRemotePayload(data.data, data.updated_at, isGenuinelyNew); return; }
   }catch(e){}
-  await retryFindRemotePlot(code, attempt+1);
+  await retryFindRemotePlot(code, attempt+1, isGenuinelyNew);
 }
 // Realtime websockets commonly get suspended by the OS while a tab or PWA is backgrounded on
 // mobile - locking the phone, or just switching to check another device, is enough. Any change
