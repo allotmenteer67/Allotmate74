@@ -6207,7 +6207,11 @@ async function connectSync(url, key, code, isOwner){
   // app open, not just the first) must merge instead, or a normal reconnect would silently wipe
   // out anything not yet pushed, every single time the app is opened.
   const isGenuinelyNew = STATE.settings.syncCode !== code;
-  supa = window.supabase.createClient(url, key);
+  // Reuse the existing client rather than creating a fresh one every reconnect - the url/key never
+  // change, they're baked-in constants, and creating a new instance each time meant a channel
+  // created by an earlier instance could no longer be cleanly removed by a later one, silently
+  // breaking the realtime subscription on every routine reconnect after the first.
+  if(!supa) supa = window.supabase.createClient(url, key);
   await setMeta('syncUrl', url); await setMeta('syncKey', key); await setMeta('syncCode', code);
   STATE.settings.syncCode = code;
   try{
