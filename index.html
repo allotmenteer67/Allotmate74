@@ -1544,6 +1544,7 @@ function closeModal(){
   document.body.style.position=''; document.body.style.top=''; document.body.style.left=''; document.body.style.right='';
   window.scrollTo(0, scrollY_before_modal);
   if(pendingConfirmResolve){ const r=pendingConfirmResolve; pendingConfirmResolve=null; r(false); }
+  if(renderPending){ renderPending = false; renderAll(); }
 }
 function closeOrBack(){
   const backBtn = document.getElementById('mBack');
@@ -6075,7 +6076,7 @@ document.getElementById('btnNewCrop').addEventListener('click', ()=>{
 
 /* ======================= SHARING / SYNC ======================= */
 const SHARED_META_KEYS = ['plotName','plotWidthM','plotDepthM','plotShape','groundColor','postcode','lat','lon','thFrost','thRain','thWind','customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory'];
-let supa = null, syncChannel = null, pushTimer = null, applyingRemote = false, lastKnownRemoteUpdatedAt = null;
+let supa = null, syncChannel = null, pushTimer = null, applyingRemote = false, lastKnownRemoteUpdatedAt = null, renderPending = false;
 
 async function afterChange(){
   if(!restoring && !applyingRemote){
@@ -6186,7 +6187,13 @@ async function applyRemotePayload(payload, updatedAt, isJoin){
     for(const n of privateNotesKept) await put('notes', n, true);
     for(const n of (merged.notes||[])) await put('notes', n, true);
     if(merged.meta) for(const k of SHARED_META_KEYS) if(merged.meta[k]!==undefined) await setMeta(k, merged.meta[k]);
-    await loadAll(); renderAll();
+    await loadAll();
+    // A modal open right now means someone may be actively typing into a form - a full re-render
+    // at that exact moment can destroy and recreate the very input they're focused on, silently
+    // disconnecting the keyboard from it. Defer the visual refresh until the modal closes instead;
+    // the underlying data is already correctly saved above regardless.
+    if(backdrop.classList.contains('open')) renderPending = true;
+    else renderAll();
     lastSnapshot = snapshotState();
     // if the merge genuinely rescued a local change the incoming update didn't already carry,
     // push the merged result back so the other device(s) get it too - not applicable on a clean
@@ -6590,6 +6597,7 @@ function refreshCropSuggestions(){
   dl.innerHTML = [...names].sort((a,b)=>a.localeCompare(b)).map(n=>`<option value="${escapeAttr(n)}"></option>`).join('');
 }
 function renderAll(){
+  renderPending = false;
   refreshCropSuggestions();
   renderPlacingBanner();
   renderMap(); renderComingUp(); renderNotes(); renderJobsView(); renderCropList(); renderWishlist(); renderSharePanel(); renderHistory(); renderStructureList(); renderPlanning();
@@ -6701,10 +6709,12 @@ async function checkInviteLink(){
     connectSync(STATE.settings.syncUrl, STATE.settings.syncKey, STATE.settings.syncCode).catch(()=>{});
   }
   window.addEventListener('online', ()=>{
-    if(STATE.settings.syncCode && STATE.settings.syncUrl && STATE.settings.syncKey && !supa && window.supabase){
+    // supa staying non-null doesn't mean the connection survived going offline - the underlying
+    // websocket dies regardless, so always re-establish properly rather than only doing so when
+    // supa happens to be null (which, in practice, it almost never genuinely is by this point)
+    if(STATE.settings.syncCode && STATE.settings.syncUrl && STATE.settings.syncKey && window.supabase){
       connectSync(STATE.settings.syncUrl, STATE.settings.syncKey, STATE.settings.syncCode).catch(()=>{});
     }
-    if(supa && STATE.settings.lastSyncFailed) pushNow();
     checkAutoBackup();
   });
   window.addEventListener('resize', ()=>{ if(document.getElementById('view-map').classList.contains('active')) renderMap(); });
