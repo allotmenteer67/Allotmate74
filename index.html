@@ -697,7 +697,18 @@ function openDB(){ return new Promise((resolve,reject)=>{
 });}
 function txStore(name,mode='readonly'){ return db.transaction(name,mode).objectStore(name); }
 function getAll(store){ return new Promise((res,rej)=>{ const r=txStore(store).getAll(); r.onsuccess=()=>res(r.result); r.onerror=rej; }); }
-function put(store,obj){ return new Promise((res,rej)=>{ const r=txStore(store,'readwrite').put(obj); r.onsuccess=()=>res(obj); r.onerror=rej; }); }
+function put(store,obj){
+  if(store!=='meta' && obj && typeof obj==='object'){
+    obj._ts = Date.now();
+    // beds/features nest their own crops (plantings) and logs (history, treatments) inside
+    // them rather than saving each as its own standalone item - stamp those individually too,
+    // so a merge can later tell which specific crop or log entry is newer, not just the bed as a whole
+    for(const nested of ['plantings','history','treatments']){
+      if(Array.isArray(obj[nested])) for(const item of obj[nested]) if(item && typeof item==='object') item._ts = obj._ts;
+    }
+  }
+  return new Promise((res,rej)=>{ const r=txStore(store,'readwrite').put(obj); r.onsuccess=()=>res(obj); r.onerror=rej; });
+}
 function del(store,id){ return new Promise((res,rej)=>{ const r=txStore(store,'readwrite').delete(id); r.onsuccess=()=>res(); r.onerror=rej; }); }
 function clearStore(name){ return new Promise((res,rej)=>{ const r=txStore(name,'readwrite').clear(); r.onsuccess=()=>res(); r.onerror=rej; }); }
 function getMeta(key,fallback){ return new Promise((res)=>{ const r=txStore('meta').get(key); r.onsuccess=()=>res(r.result?r.result.value:fallback); r.onerror=()=>res(fallback); }); }
@@ -1372,7 +1383,7 @@ function nextProposalColor(){
   const n = (STATE.planningChanges||[]).length;
   return PROPOSAL_COLORS[n % PROPOSAL_COLORS.length];
 }
-const GROUND_COLORS = ['#DFDBC2','#D8DFC4','#D9D2C0','#CFCFC9','#E3D9C6'];
+const GROUND_COLORS = ['#ECE9DA','#E8ECDC','#E8E4D9','#E2E2DF','#EEE8DD'];
 const CROP_COLORS = ['#E07A5F','#3D8361','#D9A62E','#457B9D','#B5838D','#CC9A1E','#8D6A9F','#C1666B','#2A9D8F','#B8793D','#E08E45'];
 const CROP_COLOR_HINTS = [
   {keywords:['fallow'], colours:['#1A1A1A']},
@@ -1452,6 +1463,12 @@ async function loadAll(){
   STATE.settings.plotDepthM = await getMeta('plotDepthM', 6);
   STATE.settings.plotShape = await getMeta('plotShape', null);
   STATE.settings.groundColor = await getMeta('groundColor', GROUND_COLORS[0]);
+  const oldGroundColors = ['#DFDBC2','#D8DFC4','#D9D2C0','#CFCFC9','#E3D9C6'];
+  const oldIdx = oldGroundColors.indexOf(STATE.settings.groundColor);
+  if(oldIdx !== -1){
+    STATE.settings.groundColor = GROUND_COLORS[oldIdx];
+    await setMeta('groundColor', STATE.settings.groundColor);
+  }
   STATE.settings.lat = await getMeta('lat', null);
   STATE.settings.lon = await getMeta('lon', null);
   STATE.settings.postcode = await getMeta('postcode','');
@@ -6058,7 +6075,7 @@ document.getElementById('btnNewCrop').addEventListener('click', ()=>{
 
 /* ======================= SHARING / SYNC ======================= */
 const SHARED_META_KEYS = ['plotName','plotWidthM','plotDepthM','plotShape','groundColor','postcode','lat','lon','thFrost','thRain','thWind','customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory'];
-let supa = null, syncChannel = null, pushTimer = null, applyingRemote = false;
+let supa = null, syncChannel = null, pushTimer = null, applyingRemote = false, lastKnownRemoteUpdatedAt = null;
 
 async function afterChange(){
   if(!restoring && !applyingRemote){
@@ -6074,6 +6091,50 @@ function buildSyncPayload(){
   for(const k of SHARED_META_KEYS) meta[k] = STATE.settings[k];
   return { crops:STATE.crops, beds:STATE.beds, features:STATE.features, trays:STATE.trays, tasks:STATE.tasks, harvests:STATE.harvests, wishlist:STATE.wishlist, notes:STATE.notes.filter(n=>n.shared), meta };
 }
+// Combines two lists of the same kind of item (matched by their own id) into one - where both
+// sides have the same id, keeps whichever was genuinely touched more recently (_ts, stamped
+// automatically by put() on every save); where an id exists on only one side, keeps it as-is,
+// so two different additions from two different devices both survive rather than one replacing
+// the other outright.
+function mergeItemListById(remoteList, localList){
+  const byId = new Map();
+  for(const item of (remoteList||[])) byId.set(item.id, item);
+  for(const item of (localList||[])){
+    const existing = byId.get(item.id);
+    if(!existing || (item._ts||0) >= (existing._ts||0)) byId.set(item.id, item);
+  }
+  return Array.from(byId.values());
+}
+// Beds and containers nest their own crops and logs inside them rather than storing each as its
+// own standalone item, so merging them needs to reach one level deeper: when the same bed/container
+// exists on both sides, its own fields (name, position, size...) come from whichever side was
+// touched more recently, but its nested plantings/history/treatments are merged separately by
+// their own ids - so two different crops added to the same bed on two different devices both
+// survive, rather than whichever bed version happened to be newer overall winning outright and
+// silently discarding the other device's own crop.
+function mergeContainerLikeItem(remoteObj, localObj){
+  const newer = (localObj._ts||0) >= (remoteObj._ts||0) ? localObj : remoteObj;
+  const merged = {...newer};
+  for(const nested of ['plantings','history','treatments']){
+    if(remoteObj[nested] || localObj[nested]) merged[nested] = mergeItemListById(remoteObj[nested], localObj[nested]);
+  }
+  return merged;
+}
+function mergeContainerLikeList(remoteList, localList){
+  const byId = new Map();
+  for(const item of (remoteList||[])) byId.set(item.id, item);
+  for(const item of (localList||[])){
+    const existing = byId.get(item.id);
+    byId.set(item.id, existing ? mergeContainerLikeItem(existing, item) : item);
+  }
+  return Array.from(byId.values());
+}
+function mergePayloads(remotePayload, localPayload){
+  const merged = { meta: { ...(remotePayload.meta||{}), ...(localPayload.meta||{}) } };
+  for(const store of ['crops','trays','tasks','harvests','wishlist','notes']) merged[store] = mergeItemListById(remotePayload[store], localPayload[store]);
+  for(const store of ['beds','features']) merged[store] = mergeContainerLikeList(remotePayload[store], localPayload[store]);
+  return merged;
+}
 function schedulePush(){ clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 700); }
 let pushRetryTimer = null;
 async function pushNow(){
@@ -6081,7 +6142,17 @@ async function pushNow(){
   const code = await getMeta('syncCode', null);
   if(!code) return;
   try{
-    await supa.from('plots').upsert({ code, data: buildSyncPayload(), updated_at: new Date().toISOString() });
+    // fetch the latest remote copy first and merge local changes into it, rather than blindly
+    // overwriting - so a change this device doesn't yet know about (made on another device only
+    // moments ago) doesn't just get silently discarded by this push
+    const { data: remote, error: fetchErr } = await supa.from('plots').select('data').eq('code', code).maybeSingle();
+    if(fetchErr) throw fetchErr;
+    const localPayload = buildSyncPayload();
+    const payload = (remote && remote.data) ? mergePayloads(remote.data, localPayload) : localPayload;
+    const updatedAt = new Date().toISOString();
+    const { error } = await supa.from('plots').upsert({ code, data: payload, updated_at: updatedAt });
+    if(error) throw error;
+    lastKnownRemoteUpdatedAt = updatedAt;
     STATE.settings.lastSyncOkAt = new Date().toISOString();
     STATE.settings.lastSyncFailed = false;
     await setMeta('lastSyncOkAt', STATE.settings.lastSyncOkAt);
@@ -6096,32 +6167,42 @@ async function pushNow(){
     pushRetryTimer = setTimeout(pushNow, 30000);
   }
 }
-async function applyRemotePayload(payload){
+async function applyRemotePayload(payload, updatedAt){
   if(!payload) return;
+  if(updatedAt) lastKnownRemoteUpdatedAt = updatedAt;
   applyingRemote = true;
   try{
+    // merge the incoming update with whatever's local, rather than blindly replacing - a local
+    // change that hasn't been pushed yet must not simply vanish because an update arrived first
+    const merged = mergePayloads(payload, buildSyncPayload());
     for(const store of ['crops','beds','features','trays','tasks','harvests','wishlist']){
       await clearStore(store);
-      for(const item of (payload[store]||[])) await put(store, item);
+      for(const item of (merged[store]||[])) await put(store, item);
     }
     const privateNotesKept = (await getAll('notes')).filter(n=>!n.shared);
     await clearStore('notes');
     for(const n of privateNotesKept) await put('notes', n);
-    for(const n of (payload.notes||[])) await put('notes', n);
-    if(payload.meta) for(const k of SHARED_META_KEYS) if(payload.meta[k]!==undefined) await setMeta(k, payload.meta[k]);
+    for(const n of (merged.notes||[])) await put('notes', n);
+    if(merged.meta) for(const k of SHARED_META_KEYS) if(merged.meta[k]!==undefined) await setMeta(k, merged.meta[k]);
     await loadAll(); renderAll();
     lastSnapshot = snapshotState();
+    // if the merge genuinely rescued a local change the incoming update didn't already carry,
+    // push the merged result back so the other device(s) get it too - otherwise, leave it alone,
+    // since pushing back an update that's identical to what was just received would just bounce
+    // straight back and forth between devices forever
+    if(JSON.stringify(merged) !== JSON.stringify(payload)) schedulePush();
   } finally { applyingRemote = false; }
 }
 async function connectSync(url, key, code, isOwner){
   supa = window.supabase.createClient(url, key);
   await setMeta('syncUrl', url); await setMeta('syncKey', key); await setMeta('syncCode', code);
   try{
-    const { data } = await supa.from('plots').select('data').eq('code', code).maybeSingle();
-    if(data && data.data) await applyRemotePayload(data.data);
+    const { data, error } = await supa.from('plots').select('data, updated_at').eq('code', code).maybeSingle();
+    if(error) throw error;
+    if(data && data.data) await applyRemotePayload(data.data, data.updated_at);
     else if(isOwner) await pushNow();
     else await retryFindRemotePlot(code, 0);
-  }catch(e){ /* will retry once online */ }
+  }catch(e){ subscribeSync(code); throw e; }
   subscribeSync(code);
 }
 async function retryFindRemotePlot(code, attempt){
@@ -6133,16 +6214,34 @@ async function retryFindRemotePlot(code, attempt){
   await new Promise(r=>setTimeout(r, 2000));
   if(!supa) return;
   try{
-    const { data } = await supa.from('plots').select('data').eq('code', code).maybeSingle();
-    if(data && data.data){ await applyRemotePayload(data.data); return; }
+    const { data, error } = await supa.from('plots').select('data, updated_at').eq('code', code).maybeSingle();
+    if(error){ toast('Sync problem: ' + error.message); return; }
+    if(data && data.data){ await applyRemotePayload(data.data, data.updated_at); return; }
   }catch(e){}
   await retryFindRemotePlot(code, attempt+1);
 }
+// Realtime websockets commonly get suspended by the OS while a tab or PWA is backgrounded on
+// mobile - locking the phone, or just switching to check another device, is enough. Any change
+// pushed during that window is genuinely missed by the live subscription, since postgres_changes
+// only ever delivers events that occur while actively connected. Without this, the only way to
+// catch up again was pure luck (a later change happening to arrive) or a full manual reload.
+// This never pushes local data, only ever pulls, matching the same safety principle as joining.
+document.addEventListener('visibilitychange', async ()=>{
+  if(document.visibilityState !== 'visible' || !supa || !STATE.settings.syncCode) return;
+  try{
+    const { data, error } = await supa.from('plots').select('updated_at').eq('code', STATE.settings.syncCode).maybeSingle();
+    if(!error && data && data.updated_at && data.updated_at !== lastKnownRemoteUpdatedAt){
+      const { data: full, error: err2 } = await supa.from('plots').select('data, updated_at').eq('code', STATE.settings.syncCode).maybeSingle();
+      if(!err2 && full && full.data) await applyRemotePayload(full.data, full.updated_at);
+    }
+    subscribeSync(STATE.settings.syncCode);
+  }catch(e){}
+});
 function subscribeSync(code){
   if(syncChannel) supa.removeChannel(syncChannel);
   syncChannel = supa.channel('plot-'+code)
     .on('postgres_changes', {event:'UPDATE', schema:'public', table:'plots', filter:'code=eq.'+code}, (payload)=>{
-      if(payload.new && payload.new.data) applyRemotePayload(payload.new.data);
+      if(payload.new && payload.new.data) applyRemotePayload(payload.new.data, payload.new.updated_at);
     })
     .subscribe();
 }
@@ -6207,9 +6306,11 @@ function renderSharePanel(){
     document.getElementById('btnStartSharing').addEventListener('click', async ()=>{
       if(!requireGardenerName()) return;
       const code = randomCode();
-      await connectSync(SHARED_SYNC_URL, SHARED_SYNC_KEY, code, true);
-      await afterChange();
-      openInviteScreen(code);
+      try{
+        await connectSync(SHARED_SYNC_URL, SHARED_SYNC_KEY, code, true);
+        await afterChange();
+        openInviteScreen(code);
+      }catch(e){ toast('Could not set up sharing: ' + (e.message || 'unknown problem')); }
     });
     document.getElementById('btnJoin').addEventListener('click', async ()=>{
       if(!requireGardenerName()) return;
@@ -6217,8 +6318,10 @@ function renderSharePanel(){
       const parsed = parseInviteText(raw);
       if(!parsed){ toast('That invitation text looks incomplete'); return; }
       if(!(await confirmDialog('This replaces what is on this device with the shared plot. Continue?'))) return;
-      await connectSync(parsed.url, parsed.key, parsed.code);
-      toast('Connected — sharing is on');
+      try{
+        await connectSync(parsed.url, parsed.key, parsed.code);
+        toast('Connected — sharing is on');
+      }catch(e){ toast('Could not connect: ' + (e.message || 'unknown problem')); }
     });
   }
   document.getElementById('gardenerNameInput').addEventListener('change', async (e)=>{
@@ -6245,6 +6348,7 @@ function openInviteScreen(code){
   openModal(`<h3>Invite another gardener</h3>
     <p class="muted">Have them open their own phone's camera and point it at this — no app, no typing.</p>
     <div style="background:#fff; border-radius:12px; padding:16px; margin:14px 0; max-width:260px; margin-left:auto; margin-right:auto;">${qrSvg}</div>
+    <p class="muted" style="font-size:14px;">If they're planning to add this to their Home Screen, it works best to do that first, then use "Send a link instead" below rather than scanning — scanning always opens the browser, even once it's installed.</p>
     <p class="muted" style="text-align:center;">Not together right now?</p>
     <button class="btn secondary" id="btnSendLinkInstead" style="width:100%;">Send a link instead</button>`, true);
   document.getElementById('btnSendLinkInstead').addEventListener('click', async ()=>{
@@ -6569,8 +6673,10 @@ async function checkInviteLink(){
       STATE.settings.gardenerName = val; await setMeta('gardenerName', val);
     }
     closeModal();
-    await connectSync(su, sk, sc);
-    toast('Connected — sharing is on');
+    try{
+      await connectSync(su, sk, sc);
+      toast('Connected — sharing is on');
+    }catch(e){ toast('Could not connect: ' + (e.message || 'unknown problem')); }
   });
 }
 (async function init(){
