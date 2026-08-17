@@ -697,8 +697,8 @@ function openDB(){ return new Promise((resolve,reject)=>{
 });}
 function txStore(name,mode='readonly'){ return db.transaction(name,mode).objectStore(name); }
 function getAll(store){ return new Promise((res,rej)=>{ const r=txStore(store).getAll(); r.onsuccess=()=>res(r.result); r.onerror=rej; }); }
-function put(store,obj){
-  if(store!=='meta' && obj && typeof obj==='object'){
+function put(store,obj,preserveTs){
+  if(!preserveTs && store!=='meta' && obj && typeof obj==='object'){
     obj._ts = Date.now();
     // beds/features nest their own crops (plantings) and logs (history, treatments) inside
     // them rather than saving each as its own standalone item - stamp those individually too,
@@ -6179,12 +6179,12 @@ async function applyRemotePayload(payload, updatedAt, isJoin){
     const merged = isJoin ? payload : mergePayloads(payload, buildSyncPayload());
     for(const store of ['crops','beds','features','trays','tasks','harvests','wishlist']){
       await clearStore(store);
-      for(const item of (merged[store]||[])) await put(store, item);
+      for(const item of (merged[store]||[])) await put(store, item, true);
     }
     const privateNotesKept = (await getAll('notes')).filter(n=>!n.shared);
     await clearStore('notes');
-    for(const n of privateNotesKept) await put('notes', n);
-    for(const n of (merged.notes||[])) await put('notes', n);
+    for(const n of privateNotesKept) await put('notes', n, true);
+    for(const n of (merged.notes||[])) await put('notes', n, true);
     if(merged.meta) for(const k of SHARED_META_KEYS) if(merged.meta[k]!==undefined) await setMeta(k, merged.meta[k]);
     await loadAll(); renderAll();
     lastSnapshot = snapshotState();
