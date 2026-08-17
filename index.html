@@ -6167,14 +6167,16 @@ async function pushNow(){
     pushRetryTimer = setTimeout(pushNow, 30000);
   }
 }
-async function applyRemotePayload(payload, updatedAt){
+async function applyRemotePayload(payload, updatedAt, isJoin){
   if(!payload) return;
   if(updatedAt) lastKnownRemoteUpdatedAt = updatedAt;
   applyingRemote = true;
   try{
-    // merge the incoming update with whatever's local, rather than blindly replacing - a local
-    // change that hasn't been pushed yet must not simply vanish because an update arrived first
-    const merged = mergePayloads(payload, buildSyncPayload());
+    // A genuine first-time join replaces local data outright - the whole point is taking on the
+    // shared plot, not blending it with whatever unrelated data already happened to be on this
+    // device. Merging is only for an already-connected device catching up on a live update, where
+    // a local, not-yet-pushed change must not simply vanish because an update arrived first.
+    const merged = isJoin ? payload : mergePayloads(payload, buildSyncPayload());
     for(const store of ['crops','beds','features','trays','tasks','harvests','wishlist']){
       await clearStore(store);
       for(const item of (merged[store]||[])) await put(store, item);
@@ -6187,10 +6189,9 @@ async function applyRemotePayload(payload, updatedAt){
     await loadAll(); renderAll();
     lastSnapshot = snapshotState();
     // if the merge genuinely rescued a local change the incoming update didn't already carry,
-    // push the merged result back so the other device(s) get it too - otherwise, leave it alone,
-    // since pushing back an update that's identical to what was just received would just bounce
-    // straight back and forth between devices forever
-    if(JSON.stringify(merged) !== JSON.stringify(payload)) schedulePush();
+    // push the merged result back so the other device(s) get it too - not applicable on a clean
+    // join, where the result always exactly matches what was received, nothing to push back
+    if(!isJoin && JSON.stringify(merged) !== JSON.stringify(payload)) schedulePush();
   } finally { applyingRemote = false; }
 }
 async function connectSync(url, key, code, isOwner){
@@ -6199,7 +6200,7 @@ async function connectSync(url, key, code, isOwner){
   try{
     const { data, error } = await supa.from('plots').select('data, updated_at').eq('code', code).maybeSingle();
     if(error) throw error;
-    if(data && data.data) await applyRemotePayload(data.data, data.updated_at);
+    if(data && data.data) await applyRemotePayload(data.data, data.updated_at, true);
     else if(isOwner) await pushNow();
     else await retryFindRemotePlot(code, 0);
   }catch(e){ subscribeSync(code); throw e; }
@@ -6216,7 +6217,7 @@ async function retryFindRemotePlot(code, attempt){
   try{
     const { data, error } = await supa.from('plots').select('data, updated_at').eq('code', code).maybeSingle();
     if(error){ toast('Sync problem: ' + error.message); return; }
-    if(data && data.data){ await applyRemotePayload(data.data, data.updated_at); return; }
+    if(data && data.data){ await applyRemotePayload(data.data, data.updated_at, true); return; }
   }catch(e){}
   await retryFindRemotePlot(code, attempt+1);
 }
