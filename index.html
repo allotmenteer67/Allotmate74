@@ -9,7 +9,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@500;600;700&family=Karla:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/dist/qrcode.min.js"></script>
 <style>
   :root{
     --paper:#EDEFE2; --paper-dark:#E2E4D2; --card:#F6F7EE; --ink:#2B2A22; --soil:#4A3728;
@@ -657,6 +656,12 @@
         <strong>Setup</strong>
         <p class="muted" style="margin:4px 0 0;">Everything about the plot itself and how the app behaves — its size and shape, your postcode for weather, sharing with other gardeners, and keeping a backup.</p>
       </div>
+    </section>
+
+    <section class="panel">
+      <h2>Sharing with another gardener</h2>
+      <p class="muted">Turn on sharing, then "Invite another gardener" gives you an invite code to send them. The reliable way to get them connected: they paste that code into "Received an invitation?" on their own Setup tab, from inside their own copy of My Plot.</p>
+      <p class="muted">Tapping a shared link always opens a plain browser tab, never an app already sitting on someone's Home Screen — that's an iPhone/Android limitation, not something this app can work around. So if they've already added My Plot to their Home Screen, sending them a link means sharing only gets set up in that one-off browser tab, not in the actual app they'll use day to day — it can look like it worked, then seem to need doing all over again. Pasting the code directly into their installed app avoids that entirely.</p>
     </section>
 
     <section class="panel">
@@ -2335,15 +2340,6 @@ function renderComingUp(){
 }
 
 /* ======================= TRANSPLANT (supports partial amounts, leaves the tray behind) ======================= */
-// Finds the lowest tray number not currently in use - deliberately reuses a freed-up number
-// (e.g. from a deleted tray) rather than only ever climbing higher, since the user's own
-// physical trays are a fixed, numbered set that gets reused, not an endlessly growing pile.
-function nextTrayNumber(){
-  const used = new Set(STATE.trays.map(t=>t.number).filter(n=>n!=null));
-  let n = 1;
-  while(used.has(n)) n++;
-  return n;
-}
 function nextFreeSlot(w, h, occupied, itemW, itemH, shape){
   // occupied: array of {px,py,pw,ph} already placed in this w x h area. Finds real free space rather than assuming a vertical stack.
   // shape: optional true odd-shape polygon (local metre space) — when present, only positions fully inside it are considered.
@@ -3583,6 +3579,7 @@ function openEditTrayDetails(trayId){
   const autoSwatch = `<div class="swatch ${!tray.colorOverride?'picked':''}" data-c="" style="background:linear-gradient(135deg, #fff 47%, #999 47%, #999 53%, #fff 53%); border:1.5px solid var(--line);" title="Automatic"></div>`;
   const colorSwatches = CROP_COLORS.map(c=>`<div class="swatch ${tray.colorOverride===c?'picked':''}" data-c="${c}" style="background:${c};"></div>`).join('');
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit ${escapeHTML(trayLabelText(tray))} details</h3>
+    <div class="form-row"><div><label>Tray number</label><input type="number" onfocus="this.select()" id="mTrayNum" value="${tray.number!=null?tray.number:''}"></div></div>
     <div class="form-row"><div><label>Name this tray (optional)</label><input type="text" id="mTrayName" value="${escapeAttr(tray.name||'')}" placeholder="e.g. Top shelf left"></div></div>
     ${dimensionFieldsHTML('mEditW','mEditH','Width','Depth', tray.pw!=null?tray.pw:null, tray.ph!=null?tray.ph:null)}
     <label>Colour</label><div class="swatch-row" id="swRow">${autoSwatch}${colorSwatches}</div>
@@ -3593,6 +3590,10 @@ function openEditTrayDetails(trayId){
     modalContent.querySelectorAll('.swatch').forEach(x=>x.classList.remove('picked')); s.classList.add('picked'); pickedColor=s.dataset.c;
   }));
   document.getElementById('mSave').addEventListener('click', async ()=>{
+    const typedNum = parseInt(document.getElementById('mTrayNum').value);
+    const newNum = isNaN(typedNum) ? null : typedNum;
+    if(newNum!==tray.number && newNum!=null && STATE.trays.some(t=>t.id!==tray.id && t.number===newNum)) toast(`Heads up — tray #${newNum} is already in use elsewhere.`);
+    tray.number = newNum;
     const name = document.getElementById('mTrayName').value.trim();
     if(name) tray.name = name; else delete tray.name;
     const w = readDimensionField('mEditW'), h = readDimensionField('mEditH');
@@ -4438,7 +4439,10 @@ async function createEmptyContainer(feat, tierId, w, h){
   const tier = tiers.find(t=>t.id===tierId) || tiers[0];
   const occupied = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===info.label) && (t.tierId||tiers[0].id)===tier.id);
   const slot = nextFreeSlot(tier.w, tier.h, occupied, w, h);
-  const tray = {id:uid(), location:info.label, featureId:feat.id, plantings:[], tierId:tier.id, createdBy:who(), px:slot.px, py:slot.py, pw:slot.pw, ph:slot.ph, sizeLocked:true, number:nextTrayNumber()};
+  // Left unnumbered on purpose — an empty tray just gets placed wherever it physically sits, no
+  // hunting for a specific one required, so there's nothing to number yet. It gets its real number
+  // (whatever's actually painted on the tray picked up) when something's actually sown into it.
+  const tray = {id:uid(), location:info.label, featureId:feat.id, plantings:[], tierId:tier.id, createdBy:who(), px:slot.px, py:slot.py, pw:slot.pw, ph:slot.ph, sizeLocked:true};
   await put('trays', tray);
   await afterChange();
   openModal(`<h3>Tray added</h3><div class="btn-row">
@@ -4466,10 +4470,16 @@ function openSowIntoContainer(trayId){
   const tray = STATE.trays.find(t=>t.id===trayId); if(!tray) return;
   const feat = featureForTray(tray);
   const adding = !trayIsEmpty(tray);
+  // The tray number is asked here, at sowing time, rather than when the empty tray was first added —
+  // that's the moment it's actually known, since the physical tray picked up is whichever one's on top
+  // of the pile, not chased down by number. A tray that's been sown before keeps its number by default.
+  const numberField = adding ? '' : `<div class="form-row"><div><label>Tray number (optional)</label><input type="number" onfocus="this.select()" id="mTrayNum" value="${tray.number!=null?tray.number:''}" placeholder="e.g. 7"></div></div>`;
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${adding?'Sow another crop into':'Sow into'} this tray${tray.number!=null?(' #'+tray.number):''}</h3>
     <div class="form-row"><div><label>What are you sowing</label><input type="text" id="mCropName" list="cropSuggestions" placeholder="e.g. Lettuce" autocomplete="off"></div></div>
     <div id="cropSuggestBox" style="margin:-6px 0 12px;"></div>
-    <div class="form-row"><div><label>Quantity</label><input type="number" onfocus="this.select()" id="mQty" value="1" min="1"></div><div><label style="visibility:hidden;">Sow</label><button type="button" class="btn" id="mSave" style="width:100%; height:46px;">Sow It</button></div></div>
+    <div class="form-row"><div><label>Quantity</label><input type="number" onfocus="this.select()" id="mQty" value="1" min="1"></div></div>
+    ${numberField}
+    <button type="button" class="btn" id="mSave" style="width:100%; height:46px; margin-top:8px;">Sow It</button>
     ${treatmentChipsHTML()}
     <button type="button" class="btn small secondary" id="mLookup" style="margin-top:14px;">🔎 Look it up online</button><div id="lookupBox"></div>
     <div class="form-row" style="margin-top:14px;"><div><label>Sow date</label><input type="date" id="mDate" value="${todayISO()}"></div></div>
@@ -4487,6 +4497,13 @@ function openSowIntoContainer(trayId){
     const planting = {id:uid(), cropId:crop.id, sownDate:date, quantity:parseInt(document.getElementById('mQty').value)||1};
     tray.plantings = tray.plantings||[]; tray.plantings.push(planting);
     tray.createdBy = tray.createdBy || who();
+    if(!adding){
+      const numEl = document.getElementById('mTrayNum');
+      const typed = parseInt(numEl.value);
+      const n = isNaN(typed) ? null : typed;
+      if(n!=null && n!==tray.number && STATE.trays.some(t=>t.id!==tray.id && t.number===n)) toast(`Heads up — tray #${n} is already in use elsewhere.`);
+      tray.number = n;
+    }
     const newTags = getTags();
     if(newTags.length){ tray.treatments = (tray.treatments||[]).concat(newTags.map(t=>({...t, plantingId:planting.id}))); }
     await put('trays', tray);
@@ -4504,7 +4521,8 @@ function openSowTray(presetLocation, feat, tierId){
     <div class="form-row"><div><label>What are you sowing</label><input type="text" id="mCropName" list="cropSuggestions" placeholder="e.g. Potato Maris Piper" autocomplete="off"></div></div>
     <div id="cropSuggestBox" style="margin:-6px 0 12px;"></div>
     ${presetLocation ? '' : `<div class="form-row"><div><label>Where</label><select id="mLoc"><option>Greenhouse</option><option>Polytunnel</option><option>Windowsill</option></select></div></div>`}
-    <div class="form-row"><div><label>Quantity</label><input type="number" onfocus="this.select()" id="mQty" value="1" min="1"></div><div><label style="visibility:hidden;">Sow</label><button type="button" class="btn" id="mSave" style="width:100%; height:46px;">Sow It</button></div></div>
+    <div class="form-row"><div><label>Quantity</label><input type="number" onfocus="this.select()" id="mQty" value="1" min="1"></div><div><label>Tray number (optional)</label><input type="number" onfocus="this.select()" id="mTrayNum" placeholder="e.g. 7"></div></div>
+    <button type="button" class="btn" id="mSave" style="width:100%; height:46px; margin-top:8px;">Sow It</button>
     ${treatmentChipsHTML()}
     <button type="button" class="btn small secondary" id="mLookup" style="margin-top:14px;">🔎 Look it up online</button><div id="lookupBox"></div>
     <div class="form-row" style="margin-top:14px;"><div><label>Sow date</label><input type="date" id="mDate" value="${todayISO()}"></div></div>`, true);
@@ -4519,7 +4537,10 @@ function openSowTray(presetLocation, feat, tierId){
     const date = document.getElementById('mDate').value || todayISO();
     const location = presetLocation || document.getElementById('mLoc').value;
     const planting = {id:uid(), cropId:crop.id, sownDate:date, quantity:parseInt(document.getElementById('mQty').value)||1};
-    const tray = {id:uid(), location, plantings:[planting], tierId:tierId||undefined, createdBy:who(), number:nextTrayNumber()};
+    const typedNum = parseInt(document.getElementById('mTrayNum').value);
+    const trayNum = isNaN(typedNum) ? null : typedNum;
+    const tray = {id:uid(), location, plantings:[planting], tierId:tierId||undefined, createdBy:who(), number: trayNum};
+    if(trayNum!=null && STATE.trays.some(t=>t.number===trayNum)) toast(`Heads up — tray #${trayNum} is already in use elsewhere.`);
     const newTags = getTags();
     if(newTags.length) tray.treatments = newTags.map(t=>({...t, plantingId:planting.id}));
     const targetFeat = feat || STATE.features.find(f=>FEATURE_TYPES[f.type] && FEATURE_TYPES[f.type].label===location);
@@ -6565,21 +6586,23 @@ function buildInviteLink(code){
 }
 function openInviteScreen(code){
   const link = buildInviteLink(code);
-  const qr = qrcode(0, 'M');
-  qr.addData(link);
-  qr.make();
-  const qrSvg = qr.createSvgTag({cellSize:6, margin:2, scalable:true});
+  const pasteCode = `${STATE.settings.syncUrl}|${STATE.settings.syncKey}|${code}`;
   openModal(`<h3>Invite another gardener</h3>
-    <p class="muted">Have them open their own phone's camera and point it at this — no app, no typing.</p>
-    <div style="background:#fff; border-radius:12px; padding:16px; margin:14px 0; max-width:260px; margin-left:auto; margin-right:auto;">${qrSvg}</div>
-    <p class="muted" style="font-size:14px;">If they're planning to add this to their Home Screen, it works best to do that first, then use "Send a link instead" below rather than scanning — scanning always opens the browser, even once it's installed.</p>
-    <p class="muted" style="text-align:center;">Not together right now?</p>
+    <p class="muted">If they already have My Plot on their Home Screen, this is the reliable way to invite them — tapping a link always opens the browser instead of the installed app, even once it's on their Home Screen.</p>
+    <div class="form-row"><div><label>Invite code</label><textarea readonly rows="2" onclick="this.select()" style="font-family:monospace; font-size:14px;">${escapeHTML(pasteCode)}</textarea></div></div>
+    <button class="btn secondary" id="btnCopyCode" style="width:100%;">Copy invite code</button>
+    <p class="muted" style="text-align:center; margin-top:8px;">They paste it into "Received an invitation?" on their own Setup tab.</p>
+    <p class="muted" style="text-align:center; margin-top:16px;">Not on My Plot at all yet?</p>
     <button class="btn secondary" id="btnSendLinkInstead" style="width:100%;">Send a link instead</button>`, true);
+  document.getElementById('btnCopyCode').addEventListener('click', async ()=>{
+    try{ await navigator.clipboard.writeText(pasteCode); toast('Invite code copied — send it to them'); }
+    catch(e){ toast('Could not copy — tap the box above and copy it manually'); }
+  });
   document.getElementById('btnSendLinkInstead').addEventListener('click', async ()=>{
-    const text = `Join our allotment on My Plot — just tap this link:\n\n${link}`;
+    const text = `Join our allotment on My Plot — just tap this link:\n\n${link}\n\nAlready have My Plot installed? Paste this into "Received an invitation?" in Setup instead:\n${pasteCode}`;
     if(navigator.share){ try{ await navigator.share({text}); return; }catch(e){} }
     try{ await navigator.clipboard.writeText(text); toast('Invitation copied — send it to them'); }
-    catch(e){ openModal(`<h3>Invitation text</h3><textarea readonly rows="5" onclick="this.select()">${escapeHTML(text)}</textarea>`); }
+    catch(e){ openModal(`<h3>Invitation text</h3><textarea readonly rows="7" onclick="this.select()">${escapeHTML(text)}</textarea>`); }
   });
 }
 
