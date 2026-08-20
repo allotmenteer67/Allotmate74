@@ -709,7 +709,22 @@ function put(store,obj,preserveTs){
   }
   return new Promise((res,rej)=>{ const r=txStore(store,'readwrite').put(obj); r.onsuccess=()=>res(obj); r.onerror=rej; });
 }
-function del(store,id){ return new Promise((res,rej)=>{ const r=txStore(store,'readwrite').delete(id); r.onsuccess=()=>res(); r.onerror=rej; }); }
+// Records that this id was genuinely, deliberately deleted, so a union-based merge against a
+// remote copy that hasn't learned about the deletion yet won't silently bring it back. Pruned to
+// the last 30 days - a deletion only needs to "win" until every device has genuinely converged,
+// not forever, matching the same "doesn't need to last long" reasoning as put()'s own _ts stamps.
+async function recordTombstone(id){
+  if(!id) return;
+  STATE.settings.tombstones = STATE.settings.tombstones || [];
+  const cutoff = Date.now() - (30*24*60*60*1000);
+  STATE.settings.tombstones = STATE.settings.tombstones.filter(t=>t.deletedAt >= cutoff);
+  STATE.settings.tombstones.push({id, deletedAt: Date.now()});
+  await setMeta('tombstones', STATE.settings.tombstones);
+}
+async function del(store,id){
+  await recordTombstone(id);
+  return new Promise((res,rej)=>{ const r=txStore(store,'readwrite').delete(id); r.onsuccess=()=>res(); r.onerror=rej; });
+}
 function clearStore(name){ return new Promise((res,rej)=>{ const r=txStore(name,'readwrite').clear(); r.onsuccess=()=>res(); r.onerror=rej; }); }
 function getMeta(key,fallback){ return new Promise((res)=>{ const r=txStore('meta').get(key); r.onsuccess=()=>res(r.result?r.result.value:fallback); r.onerror=()=>res(fallback); }); }
 function setMeta(key,value){ return put('meta',{key,value}); }
@@ -1455,6 +1470,19 @@ async function loadAll(){
     if(f.type==='gate'){ f.type='container'; await put('features', f); }
   }
   STATE.trays = await getAll('trays');
+  for(const t of STATE.trays){
+    if(!t.plantings){
+      // One-time migration: a tray used to carry a single crop's fields directly. Multi-crop
+      // trays need each crop as its own nested planting (mirroring how beds/features already
+      // work), so an old single-crop tray becomes a tray with one planting in its plantings array.
+      t.plantings = [];
+      if(t.cropId){
+        t.plantings.push({id:uid(), cropId:t.cropId, quantity:t.quantity||1, sownDate:t.sownDate, status:t.status||'growing'});
+      }
+      delete t.cropId; delete t.quantity; delete t.sownDate; delete t.status;
+      await put('trays', t);
+    }
+  }
   STATE.tasks = await getAll('tasks');
   STATE.harvests = await getAll('harvests');
   STATE.wishlist = await getAll('wishlist');
@@ -1480,6 +1508,7 @@ async function loadAll(){
   STATE.settings.thWind = await getMeta('thWind', 50);
   STATE.settings.seenAlerts = await getMeta('seenAlerts', []);
   STATE.settings.notifOn = await getMeta('notifOn', false);
+  STATE.settings.tombstones = await getMeta('tombstones', []);
   STATE.settings.autoBackupOn = await getMeta('autoBackupOn', false);
   STATE.settings.lastAutoBackupDate = await getMeta('lastAutoBackupDate', '');
   STATE.settings.notifLevel = await getMeta('notifLevel', 'advice');
@@ -1507,8 +1536,21 @@ async function loadAll(){
 function cropById(id){ return STATE.crops.find(c=>c.id===id); }
 function bedById(id){ return STATE.beds.find(b=>b.id===id); }
 function featureById(id){ return STATE.features.find(f=>f.id===id); }
-function plantableById(kind, id){ return kind==='features' ? featureById(id) : bedById(id); }
-async function savePlantable(kind, obj){ await put(kind==='features' ? 'features' : 'beds', obj); }
+function plantableById(kind, id){ return kind==='features' ? featureById(id) : kind==='trays' ? STATE.trays.find(t=>t.id===id) : bedById(id); }
+async function savePlantable(kind, obj){ await put(kind==='features' ? 'features' : kind==='trays' ? 'trays' : 'beds', obj); }
+// A tray is "empty" once it has no plantings left in it — a plain array-length check rather
+// than a stored status field, so it can never drift out of sync with what's actually in there.
+function trayIsEmpty(tray){ return !tray.plantings || tray.plantings.length===0; }
+function trayPlantingById(tray, plantingId){ return (tray.plantings||[]).find(p=>p.id===plantingId); }
+// What a tray's grid box/list row should say: the one crop's name for the common single-crop
+// case, or a count once several varieties share the tray (their own names are still visible
+// once you tap in).
+function trayLabelText(tray){
+  if(trayIsEmpty(tray)) return 'Empty';
+  if(tray.plantings.length===1){ const c=cropById(tray.plantings[0].cropId); return (c&&c.name)||'Something'; }
+  const names = [...new Set(tray.plantings.map(p=>{ const c=cropById(p.cropId); return (c&&c.name)||'Something'; }))];
+  return names.length===1 ? names[0] : `${tray.plantings.length} crops`;
+}
 
 /* ======================= NAV / MODAL / TOAST ======================= */
 function goToTab(view){
@@ -1745,7 +1787,8 @@ function taskRowHTML(occ){
   let companionHTML = '';
   if(occ.task.linkedTrayId && !occ.done){
     const tray = STATE.trays.find(t=>t.id===occ.task.linkedTrayId);
-    const crop = tray ? cropById(tray.cropId) : null;
+    const trayPlanting = tray ? ((occ.task.linkedPlantingId && trayPlantingById(tray, occ.task.linkedPlantingId)) || (tray.plantings&&tray.plantings[0])) : null;
+    const crop = trayPlanting ? cropById(trayPlanting.cropId) : null;
     if(crop && crop.family){
       const riskyBeds = [];
       STATE.beds.forEach(b=>{ if(checkRotationClash(b, crop.family, crop.name).length) riskyBeds.push(b.name); });
@@ -2033,23 +2076,26 @@ document.getElementById('wxBtn').addEventListener('click', ()=>{
 window.addEventListener('online', ()=>{ fetchWeather(); toast('Back online'); });
 
 /* ======================= PLACING MODE (tap-to-plant-out, with partial amounts) ======================= */
-function startPlantOutFlow(tray, crop){
+// tray is the container; planting is the specific crop within it being planted out (a tray
+// can now hold more than one, so plant-out always acts on one planting at a time).
+function startPlantOutFlow(tray, planting){
+  const crop = cropById(planting.cropId);
   openModal(`<h3>Planting out ${escapeHTML(crop?crop.name:'this')}</h3>
-    <p class="muted">There are ${tray.quantity||1} in this tray right now.</p>
+    <p class="muted">There are ${planting.quantity||1} in this tray right now.</p>
     <div class="btn-row">
       <button class="btn big" id="mAll">Planting out all of it</button>
       <button class="btn big secondary" id="mSome">Just some of it</button>
     </div>`);
-  document.getElementById('mAll').addEventListener('click', ()=> enterPlacingMode(tray, crop, {partial:false}));
+  document.getElementById('mAll').addEventListener('click', ()=> enterPlacingMode(tray, planting, {partial:false}));
   document.getElementById('mSome').addEventListener('click', ()=>{
-    const qty = tray.quantity||1;
+    const qty = planting.quantity||1;
     openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>How many are you taking?</h3>
       <p class="muted">Roughly how much — tap the bar below. Or if there's only a few, enter the exact number instead.</p>
       <div class="rating-readout" id="percentReadout">Tap for a rough amount</div>
       <div class="rating-bar" id="percentBar">${[1,2,3,4,5,6,7,8,9,10].map(n=>`<button class="rate-seg" data-r="${n}"></button>`).join('')}</div>
       <div class="form-row" style="margin-top:14px;"><div><label>Or an exact number (optional)</label><input type="number" onfocus="this.select()" id="mCount" min="1" max="${qty}"></div></div>
       <button class="btn big" id="mNext">Continue</button>`);
-    document.getElementById('mBack').addEventListener('click', ()=> startPlantOutFlow(tray, crop));
+    document.getElementById('mBack').addEventListener('click', ()=> startPlantOutFlow(tray, planting));
     let chosenPercent = null;
     modalContent.querySelectorAll('.rate-seg').forEach(b=>b.addEventListener('click', ()=>{
       chosenPercent=parseInt(b.dataset.r);
@@ -2068,12 +2114,12 @@ function startPlantOutFlow(tray, crop){
       let count = null;
       if(typed) count = Math.max(1, parseInt(typed));
       else if(chosenPercent) count = Math.max(1, Math.round((chosenPercent/10)*qty));
-      enterPlacingMode(tray, crop, {partial:true, count});
+      enterPlacingMode(tray, planting, {partial:true, count});
     });
   });
 }
-function enterPlacingMode(tray, crop, portion){
-  placingMode = {tray, crop, portion: portion||{partial:false}};
+function enterPlacingMode(tray, planting, portion){
+  placingMode = {tray, planting, crop: cropById(planting.cropId), portion: portion||{partial:false}};
   closeModal();
   goToTab('map');
   renderAll();
@@ -2119,9 +2165,9 @@ async function confirmMoveFeature(mx, my, targetBedId){
 }
 async function confirmPlacement(bedId){
   const bed = bedById(bedId);
-  const {tray, portion} = placingMode;
+  const {tray, planting, portion} = placingMode;
   placingMode = null;
-  await doTransplant(tray, bed, todayISO(), '', portion);
+  await doTransplant(tray, planting, bed, todayISO(), '', portion);
   openBedDetail(bedId);
 }
 function renderPlacingBanner(){
@@ -2289,6 +2335,15 @@ function renderComingUp(){
 }
 
 /* ======================= TRANSPLANT (supports partial amounts, leaves the tray behind) ======================= */
+// Finds the lowest tray number not currently in use - deliberately reuses a freed-up number
+// (e.g. from a deleted tray) rather than only ever climbing higher, since the user's own
+// physical trays are a fixed, numbered set that gets reused, not an endlessly growing pile.
+function nextTrayNumber(){
+  const used = new Set(STATE.trays.map(t=>t.number).filter(n=>n!=null));
+  let n = 1;
+  while(used.has(n)) n++;
+  return n;
+}
 function nextFreeSlot(w, h, occupied, itemW, itemH, shape){
   // occupied: array of {px,py,pw,ph} already placed in this w x h area. Finds real free space rather than assuming a vertical stack.
   // shape: optional true odd-shape polygon (local metre space) — when present, only positions fully inside it are considered.
@@ -2330,8 +2385,8 @@ function nextFreeSlot(w, h, occupied, itemW, itemH, shape){
   let maxY=0; for(const r of rects) maxY=Math.max(maxY, r.py+r.ph); // truly nothing free even shrunk — stack below everything as a genuine last resort, even if it runs past the bed's edge
   return {px:0, py:snapFine(maxY), pw:snapFine(iw), ph:snapFine(ih)};
 }
-async function doTransplant(tray, bed, date, rowLabel, portion){
-  const crop = cropById(tray.cropId);
+async function doTransplant(tray, plantOutPlanting, bed, date, rowLabel, portion){
+  const crop = cropById(plantOutPlanting.cropId);
   const planting = {id:uid(), cropId:crop.id, date, method:'transplant', active:true, rowLabel:rowLabel||'', by:who(), fromLocation:tray.location};
   Object.assign(planting, nextFreeSlot(bed.w, bed.h, [...(bed.plantings||[]).filter(p=>p.active), ...hostedContainersAsOccupied(bed)], Math.min(bed.w/2,1.5), Math.min(bed.h/3,0.6), bed.shape));
   if(crop.transplantToHarvest){
@@ -2342,20 +2397,20 @@ async function doTransplant(tray, bed, date, rowLabel, portion){
   await put('beds', bed);
 
   const full = !portion || !portion.partial;
-  let trayNowEmpty = full;
+  let plantingGone = full;
   if(!full && portion.count){
-    tray.quantity = Math.max(0, (tray.quantity||1) - portion.count);
-    if(tray.quantity<=0) trayNowEmpty = true;
+    plantOutPlanting.quantity = Math.max(0, (plantOutPlanting.quantity||1) - portion.count);
+    if(plantOutPlanting.quantity<=0) plantingGone = true;
   }
-  if(trayNowEmpty){
-    const relatedTask = STATE.tasks.find(t=>t.linkedTrayId===tray.id && !t.done);
+  if(plantingGone){
+    const relatedTask = STATE.tasks.find(t=>t.linkedTrayId===tray.id && (!t.linkedPlantingId || t.linkedPlantingId===plantOutPlanting.id) && !t.done);
     if(relatedTask){ relatedTask.done=true; await put('tasks', relatedTask); }
-    if(tray.sizeLocked){
-      tray.status='empty'; tray.quantity=0;
-      await put('trays', tray);
-    } else {
-      await del('trays', tray.id);
-    }
+    if(tray.treatments) tray.treatments = tray.treatments.filter(tt=>tt.plantingId!==plantOutPlanting.id);
+    tray.plantings = tray.plantings.filter(p=>p.id!==plantOutPlanting.id);
+    await recordTombstone(plantOutPlanting.id);
+  }
+  if(tray.plantings.length===0 && !tray.sizeLocked){
+    await del('trays', tray.id);
   } else {
     await put('trays', tray);
   }
@@ -2604,19 +2659,23 @@ function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onCha
     const top = Math.max(0, Math.min(top0, pxH-h-2));
     effectivePos[idx]._boxLeft = left; effectivePos[idx]._boxTop = top; effectivePos[idx]._boxW = w; effectivePos[idx]._boxH = h;
   });
-  // detect substantially-overlapping pairs (their own rectangles share a meaningful area, not just centres
-  // close together) so their labels can be pushed to opposite edges instead of colliding — a deliberately-supported
-  // case via allowOverlap (e.g. a path crossing through a crop), and also a safety net for the rarer case of two
-  // items ending up overlapping without allowOverlap (e.g. after a bed resize squeezes existing plantings together)
+  // Push labels apart whenever two boxes are close enough that their default (vertically-centred)
+  // labels could land near each other — not just when they heavily overlap. A pair simply stacked
+  // snug against one another (little or no true overlap) is exactly as confusing as a big overlap,
+  // since either way it's unclear which label belongs to which coloured area.
   const labelAlign = items.map(()=>null);
+  const LABEL_GAP = 16; // px — roughly a line of text, so "touching" and "just barely apart" both count
   for(let i=0;i<items.length;i++){
     for(let j=i+1;j<items.length;j++){
       const a = effectivePos[i], b = effectivePos[j];
-      const xOverlap = Math.max(0, Math.min(a._boxLeft+a._boxW, b._boxLeft+b._boxW) - Math.max(a._boxLeft, b._boxLeft));
-      const yOverlap = Math.max(0, Math.min(a._boxTop+a._boxH, b._boxTop+b._boxH) - Math.max(a._boxTop, b._boxTop));
-      const overlapArea = xOverlap*yOverlap;
-      const smallerArea = Math.min(a._boxW*a._boxH, b._boxW*b._boxH);
-      if(smallerArea>0 && overlapArea > smallerArea*0.3){ labelAlign[i] = 'flex-start'; labelAlign[j] = 'flex-end'; }
+      const xGap = Math.max(a._boxLeft, b._boxLeft) - Math.min(a._boxLeft+a._boxW, b._boxLeft+b._boxW);
+      const yGap = Math.max(a._boxTop, b._boxTop) - Math.min(a._boxTop+a._boxH, b._boxTop+b._boxH);
+      if(xGap > LABEL_GAP || yGap > LABEL_GAP) continue; // genuinely far apart — no ambiguity, leave both centred
+      // Which one actually sits above the other, by their real positions — not just array order —
+      // so each label gets pushed to the end of its OWN box that's farthest from the other box.
+      const aCenterY = a._boxTop + a._boxH/2, bCenterY = b._boxTop + b._boxH/2;
+      if(aCenterY <= bCenterY){ labelAlign[i] = 'flex-start'; labelAlign[j] = 'flex-end'; }
+      else { labelAlign[i] = 'flex-end'; labelAlign[j] = 'flex-start'; }
     }
   }
   items.forEach((it,idx)=>{
@@ -3521,15 +3580,14 @@ function openPlantingInfo(bedId, plantingId, kind){
 }
 function openEditTrayDetails(trayId){
   const tray = STATE.trays.find(t=>t.id===trayId); if(!tray) return;
-  const crop = cropById(tray.cropId);
   const autoSwatch = `<div class="swatch ${!tray.colorOverride?'picked':''}" data-c="" style="background:linear-gradient(135deg, #fff 47%, #999 47%, #999 53%, #fff 53%); border:1.5px solid var(--line);" title="Automatic"></div>`;
   const colorSwatches = CROP_COLORS.map(c=>`<div class="swatch ${tray.colorOverride===c?'picked':''}" data-c="${c}" style="background:${c};"></div>`).join('');
-  openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit ${(crop&&crop.name)?escapeHTML(crop.name):'tray'} details</h3>
+  openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit ${escapeHTML(trayLabelText(tray))} details</h3>
     <div class="form-row"><div><label>Name this tray (optional)</label><input type="text" id="mTrayName" value="${escapeAttr(tray.name||'')}" placeholder="e.g. Top shelf left"></div></div>
     ${dimensionFieldsHTML('mEditW','mEditH','Width','Depth', tray.pw!=null?tray.pw:null, tray.ph!=null?tray.ph:null)}
     <label>Colour</label><div class="swatch-row" id="swRow">${autoSwatch}${colorSwatches}</div>
     <button class="btn big" id="mSave" style="margin-top:14px;">Save</button>`, true);
-  document.getElementById('mBack').addEventListener('click', ()=>openTrayInfo(trayId));
+  document.getElementById('mBack').addEventListener('click', ()=>openTrayOrPlanting(trayId));
   let pickedColor = tray.colorOverride || '';
   modalContent.querySelectorAll('.swatch').forEach(s=>s.addEventListener('click', ()=>{
     modalContent.querySelectorAll('.swatch').forEach(x=>x.classList.remove('picked')); s.classList.add('picked'); pickedColor=s.dataset.c;
@@ -3542,7 +3600,7 @@ function openEditTrayDetails(trayId){
     if(h!=null) tray.ph = h;
     if(pickedColor) tray.colorOverride = pickedColor; else delete tray.colorOverride;
     await put('trays', tray); await afterChange();
-    openTrayInfo(trayId);
+    openTrayOrPlanting(trayId);
   });
 }
 function openBedShapeEditor(objId, kind, onDone){
@@ -3695,9 +3753,11 @@ function openEditPlanting(bedId, plantingId, kind){
         if(reason) entry.reason = reason;
         bed.history.push(entry);
         bed.plantings = bed.plantings.filter(pp=>pp.id!==p.id);
+        await recordTombstone(p.id);
       } else {
         bed.plantings = bed.plantings.filter(pp=>pp.id!==p.id);
         bed.treatments = (bed.treatments||[]).filter(t=>t.plantingId!==p.id);
+        await recordTombstone(p.id);
       }
       const linkedTask = STATE.tasks.find(t=>t.linkedPlantingId===p.id && !t.done);
       if(linkedTask){ await del('tasks', linkedTask.id); }
@@ -3714,6 +3774,7 @@ function openEditPlanting(bedId, plantingId, kind){
       if(reason) entry.reason = reason;
       bed.history.push(entry);
       bed.plantings = bed.plantings.filter(pp=>pp.id!==p.id);
+      await recordTombstone(p.id);
       const linkedTask = STATE.tasks.find(t=>t.linkedPlantingId===p.id && !t.done);
       if(linkedTask){ await del('tasks', linkedTask.id); }
       await savePlantable(kind, bed); await afterChange();
@@ -3932,7 +3993,7 @@ function wireTierDropTargets(feat, currentTierId){
   if(!pills.length) return;
   const tiers = getTiers(feat);
   const locName = FEATURE_TYPES[feat.type].label;
-  const allTrays = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===locName) && (t.status==='growing'||t.status==='empty') && (t.tierId||tiers[0].id)===currentTierId);
+  const allTrays = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===locName) && (t.tierId||tiers[0].id)===currentTierId);
   function findPillUnder(x,y){
     return pills.find(p=>{ const r=p.getBoundingClientRect(); return x>=r.left && x<=r.right && y>=r.top && y<=r.bottom; });
   }
@@ -3954,7 +4015,7 @@ function wireTierDropTargets(feat, currentTierId){
       pills.forEach(p=>p.classList.remove('drop-target'));
       if(dropped && dropped.dataset.tier !== currentTierId){
         const destTier = tiers.find(t=>t.id===dropped.dataset.tier);
-        const destTrays = STATE.trays.filter(t=>t.id!==tray.id && (t.featureId?t.featureId===feat.id:t.location===locName) && (t.status==='growing'||t.status==='empty') && (t.tierId||tiers[0].id)===dropped.dataset.tier);
+        const destTrays = STATE.trays.filter(t=>t.id!==tray.id && (t.featureId?t.featureId===feat.id:t.location===locName) && (t.tierId||tiers[0].id)===dropped.dataset.tier);
         const positioned = destTrays.filter(o=>o.px!=null && !o.allowOverlap);
         function overlapsAny(px,py,pw,ph){
           return positioned.some(o=> px<o.px+o.pw && px+pw>o.px && py<o.py+o.ph && py+ph>o.py);
@@ -3995,7 +4056,7 @@ function openStructureDetail(feat, highlightTrayId){
   if(neverOpened) activeTier[feat.id] = tiers[0].id;
   if(neverOpened && tiers.length>1 && !autoJumpedTiers.has(feat.id)){
     autoJumpedTiers.add(feat.id);
-    const hasGrowing = (tid)=> STATE.trays.some(t=>(t.featureId?t.featureId===feat.id:t.location===locName) && (t.tierId||tiers[0].id)===tid && t.status==='growing');
+    const hasGrowing = (tid)=> STATE.trays.some(t=>(t.featureId?t.featureId===feat.id:t.location===locName) && (t.tierId||tiers[0].id)===tid && !trayIsEmpty(t));
     if(!hasGrowing(activeTier[feat.id])){
       const betterTier = tiers.find(t=>hasGrowing(t.id));
       if(betterTier) activeTier[feat.id] = betterTier.id;
@@ -4003,34 +4064,56 @@ function openStructureDetail(feat, highlightTrayId){
   }
   const tierId = activeTier[feat.id];
   const tier = tiers.find(t=>t.id===tierId) || tiers[0];
-  const allTrays = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===locName) && (t.status==='growing'||t.status==='empty') && (t.tierId||tiers[0].id)===tierId);
-  const everyTierTrays = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===locName) && (t.status==='growing'||t.status==='empty'));
+  const allTrays = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===locName) && (t.tierId||tiers[0].id)===tierId);
+  const everyTierTrays = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===locName));
 
   const tierRow = tiers.length>1 ? `<div class="tier-row">${tiers.map(t=>`<button class="tier-pill ${t.id===tierId?'active':''}" data-tier="${t.id}">${escapeHTML(t.label)}</button>`).join('')}<button class="tier-pill" id="btnAddTier">+ Staging</button></div>` : `<button class="btn small secondary" id="btnAddTier" style="margin-bottom:10px;">+ Add staging / shelf</button>`;
 
   const listSource = tiers.length>1 ? everyTierTrays : allTrays;
-  const sortedForList = listSource.slice().sort((a,b)=>{
-    const aEmpty = a.status==='empty', bEmpty = b.status==='empty';
-    if(aEmpty !== bEmpty) return aEmpty ? 1 : -1;
-    if(aEmpty) return 0;
-    const ca = cropById(a.cropId), cb = cropById(b.cropId);
+  const growingTrays = listSource.filter(t=>!trayIsEmpty(t)).sort((a,b)=>{
+    const ca = cropById(a.plantings[0].cropId), cb = cropById(b.plantings[0].cropId);
     return (ca?cropTypeKey(ca):'').localeCompare(cb?cropTypeKey(cb):'');
   });
-  const rows = sortedForList.map(t=>{
-    const c = cropById(t.cropId);
-    const potOnDue = c && c.sowToPotOn ? addDays(t.sownDate, c.sowToPotOn) : null;
+  const emptyTrays = listSource.filter(t=>trayIsEmpty(t)).sort((a,b)=>(a.number||0)-(b.number||0));
+  const trayRowHTML = (t)=>{
     const levelTag = tiers.length>1 ? ` &middot; ${escapeHTML((tiers.find(ti=>ti.id===(t.tierId||tiers[0].id))||{}).label||'')}` : '';
-    if(t.status==='empty'){
-      return `<div class="planting-row"><span class="pname" style="opacity:0.85;">Empty tray${levelTag}</span>
+    const numTag = t.number!=null ? ` #${t.number}` : '';
+    if(trayIsEmpty(t)){
+      return `<div class="planting-row"><span class="pname" style="opacity:0.85;">Empty tray${numTag}${levelTag}</span>
         <button class="btn small danger" data-deltray="${t.id}">Delete</button>
         <button class="btn small" data-sowinto="${t.id}">Sow into it</button></div>`;
     }
-    return `<div class="planting-row"><span class="fam-dot" style="background:${c?cropColor(c):'#8a8a7a'};"></span>
-      <span class="pname" style="cursor:pointer;" data-info="${t.id}">${(c && c.name)?escapeHTML(c.name):'Something'}${t.quantity?' &middot; '+t.quantity+' left':''}${levelTag}</span>
-      <span class="pdate">${potOnDue?('plant out '+dayLabel(potOnDue)):''}</span>
+    if(t.plantings.length===1){
+      const p = t.plantings[0]; const c = cropById(p.cropId);
+      const potOnDue = c && c.sowToPotOn ? addDays(p.sownDate, c.sowToPotOn) : null;
+      return `<div class="planting-row"><span class="fam-dot" style="background:${c?cropColor(c):'#8a8a7a'};"></span>
+        <span class="pname" style="cursor:pointer;" data-info="${t.id}">${(c && c.name)?escapeHTML(c.name):'Something'}${numTag}${p.quantity?' &middot; '+p.quantity+' left':''}${levelTag}</span>
+        <span class="pdate">${potOnDue?('plant out '+dayLabel(potOnDue)):''}</span>
+        <button class="btn small danger" data-deltray="${t.id}">Delete</button>
+        <button class="btn small" data-move="${t.id}">Plant out</button></div>`;
+    }
+    // Several crops sharing one tray — one summary row; tap in to see and act on each separately.
+    return `<div class="planting-row"><span class="fam-dot" style="background:#8a8a7a;"></span>
+      <span class="pname" style="cursor:pointer;" data-info="${t.id}">${escapeHTML(trayLabelText(t))}${numTag}${levelTag}</span>
+      <span class="pdate">${t.plantings.length} varieties</span>
       <button class="btn small danger" data-deltray="${t.id}">Delete</button>
-      <button class="btn small" data-move="${t.id}">Plant out</button></div>`;
-  }).join('') || '<p class="muted">Nothing here yet.</p>';
+      <button class="btn small" data-info="${t.id}">Open</button></div>`;
+  };
+  const growingRowsHTML = growingTrays.map(trayRowHTML).join('');
+  // A handful of empty trays is still easy to scan individually; a long run of identical
+  // blanks (the exact problem raised) collapses into one summary, expandable on tap.
+  const EMPTY_COLLAPSE_THRESHOLD = 5;
+  let emptyRowsHTML;
+  if(emptyTrays.length > EMPTY_COLLAPSE_THRESHOLD){
+    const nums = emptyTrays.map(t=>t.number!=null?('#'+t.number):'?').join(', ');
+    emptyRowsHTML = `<div class="planting-row" id="emptyTraysSummaryRow"><span class="pname" style="opacity:0.85;">${emptyTrays.length} empty trays (${nums})</span>
+      <button class="btn small secondary" id="btnShowAllEmpty">Show all</button></div>
+      <div id="emptyTraysFullList" style="display:none;">${emptyTrays.map(trayRowHTML).join('')}</div>`;
+  } else {
+    emptyRowsHTML = emptyTrays.map(trayRowHTML).join('');
+  }
+  const rows = (growingRowsHTML + emptyRowsHTML) || '<p class="muted">Nothing here yet.</p>';
+  const findTrayRowHTML = emptyTrays.length ? `<div class="form-row" style="margin-top:10px;"><div><label>Find an empty tray by number</label><input type="text" inputmode="numeric" id="mFindTrayNum" placeholder="e.g. 23"></div><div><label style="visibility:hidden;">Go</label><button type="button" class="btn secondary" id="mFindTrayGo" style="width:100%; height:46px;">Sow into it</button></div></div><p id="mFindTrayMsg" class="tiny-muted"></p>` : '';
 
   openModal(`<h3>${info.icon} ${escapeHTML(feat.label||info.label)} <span style="display:inline-block; width:16px; height:16px; border-radius:4px; background:${feat.color||BED_COLORS[0]}; vertical-align:-2px;"></span></h3>
     ${stampHTML(feat)}
@@ -4039,18 +4122,43 @@ function openStructureDetail(feat, highlightTrayId){
     <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
     <p class="picture-help">${tiers.length>1?'Drag a tray up onto another level\'s tab to move it there. ':''}Drag a tray's box to where it sits, and its corner to resize it. Tap it for details.</p>
     ${rows}
+    ${findTrayRowHTML}
     <div class="btn-row"><button class="btn" id="mSow">+ Sow something here</button><button class="btn secondary" id="mAddPot">+ Add a tray/pot</button>${tierId!=='ground'?'<button class="btn secondary" id="mEditTier">Edit this staging</button>':''}<button class="btn secondary" id="mEdit">Edit ${escapeHTML(info.label.toLowerCase())}</button></div>`, true);
 
   document.getElementById('mAddPot').addEventListener('click', ()=> openAddContainer(feat, tierId));
+  const showAllEmptyBtn = document.getElementById('btnShowAllEmpty');
+  if(showAllEmptyBtn) showAllEmptyBtn.addEventListener('click', ()=>{
+    document.getElementById('emptyTraysFullList').style.display = '';
+    document.getElementById('emptyTraysSummaryRow').style.display = 'none';
+  });
+  const findTrayGoBtn = document.getElementById('mFindTrayGo');
+  if(findTrayGoBtn){
+    const doFindTray = ()=>{
+      const raw = document.getElementById('mFindTrayNum').value.trim();
+      const msgEl = document.getElementById('mFindTrayMsg');
+      if(!raw){ msgEl.textContent = ''; return; }
+      const num = parseInt(raw);
+      const match = emptyTrays.find(t=>t.number===num);
+      if(match){ msgEl.textContent = ''; openSowIntoContainer(match.id); return; }
+      const occupiedMatch = growingTrays.find(t=>t.number===num);
+      if(occupiedMatch){
+        msgEl.textContent = `Tray #${num} already has ${escapeHTML(trayLabelText(occupiedMatch))} in it — no empty tray with that number here.`;
+      } else {
+        msgEl.textContent = `No tray #${num} found here.`;
+      }
+    };
+    findTrayGoBtn.addEventListener('click', doFindTray);
+    document.getElementById('mFindTrayNum').addEventListener('keydown', (e)=>{ if(e.key==='Enter') doFindTray(); });
+  }
 
   renderPictureCanvas('bedPic', tier, allTrays,
-    t=>{ const c=cropById(t.cropId); return t.status==='empty' ? 'Empty' : ((c && c.name) ? c.name : '?'); },
-    t=>{ const c=cropById(t.cropId); return c?c.family:'Other'; },
-    async (tray, vals)=>{ Object.assign(tray, vals); await put('trays', tray); if(supa) schedulePush(); },
-    (tray)=> tray.status==='empty' ? openSowIntoContainer(tray.id) : openTrayInfo(tray.id),
+    t=>{ const num = t.number!=null?(' #'+t.number):''; return trayIsEmpty(t) ? ('Empty'+num) : (trayLabelText(t)+num); },
+    t=>{ if(trayIsEmpty(t)) return 'Other'; const c=cropById(t.plantings[0].cropId); return c?c.family:'Other'; },
+    async (tray, vals)=>{ Object.assign(tray, vals); await put('trays', tray); await afterChange(); if(supa) schedulePush(); },
+    (tray)=> openTrayOrPlanting(tray.id),
     highlightTrayId,
-    (t)=> t.status==='empty',
-    t=>{ if(t.colorOverride) return t.colorOverride; const c=cropById(t.cropId); return c?cropColor(c):'#8a8a7a'; }
+    (t)=> trayIsEmpty(t),
+    t=>{ if(t.colorOverride) return t.colorOverride; if(trayIsEmpty(t)) return '#8a8a7a'; const c=cropById(t.plantings[0].cropId); return c?cropColor(c):'#8a8a7a'; }
   );
   if(tiers.length>1) wireTierDropTargets(feat, tierId);
 
@@ -4103,9 +4211,11 @@ function openStructureDetail(feat, highlightTrayId){
   });
   modalContent.querySelectorAll('[data-move]').forEach(b=>b.addEventListener('click', ()=>{
     const t = STATE.trays.find(tt=>tt.id===b.dataset.move);
-    startPlantOutFlow(t, cropById(t.cropId));
+    if(!t || trayIsEmpty(t)) return;
+    // A single-crop tray plants out directly; a multi-crop one opens so the right variety can be picked.
+    if(t.plantings.length===1) startPlantOutFlow(t, t.plantings[0]); else openTrayInfo(t.id);
   }));
-  modalContent.querySelectorAll('[data-info]').forEach(b=>b.addEventListener('click', ()=> openTrayInfo(b.dataset.info)));
+  modalContent.querySelectorAll('[data-info]').forEach(b=>b.addEventListener('click', ()=> openTrayOrPlanting(b.dataset.info)));
   modalContent.querySelectorAll('[data-sowinto]').forEach(b=>b.addEventListener('click', ()=> openSowIntoContainer(b.dataset.sowinto)));
   modalContent.querySelectorAll('[data-deltray]').forEach(b=>b.addEventListener('click', ()=> deleteTray(b.dataset.deltray, ()=>openStructureDetail(feat))));
   document.getElementById('mSow').addEventListener('click', ()=> openSowTray(locName, feat, tierId));
@@ -4148,51 +4258,108 @@ function openStructureDetail(feat, highlightTrayId){
     });
   });
 }
+// A tray with one crop in it opens straight to that crop's details (openTrayPlantingInfo) —
+// same one-tap feel as before multi-crop trays existed. A tray with several crops opens the
+// container view (openTrayInfo) first, listing each so the right one can be picked.
+function openTrayOrPlanting(trayId){
+  const tray = STATE.trays.find(t=>t.id===trayId); if(!tray) return;
+  if(trayIsEmpty(tray)) return openSowIntoContainer(trayId);
+  if(tray.plantings.length===1) return openTrayPlantingInfo(trayId, tray.plantings[0].id);
+  return openTrayInfo(trayId);
+}
 function openTrayInfo(trayId){
   const tray = STATE.trays.find(t=>t.id===trayId); if(!tray) return;
-  const crop = cropById(tray.cropId);
-  const potOnDue = crop && crop.sowToPotOn ? addDays(tray.sownDate, crop.sowToPotOn) : null;
   const feat = featureForTray(tray);
   const multiTier = feat && getTiers(feat).length>1;
-  openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${tray.name?escapeHTML(tray.name):((crop && crop.name)?escapeHTML(crop.name):'Tray')}</h3>
-    <div class="planting-row"><span class="pname">Crop</span><input type="text" class="inline-edit" id="mEditCropName" list="cropSuggestions" value="${crop?escapeAttr(crop.name):''}"></div>
-    <div id="trayCropSuggestBox" style="margin:-6px 0 8px;"></div>
-    <div class="planting-row"><span class="pname">Planted</span><input type="date" class="inline-edit" id="mEditDate" value="${tray.sownDate}"></div>
+  const rows = (tray.plantings||[]).map(p=>{
+    const c = cropById(p.cropId);
+    const potOnDue = c && c.sowToPotOn ? addDays(p.sownDate, c.sowToPotOn) : null;
+    return `<div class="planting-row"><span class="fam-dot" style="background:${c?cropColor(c):'#8a8a7a'};"></span>
+      <span class="pname" style="cursor:pointer;" data-pinfo="${p.id}">${(c && c.name)?escapeHTML(c.name):'Something'}${p.quantity?' &middot; '+p.quantity+' left':''}</span>
+      <span class="pdate">${potOnDue?('plant out '+dayLabel(potOnDue)):''}</span></div>`;
+  }).join('') || '<p class="muted">Nothing sown here yet.</p>';
+  openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${tray.name?escapeHTML(tray.name):(tray.number!=null?('Tray #'+tray.number):'Tray')}</h3>
     <div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(tray.location)}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}</span></div>
-    <div class="planting-row"><span class="pname">Quantity left</span><input type="number" onfocus="this.select()" class="inline-edit" id="mEditQty" value="${tray.quantity||1}" min="1"></div>
-    ${potOnDue?`<div class="planting-row"><span class="pname">Plant out due</span><span class="pdate">${dayLabel(potOnDue)}</span></div>`:''}
-    ${tray.createdBy?`<div class="planting-row"><span class="pname">Planted by</span><span class="pdate">${escapeHTML(tray.createdBy)}</span></div>`:''}
+    ${tray.createdBy?`<div class="planting-row"><span class="pname">Set up by</span><span class="pdate">${escapeHTML(tray.createdBy)}</span></div>`:''}
     ${tray.sizeLocked?`<p class="tiny-muted">🔒 Locked — size fixed. Still moveable.</p>`:''}
-    ${treatmentsSectionHTML(tray,'trays')}
+    <div class="row-heading" style="margin-top:0;">What's growing here</div>
+    ${rows}
     <div class="btn-row">
-      <button class="btn" id="mMove">Plant it out</button>
-      <button class="btn secondary" id="mHarvest">Harvest straight from here</button>
+      <button class="btn secondary" id="mAddCrop">+ Add another crop to this tray</button>
       ${multiTier?'<button class="btn secondary" id="mChangeTier">Change position</button>':''}
       <button class="btn danger" id="mDelTray">Delete this tray</button>
     </div>
     <button class="btn secondary" id="mEditDetails" style="margin-top:8px;">Edit details</button>`, true);
   document.getElementById('mBack').addEventListener('click', ()=> feat ? openStructureDetail(feat) : goHome());
+  document.getElementById('mEditDetails').addEventListener('click', ()=> openEditTrayDetails(trayId));
+  document.getElementById('mAddCrop').addEventListener('click', ()=> openSowIntoContainer(trayId));
+  document.getElementById('mDelTray').addEventListener('click', ()=> deleteTray(trayId, feat ? ()=>openStructureDetail(feat) : goHome));
+  if(multiTier) document.getElementById('mChangeTier').addEventListener('click', ()=> openChangeTier(trayId));
+  modalContent.querySelectorAll('[data-pinfo]').forEach(el=>el.addEventListener('click', ()=> openTrayPlantingInfo(trayId, el.dataset.pinfo)));
+}
+function openTrayPlantingInfo(trayId, plantingId){
+  const tray = STATE.trays.find(t=>t.id===trayId); if(!tray) return;
+  const p = trayPlantingById(tray, plantingId); if(!p){ openTrayInfo(trayId); return; }
+  const crop = cropById(p.cropId);
+  const potOnDue = crop && crop.sowToPotOn ? addDays(p.sownDate, crop.sowToPotOn) : null;
+  const feat = featureForTray(tray);
+  const multiTier = feat && getTiers(feat).length>1;
+  const hasSiblings = tray.plantings.length>1;
+  openModal(`<button class="back-link" id="mBack">&larr; ${hasSiblings?'Back to tray':'Back'}</button><h3>${tray.name?escapeHTML(tray.name):(tray.number!=null?('Tray #'+tray.number):((crop && crop.name)?escapeHTML(crop.name):'Planting'))}</h3>
+    <div class="planting-row"><span class="pname">Crop</span><input type="text" class="inline-edit" id="mEditCropName" list="cropSuggestions" value="${crop?escapeAttr(crop.name):''}"></div>
+    <div id="trayCropSuggestBox" style="margin:-6px 0 8px;"></div>
+    <div class="planting-row"><span class="pname">Planted</span><input type="date" class="inline-edit" id="mEditDate" value="${p.sownDate}"></div>
+    <div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(tray.location)}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}</span></div>
+    <div class="planting-row"><span class="pname">Quantity left</span><input type="number" onfocus="this.select()" class="inline-edit" id="mEditQty" value="${p.quantity||1}" min="1"></div>
+    ${potOnDue?`<div class="planting-row"><span class="pname">Plant out due</span><span class="pdate">${dayLabel(potOnDue)}</span></div>`:''}
+    ${tray.createdBy?`<div class="planting-row"><span class="pname">Planted by</span><span class="pdate">${escapeHTML(tray.createdBy)}</span></div>`:''}
+    ${tray.sizeLocked?`<p class="tiny-muted">🔒 Locked — size fixed. Still moveable.</p>`:''}
+    ${treatmentsSectionHTML(tray,'trays', p.id)}
+    <div class="btn-row">
+      <button class="btn" id="mMove">Plant it out</button>
+      <button class="btn secondary" id="mHarvest">Harvest straight from here</button>
+      ${multiTier?'<button class="btn secondary" id="mChangeTier">Change position</button>':''}
+      ${hasSiblings?'<button class="btn danger" id="mRemoveCrop">Remove this crop</button>':'<button class="btn danger" id="mDelTray">Delete this tray</button>'}
+    </div>
+    <button class="btn secondary" id="mEditDetails" style="margin-top:8px;">Edit details</button>
+    <button class="btn secondary" id="mAddCrop" style="margin-top:8px;">+ Add another crop to this tray</button>`, true);
+  document.getElementById('mAddCrop').addEventListener('click', ()=> openSowIntoContainer(trayId));
+  document.getElementById('mBack').addEventListener('click', ()=> hasSiblings ? openTrayInfo(trayId) : (feat ? openStructureDetail(feat) : goHome()));
+  document.getElementById('mEditDetails').addEventListener('click', ()=> openEditTrayDetails(trayId));
   wireCropAutocomplete(document.getElementById('mEditCropName'), document.getElementById('trayCropSuggestBox'));
   document.getElementById('mEditCropName').addEventListener('change', async ()=>{
     const name = document.getElementById('mEditCropName').value.trim();
-    if(name){ const newCrop = await findOrCreateCrop(name); tray.cropId = newCrop.id; await put('trays', tray); await afterChange(); openTrayInfo(trayId); }
+    if(name){ const newCrop = await findOrCreateCrop(name); p.cropId = newCrop.id; await put('trays', tray); await afterChange(); openTrayPlantingInfo(trayId, plantingId); }
   });
-  document.getElementById('mEditDetails').addEventListener('click', ()=> openEditTrayDetails(trayId));
   document.getElementById('mEditDate').addEventListener('change', async ()=>{
-    tray.sownDate = document.getElementById('mEditDate').value || tray.sownDate;
-    const linkedTask = STATE.tasks.find(t=>t.linkedTrayId===tray.id && !t.done);
-    if(linkedTask && crop && crop.sowToPotOn){ linkedTask.dueDate = addDays(tray.sownDate, crop.sowToPotOn); await put('tasks', linkedTask); }
-    await put('trays', tray); await afterChange(); openTrayInfo(trayId);
+    p.sownDate = document.getElementById('mEditDate').value || p.sownDate;
+    const linkedTask = STATE.tasks.find(t=>t.linkedTrayId===tray.id && (!t.linkedPlantingId || t.linkedPlantingId===p.id) && !t.done);
+    if(linkedTask && crop && crop.sowToPotOn){ linkedTask.dueDate = addDays(p.sownDate, crop.sowToPotOn); await put('tasks', linkedTask); }
+    await put('trays', tray); await afterChange(); openTrayPlantingInfo(trayId, plantingId);
   });
   document.getElementById('mEditQty').addEventListener('change', async ()=>{
-    tray.quantity = Math.max(1, parseInt(document.getElementById('mEditQty').value)||1);
-    await put('trays', tray); await afterChange(); openTrayInfo(trayId);
+    p.quantity = Math.max(1, parseInt(document.getElementById('mEditQty').value)||1);
+    await put('trays', tray); await afterChange(); openTrayPlantingInfo(trayId, plantingId);
   });
-  wireTreatmentRows(tray,'trays', ()=>openTrayInfo(trayId), crop);
-  document.getElementById('mMove').addEventListener('click', ()=> startPlantOutFlow(tray, crop));
-  document.getElementById('mHarvest').addEventListener('click', ()=> startHarvestFlow({kind:'tray', tray, crop}));
-  document.getElementById('mDelTray').addEventListener('click', ()=> deleteTray(trayId, feat ? ()=>openStructureDetail(feat) : goHome));
+  wireTreatmentRows(tray,'trays', ()=>openTrayPlantingInfo(trayId, plantingId), crop, p.id);
+  document.getElementById('mMove').addEventListener('click', ()=> startPlantOutFlow(tray, p));
+  document.getElementById('mHarvest').addEventListener('click', ()=> startHarvestFlow({kind:'tray', tray, planting:p, crop}));
   if(multiTier) document.getElementById('mChangeTier').addEventListener('click', ()=> openChangeTier(trayId));
+  const delBtn = document.getElementById('mDelTray');
+  if(delBtn) delBtn.addEventListener('click', ()=> deleteTray(trayId, feat ? ()=>openStructureDetail(feat) : goHome));
+  const removeBtn = document.getElementById('mRemoveCrop');
+  if(removeBtn) removeBtn.addEventListener('click', async ()=>{
+    if(await confirmDialog(`Remove ${crop?escapeHTML(crop.name):'this crop'} from the tray? Whatever's growing will be lost — harvest or plant it out first if you want to keep a record.`)){
+      if(tray.treatments) tray.treatments = tray.treatments.filter(tt=>tt.plantingId!==p.id);
+      tray.plantings = tray.plantings.filter(pp=>pp.id!==p.id);
+      await recordTombstone(p.id);
+      const linkedTask = STATE.tasks.find(t=>t.linkedTrayId===tray.id && t.linkedPlantingId===p.id && !t.done);
+      if(linkedTask) await del('tasks', linkedTask.id);
+      await put('trays', tray); await afterChange();
+      toast('Removed');
+      openTrayInfo(trayId);
+    }
+  });
 }
 function openChangeTier(trayId){
   const tray = STATE.trays.find(t=>t.id===trayId); if(!tray) return;
@@ -4202,18 +4369,18 @@ function openChangeTier(trayId){
   const curTierId = tray.tierId || tiers[0].id;
   const opts = tiers.map(t=>`<button class="type-opt" data-tier="${t.id}" style="${t.id===curTierId?'box-shadow:0 0 0 3px var(--leaf);':''}"><span class="icon">🗄️</span>${escapeHTML(t.label)}</button>`).join('');
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Move to which tier?</h3><div class="type-grid">${opts}</div>`);
-  document.getElementById('mBack').addEventListener('click', ()=> openTrayInfo(trayId));
+  document.getElementById('mBack').addEventListener('click', ()=> openTrayOrPlanting(trayId));
   modalContent.querySelectorAll('[data-tier]').forEach(b=>b.addEventListener('click', async ()=>{
     const newTierId = b.dataset.tier;
-    if(newTierId===curTierId){ openTrayInfo(trayId); return; }
+    if(newTierId===curTierId){ openTrayOrPlanting(trayId); return; }
     const newTier = tiers.find(t=>t.id===newTierId);
-    const occupied = STATE.trays.filter(t=>t.id!==tray.id && (t.featureId?t.featureId===feat.id:t.location===tray.location) && (t.tierId||tiers[0].id)===newTierId && (t.status==='growing'||t.status==='empty'));
+    const occupied = STATE.trays.filter(t=>t.id!==tray.id && (t.featureId?t.featureId===feat.id:t.location===tray.location) && (t.tierId||tiers[0].id)===newTierId);
     const size = {w:Math.min(tray.pw||1, newTier.w), h:Math.min(tray.ph||0.5, newTier.h)};
     const slot = nextFreeSlot(newTier.w, newTier.h, occupied, size.w, size.h);
     tray.tierId = newTierId; tray.px=slot.px; tray.py=slot.py; tray.pw=slot.pw; tray.ph=slot.ph;
     await put('trays', tray); await afterChange();
     toast(`Moved to ${newTier.label}`);
-    openTrayInfo(trayId);
+    openTrayOrPlanting(trayId);
   }));
 }
 const CONTAINER_PRESETS = [
@@ -4269,9 +4436,9 @@ async function createEmptyContainer(feat, tierId, w, h){
   const info = FEATURE_TYPES[feat.type];
   const tiers = getTiers(feat);
   const tier = tiers.find(t=>t.id===tierId) || tiers[0];
-  const occupied = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===info.label) && (t.tierId||tiers[0].id)===tier.id && (t.status==='growing'||t.status==='empty'));
+  const occupied = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===info.label) && (t.tierId||tiers[0].id)===tier.id);
   const slot = nextFreeSlot(tier.w, tier.h, occupied, w, h);
-  const tray = {id:uid(), location:info.label, featureId:feat.id, status:'empty', quantity:0, tierId:tier.id, createdBy:who(), px:slot.px, py:slot.py, pw:slot.pw, ph:slot.ph, sizeLocked:true};
+  const tray = {id:uid(), location:info.label, featureId:feat.id, plantings:[], tierId:tier.id, createdBy:who(), px:slot.px, py:slot.py, pw:slot.pw, ph:slot.ph, sizeLocked:true, number:nextTrayNumber()};
   await put('trays', tray);
   await afterChange();
   openModal(`<h3>Tray added</h3><div class="btn-row">
@@ -4284,7 +4451,7 @@ async function createEmptyContainer(feat, tierId, w, h){
 }
 async function deleteTray(trayId, onDone){
   const tray = STATE.trays.find(t=>t.id===trayId); if(!tray) return;
-  const isEmpty = tray.status==='empty';
+  const isEmpty = trayIsEmpty(tray);
   const msg = isEmpty ? 'Delete this empty tray?' : "Delete this tray? Whatever's growing in it will be lost — harvest it first if you want to keep a record.";
   if(await confirmDialog(msg)){
     await del('trays', trayId);
@@ -4298,14 +4465,17 @@ async function deleteTray(trayId, onDone){
 function openSowIntoContainer(trayId){
   const tray = STATE.trays.find(t=>t.id===trayId); if(!tray) return;
   const feat = featureForTray(tray);
-  openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Sow into this tray</h3>
+  const adding = !trayIsEmpty(tray);
+  openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${adding?'Sow another crop into':'Sow into'} this tray${tray.number!=null?(' #'+tray.number):''}</h3>
     <div class="form-row"><div><label>What are you sowing</label><input type="text" id="mCropName" list="cropSuggestions" placeholder="e.g. Lettuce" autocomplete="off"></div></div>
     <div id="cropSuggestBox" style="margin:-6px 0 12px;"></div>
     <div class="form-row"><div><label>Quantity</label><input type="number" onfocus="this.select()" id="mQty" value="1" min="1"></div><div><label style="visibility:hidden;">Sow</label><button type="button" class="btn" id="mSave" style="width:100%; height:46px;">Sow It</button></div></div>
     ${treatmentChipsHTML()}
     <button type="button" class="btn small secondary" id="mLookup" style="margin-top:14px;">🔎 Look it up online</button><div id="lookupBox"></div>
-    <div class="form-row" style="margin-top:14px;"><div><label>Sow date</label><input type="date" id="mDate" value="${todayISO()}"></div></div>`, true);
-  document.getElementById('mBack').addEventListener('click', ()=> feat ? openStructureDetail(feat) : goHome());
+    <div class="form-row" style="margin-top:14px;"><div><label>Sow date</label><input type="date" id="mDate" value="${todayISO()}"></div></div>
+    ${adding?'':'<button type="button" class="btn danger" id="mDelTray" style="margin-top:24px;">Delete this tray</button>'}`, true);
+  if(!adding) document.getElementById('mDelTray').addEventListener('click', ()=> deleteTray(trayId, feat ? ()=>openStructureDetail(feat) : goHome));
+  document.getElementById('mBack').addEventListener('click', ()=> adding ? openTrayInfo(trayId) : (feat ? openStructureDetail(feat) : goHome()));
   wireCropAutocomplete(document.getElementById('mCropName'), document.getElementById('cropSuggestBox'));
   const getTags = wireTreatmentChips(modalContent);
   document.getElementById('mLookup').addEventListener('click', ()=> lookupCropOnline(document.getElementById('mCropName').value.trim(), 'lookupBox'));
@@ -4314,13 +4484,15 @@ function openSowIntoContainer(trayId){
     const crop = await findOrCreateCrop(name);
     await clearWishlistForCrop(crop.id);
     const date = document.getElementById('mDate').value || todayISO();
-    tray.cropId = crop.id; tray.sownDate = date; tray.quantity = parseInt(document.getElementById('mQty').value)||1; tray.status='growing'; tray.createdBy = tray.createdBy || who();
+    const planting = {id:uid(), cropId:crop.id, sownDate:date, quantity:parseInt(document.getElementById('mQty').value)||1};
+    tray.plantings = tray.plantings||[]; tray.plantings.push(planting);
+    tray.createdBy = tray.createdBy || who();
     const newTags = getTags();
-    if(newTags.length){ tray.treatments = (tray.treatments||[]).concat(newTags); }
+    if(newTags.length){ tray.treatments = (tray.treatments||[]).concat(newTags.map(t=>({...t, plantingId:planting.id}))); }
     await put('trays', tray);
     if(crop.sowToPotOn){
       const due = addDays(date, crop.sowToPotOn);
-      await put('tasks', {id:uid(), title:`Plant out the ${crop.name} from the ${tray.location}`, dueDate:due, recurrence:'none', done:false, doneDates:[], linkedTrayId:tray.id});
+      await put('tasks', {id:uid(), title:`Plant out the ${crop.name} from the ${tray.location}`, dueDate:due, recurrence:'none', done:false, doneDates:[], linkedTrayId:tray.id, linkedPlantingId:planting.id});
     }
     await afterChange();
     flashButtonSuccess(document.getElementById('mSave'), 'Sown', ()=>{ if(feat) openStructureDetail(feat); else closeModal(); });
@@ -4346,21 +4518,22 @@ function openSowTray(presetLocation, feat, tierId){
     await clearWishlistForCrop(crop.id);
     const date = document.getElementById('mDate').value || todayISO();
     const location = presetLocation || document.getElementById('mLoc').value;
-    const tray = {id:uid(), cropId:crop.id, location, quantity:parseInt(document.getElementById('mQty').value)||1, sownDate:date, status:'growing', tierId:tierId||undefined, createdBy:who()};
+    const planting = {id:uid(), cropId:crop.id, sownDate:date, quantity:parseInt(document.getElementById('mQty').value)||1};
+    const tray = {id:uid(), location, plantings:[planting], tierId:tierId||undefined, createdBy:who(), number:nextTrayNumber()};
     const newTags = getTags();
-    if(newTags.length) tray.treatments = newTags;
+    if(newTags.length) tray.treatments = newTags.map(t=>({...t, plantingId:planting.id}));
     const targetFeat = feat || STATE.features.find(f=>FEATURE_TYPES[f.type] && FEATURE_TYPES[f.type].label===location);
     if(targetFeat){
       tray.featureId = targetFeat.id;
       const tiers = getTiers(targetFeat);
       const tier = tiers.find(t=>t.id===(tierId||tiers[0].id)) || tiers[0];
-      const occupied = STATE.trays.filter(t=>(t.featureId?t.featureId===targetFeat.id:t.location===location) && (t.tierId||tiers[0].id)===tier.id && (t.status==='growing'||t.status==='empty'));
+      const occupied = STATE.trays.filter(t=>(t.featureId?t.featureId===targetFeat.id:t.location===location) && (t.tierId||tiers[0].id)===tier.id);
       Object.assign(tray, nextFreeSlot(tier.w, tier.h, occupied));
     }
     await put('trays', tray);
     if(crop.sowToPotOn){
       const due = addDays(date, crop.sowToPotOn);
-      await put('tasks', {id:uid(), title:`Plant out the ${crop.name} from the ${location}`, dueDate:due, recurrence:'none', done:false, doneDates:[], linkedTrayId:tray.id});
+      await put('tasks', {id:uid(), title:`Plant out the ${crop.name} from the ${location}`, dueDate:due, recurrence:'none', done:false, doneDates:[], linkedTrayId:tray.id, linkedPlantingId:planting.id});
     }
     await afterChange();
     flashButtonSuccess(document.getElementById('mSave'), 'Sown', ()=>{ if(feat) openStructureDetail(feat); else openSowTray(presetLocation, feat, tierId); });
@@ -4369,7 +4542,7 @@ function openSowTray(presetLocation, feat, tierId){
 
 /* ---- Harvest ---- */
 function startHarvestFlow(ctx){
-  const qty = ctx.kind==='planting' ? (ctx.planting.quantity||1) : (ctx.kind==='tray' ? (ctx.tray.quantity||1) : 1);
+  const qty = ctx.kind==='planting' ? (ctx.planting.quantity||1) : (ctx.kind==='tray' ? (ctx.planting.quantity||1) : 1);
   if(ctx.kind==='tree' || qty<=1){ openHarvestModal(ctx); return; }
   openModal(`<h3>Harvesting ${escapeHTML(ctx.crop?ctx.crop.name:'this')}</h3>
     <p class="muted">There are ${qty} left right now.</p>
@@ -4427,7 +4600,7 @@ function gradeColor(pos, total){
 function openHarvestModal(ctx){
   const crop = ctx.crop;
   const backTo = harvestBackDestination(ctx);
-  const bedTreatments = ctx.kind==='planting' ? (ctx.bed.treatments||[]).filter(t=>!t.plantingId || t.plantingId===ctx.planting.id) : (ctx.kind==='tree' ? (ctx.feature.treatments||[]) : (ctx.kind==='tray' ? (ctx.tray.treatments||[]) : []));
+  const bedTreatments = ctx.kind==='planting' ? (ctx.bed.treatments||[]).filter(t=>!t.plantingId || t.plantingId===ctx.planting.id) : (ctx.kind==='tree' ? (ctx.feature.treatments||[]) : (ctx.kind==='tray' ? (ctx.tray.treatments||[]).filter(t=>!t.plantingId || t.plantingId===ctx.planting.id) : []));
   const wx = getTodayWeatherSnapshot();
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>🧺 Harvest ${ctx.partialCount?`${ctx.partialCount} of the `:''}${escapeHTML(crop?crop.name:'this')}</h3>
     ${ctx.partialCount?`<p class="muted">The rest stays in place for next time.</p>`:''}
@@ -4452,7 +4625,7 @@ function openHarvestModal(ctx){
     const notes = document.getElementById('mNotes').value.trim();
     let plantedDate=null, method=null, area=null;
     if(ctx.kind==='tray'){
-      plantedDate = ctx.tray.sownDate;
+      plantedDate = ctx.planting.sownDate;
       method = `Sown in the ${ctx.tray.location}`;
       if(ctx.tray.pw && ctx.tray.ph) area = +(ctx.tray.pw*ctx.tray.ph).toFixed(2);
     } else if(ctx.kind==='planting'){
@@ -4471,15 +4644,18 @@ function openHarvestModal(ctx){
     await put('harvests', rec);
     if(ctx.kind==='tray'){
       if(isPartial){
-        ctx.tray.quantity = Math.max(0, (ctx.tray.quantity||1) - ctx.partialCount);
+        ctx.planting.quantity = Math.max(0, (ctx.planting.quantity||1) - ctx.partialCount);
         await put('trays', ctx.tray);
       } else {
-        const relatedTask = STATE.tasks.find(t=>t.linkedTrayId===ctx.tray.id && !t.done);
+        const relatedTask = STATE.tasks.find(t=>t.linkedTrayId===ctx.tray.id && (!t.linkedPlantingId || t.linkedPlantingId===ctx.planting.id) && !t.done);
         if(relatedTask){ relatedTask.done=true; await put('tasks', relatedTask); }
-        if(ctx.tray.sizeLocked){
-          ctx.tray.status='empty'; ctx.tray.quantity=0; await put('trays', ctx.tray);
-        } else {
+        if(ctx.tray.treatments) ctx.tray.treatments = ctx.tray.treatments.filter(tt=>tt.plantingId!==ctx.planting.id);
+        ctx.tray.plantings = ctx.tray.plantings.filter(p=>p.id!==ctx.planting.id);
+        await recordTombstone(ctx.planting.id);
+        if(ctx.tray.plantings.length===0 && !ctx.tray.sizeLocked){
           await del('trays', ctx.tray.id);
+        } else {
+          await put('trays', ctx.tray);
         }
       }
     } else if(ctx.kind==='planting'){
@@ -4519,7 +4695,7 @@ function isExcludedCrop(name){
   });
 }
 function cropHasCurrentInstance(cropId){
-  if(STATE.trays.some(t=>t.cropId===cropId && t.status==='growing')) return true;
+  if(STATE.trays.some(t=>(t.plantings||[]).some(p=>p.cropId===cropId))) return true;
   if(STATE.beds.some(b=>(b.plantings||[]).some(p=>p.active && p.cropId===cropId))) return true;
   if(STATE.features.some(f=>(f.plantings||[]).some(p=>p.active && p.cropId===cropId))) return true;
   return false;
@@ -4528,7 +4704,7 @@ function whereIsCropNowDetailed(cropId){
   const spots = [];
   for(const b of STATE.beds) if((b.plantings||[]).some(p=>p.active && p.cropId===cropId)) spots.push({id:b.id, kind:'beds', name:b.name});
   for(const f of STATE.features) if((f.plantings||[]).some(p=>p.active && p.cropId===cropId)) spots.push({id:f.id, kind:'features', name:f.label});
-  for(const t of STATE.trays.filter(t=>t.cropId===cropId && t.status==='growing')){
+  for(const t of STATE.trays.filter(t=>(t.plantings||[]).some(p=>p.cropId===cropId))){
     const host = t.featureId ? featureById(t.featureId) : null;
     if(host && !spots.some(s=>s.id===host.id)) spots.push({id:host.id, kind:'structure', name:host.label||t.location});
   }
@@ -4536,7 +4712,7 @@ function whereIsCropNowDetailed(cropId){
 }
 function whereIsCropNow(cropId){
   const spots = [];
-  for(const t of STATE.trays.filter(t=>t.cropId===cropId && t.status==='growing')) spots.push(t.location);
+  for(const t of STATE.trays.filter(t=>(t.plantings||[]).some(p=>p.cropId===cropId))) spots.push(t.location);
   for(const b of STATE.beds) if((b.plantings||[]).some(p=>p.active && p.cropId===cropId)) spots.push(b.name);
   for(const f of STATE.features) if((f.plantings||[]).some(p=>p.active && p.cropId===cropId)) spots.push(f.label);
   return [...new Set(spots)];
@@ -4702,9 +4878,20 @@ function renderCropList(){
         feat.plantings = (feat.plantings||[]).filter(p=>!(p.active && p.cropId===cropId));
         await put('features', feat);
       }
-      for(const tray of STATE.trays.filter(t=>t.cropId===cropId && t.status==='growing')){
-        tray.status = 'empty';
-        await put('trays', tray);
+      for(const tray of STATE.trays.filter(t=>(t.plantings||[]).some(p=>p.cropId===cropId))){
+        const removed = tray.plantings.filter(p=>p.cropId===cropId);
+        for(const p of removed){
+          const linkedTask = STATE.tasks.find(t=>t.linkedTrayId===tray.id && t.linkedPlantingId===p.id && !t.done);
+          if(linkedTask) await del('tasks', linkedTask.id);
+          await recordTombstone(p.id);
+        }
+        if(tray.treatments) tray.treatments = tray.treatments.filter(tt=>!removed.some(p=>p.id===tt.plantingId));
+        tray.plantings = tray.plantings.filter(p=>p.cropId!==cropId);
+        if(tray.plantings.length===0 && !tray.sizeLocked){
+          await del('trays', tray.id);
+        } else {
+          await put('trays', tray);
+        }
       }
       await afterChange();
     }
@@ -5134,9 +5321,10 @@ let planningPickedId = null;
 function gatherCropPresences(){
   const presences = [];
   for(const t of STATE.trays){
-    if(t.status!=='growing' || !t.cropId) continue;
-    const crop = cropById(t.cropId); if(!crop) continue;
-    presences.push({crop, locationId:null, locationName:null, source:'tray'});
+    for(const p of (t.plantings||[])){
+      const crop = cropById(p.cropId); if(!crop) continue;
+      presences.push({crop, locationId:null, locationName:null, source:'tray'});
+    }
   }
   for(const item of STATE.planningItems){
     const crop = STATE.crops.find(c=>c.name.toLowerCase()===item.name.toLowerCase()) || matchCropWithConfidence(item.name).crop;
@@ -6078,7 +6266,7 @@ document.getElementById('btnNewCrop').addEventListener('click', ()=>{
 });
 
 /* ======================= SHARING / SYNC ======================= */
-const SHARED_META_KEYS = ['plotName','plotWidthM','plotDepthM','plotShape','groundColor','postcode','lat','lon','thFrost','thRain','thWind','customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory'];
+const SHARED_META_KEYS = ['plotName','plotWidthM','plotDepthM','plotShape','groundColor','postcode','lat','lon','thFrost','thRain','thWind','customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory','tombstones'];
 let supa = null, syncChannel = null, pushTimer = null, applyingRemote = false, lastKnownRemoteUpdatedAt = null, renderPending = false;
 
 async function afterChange(){
@@ -6100,14 +6288,15 @@ function buildSyncPayload(){
 // automatically by put() on every save); where an id exists on only one side, keeps it as-is,
 // so two different additions from two different devices both survive rather than one replacing
 // the other outright.
-function mergeItemListById(remoteList, localList){
+function mergeItemListById(remoteList, localList, tombstoned){
+  tombstoned = tombstoned || new Set();
   const byId = new Map();
   for(const item of (remoteList||[])) byId.set(item.id, item);
   for(const item of (localList||[])){
     const existing = byId.get(item.id);
     if(!existing || (item._ts||0) >= (existing._ts||0)) byId.set(item.id, item);
   }
-  return Array.from(byId.values());
+  return Array.from(byId.values()).filter(item=>!tombstoned.has(item.id));
 }
 // Beds and containers nest their own crops and logs inside them rather than storing each as its
 // own standalone item, so merging them needs to reach one level deeper: when the same bed/container
@@ -6115,28 +6304,42 @@ function mergeItemListById(remoteList, localList){
 // touched more recently, but its nested plantings/history/treatments are merged separately by
 // their own ids - so two different crops added to the same bed on two different devices both
 // survive, rather than whichever bed version happened to be newer overall winning outright and
-// silently discarding the other device's own crop.
-function mergeContainerLikeItem(remoteObj, localObj){
+// silently discarding the other device's own crop. Nested items also respect the same tombstone
+// set, so a deliberately-removed crop within a bed can't resurrect either.
+function mergeContainerLikeItem(remoteObj, localObj, tombstoned){
   const newer = (localObj._ts||0) >= (remoteObj._ts||0) ? localObj : remoteObj;
   const merged = {...newer};
   for(const nested of ['plantings','history','treatments']){
-    if(remoteObj[nested] || localObj[nested]) merged[nested] = mergeItemListById(remoteObj[nested], localObj[nested]);
+    if(remoteObj[nested] || localObj[nested]) merged[nested] = mergeItemListById(remoteObj[nested], localObj[nested], tombstoned);
   }
   return merged;
 }
-function mergeContainerLikeList(remoteList, localList){
+function mergeContainerLikeList(remoteList, localList, tombstoned){
+  tombstoned = tombstoned || new Set();
   const byId = new Map();
   for(const item of (remoteList||[])) byId.set(item.id, item);
   for(const item of (localList||[])){
     const existing = byId.get(item.id);
-    byId.set(item.id, existing ? mergeContainerLikeItem(existing, item) : item);
+    byId.set(item.id, existing ? mergeContainerLikeItem(existing, item, tombstoned) : item);
   }
-  return Array.from(byId.values());
+  return Array.from(byId.values()).filter(item=>!tombstoned.has(item.id));
 }
 function mergePayloads(remotePayload, localPayload){
-  const merged = { meta: { ...(remotePayload.meta||{}), ...(localPayload.meta||{}) } };
-  for(const store of ['crops','trays','tasks','harvests','wishlist','notes']) merged[store] = mergeItemListById(remotePayload[store], localPayload[store]);
-  for(const store of ['beds','features']) merged[store] = mergeContainerLikeList(remotePayload[store], localPayload[store]);
+  // Combine both sides' own tombstone records into one unified set before merging anything else,
+  // keeping the most recent deletedAt if both sides happen to have tombstoned the same id - this
+  // is what lets a genuine deletion made on one device correctly "win" against a remote copy that
+  // simply hasn't learned about it yet, rather than a plain union silently bringing it back.
+  const tombstoneMap = new Map();
+  for(const t of ((remotePayload.meta||{}).tombstones||[])) tombstoneMap.set(t.id, t);
+  for(const t of ((localPayload.meta||{}).tombstones||[])){
+    const existing = tombstoneMap.get(t.id);
+    if(!existing || t.deletedAt >= existing.deletedAt) tombstoneMap.set(t.id, t);
+  }
+  const mergedTombstones = Array.from(tombstoneMap.values());
+  const tombstoned = new Set(mergedTombstones.map(t=>t.id));
+  const merged = { meta: { ...(remotePayload.meta||{}), ...(localPayload.meta||{}), tombstones: mergedTombstones } };
+  for(const store of ['crops','tasks','harvests','wishlist','notes']) merged[store] = mergeItemListById(remotePayload[store], localPayload[store], tombstoned);
+  for(const store of ['beds','features','trays']) merged[store] = mergeContainerLikeList(remotePayload[store], localPayload[store], tombstoned);
   return merged;
 }
 function schedulePush(){ clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 700); }
@@ -6642,7 +6845,7 @@ async function backfillMissingPositions(){
   let changed = false;
   // Trays, grouped by location + tier
   const groups = {};
-  for(const t of STATE.trays.filter(t=>t.status==='growing'||t.status==='empty')){
+  for(const t of STATE.trays){
     const key = t.location+'|'+(t.tierId||'');
     groups[key] = groups[key] || [];
     groups[key].push(t);
