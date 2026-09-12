@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>My Plot</title>
 <link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <meta name="theme-color" content="#3F6644">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@500;600;700&family=Karla:wght@400;500;700&display=swap" rel="stylesheet">
@@ -24,7 +25,7 @@
   input,select,textarea{font-family:inherit; font-size:19px;}
 
   .top{background:var(--card); padding:10px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
-  .top .leaf-mark{font-size:27px;}
+  .top .leaf-mark{width:27px; height:27px; display:block; flex-shrink:0;}
   .top h1{font-size:24px; border:none; background:transparent; padding:2px 4px; border-bottom:2px dashed transparent; max-width:42vw;}
   .top h1:hover,.top h1:focus{border-bottom-color:var(--line); outline:none;}
   .icon-btn{background:var(--paper); border:1.5px solid var(--line); border-radius:8px; min-width:32px; height:32px; padding:0 8px; color:var(--soil); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; gap:4px;}
@@ -261,7 +262,7 @@
 <body>
 
 <div class="top">
-  <span class="leaf-mark">🌿</span>
+  <img class="leaf-mark" src="./apple-mark.png" alt="">
   <h1 id="plotName" contenteditable="true" spellcheck="false">My Plot</h1>
   <button class="icon-btn" id="btnUndo" title="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7 4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-1"/></svg><span class="icon-btn-lbl">Undo</span></button>
   <button class="icon-btn" id="btnRedo" title="Redo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7l5 5-5 5"/><path d="M20 12H9a5 5 0 0 0 0 10h1"/></svg><span class="icon-btn-lbl">Redo</span></button>
