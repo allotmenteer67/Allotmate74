@@ -2005,6 +2005,21 @@ function exposedTenderCrops(){
   }
   return [...new Set(items)];
 }
+// Same idea as before, but using only the daily figures already fetched
+// above — no hourly data, no extra fields, nothing that can come back
+// blank. A cold daily minimum on its own overstates frost risk on a
+// cloudy or windy day (cloud traps ground heat, wind stops it
+// settling), so this adds two cheap daily-level checks on top of your
+// existing temperature setting: was the day's dominant weather code
+// clear/mainly clear/partly cloudy (0, 1, or 2 — not overcast or
+// wet/foggy), and was the day's own top wind speed reasonably low.
+// thFrost (Settings) still decides the temperature cutoff, exactly as
+// before — this only adds two more AND'd conditions on top of it.
+const FROST_CLEAR_CODES = [0,1,2]; // WMO daily weathercode: clear, mainly clear, partly cloudy
+const FROST_WIND_THRESHOLD = 20; // km/h — day's own windspeed_10m_max below this counts as "light enough"
+function frostConditionsLikely(dayCode, dayWindMax){
+  return FROST_CLEAR_CODES.includes(dayCode) && dayWindMax<FROST_WIND_THRESHOLD;
+}
 async function processWeather(data){
   const days=data.daily.time, tmin=data.daily.temperature_2m_min, tmax=data.daily.temperature_2m_max;
   const rain=data.daily.precipitation_sum, wind=data.daily.windspeed_10m_max, codes=data.daily.weathercode;
@@ -2013,11 +2028,12 @@ async function processWeather(data){
   const wantsTips = level!=='quiet';
   const alerts=[];
   for(let i=0;i<days.length;i++){
-    const severe = tmin[i]<=thFrost || rain[i]>=thRain || wind[i]>=thWind || [95,96,99].includes(codes[i]);
+    const frostLikely = tmin[i]<=thFrost && frostConditionsLikely(codes[i], wind[i]);
+    const severe = frostLikely || rain[i]>=thRain || wind[i]>=thWind || [95,96,99].includes(codes[i]);
     if(severe){
       const wk = new Date(days[i]+'T00:00:00').toLocaleDateString('en-GB',{weekday:'long'});
       let fact, tip, type;
-      if(tmin[i]<=thFrost){
+      if(frostLikely){
         type='frost';
         fact = `❄️ Frost expected ${dayLabel(days[i])==='Today'?'tonight':wk+' night'}.`;
         const tender = exposedTenderCrops();
