@@ -2545,7 +2545,13 @@ function wireCropBox(boxEl, item, ppmLocal, boundsWH, onChange, onTap, shape){
       const startX=e.clientX, startY=e.clientY;
       const startW=parseFloat(boxEl.style.width), startH=parseFloat(boxEl.style.height);
       const left = parseFloat(boxEl.style.left), top = parseFloat(boxEl.style.top);
-      const maxW = Math.max(30, boundsWH.w*ppmLocal - 4 - left), maxH = Math.max(22, boundsWH.h*ppmLocal - 4 - top);
+      // The resize floor needs to be a real-world minimum size, not a fixed pixel count — a fixed
+      // 30px/22px floor works out to about 0.5m at this canvas's usual scale, but that's incidental
+      // to ppmLocal, not an intentional size limit; it silently forbids anything narrower (e.g. a
+      // thin path) at any zoom. 0.1m matches snapFine's own 10cm resolution, the finest the app
+      // tracks anyway, so that's the real lower bound — floored at a few px just so it can't hit 0.
+      const MIN_PW_PX = Math.max(6, 0.1*ppmLocal), MIN_PH_PX = Math.max(6, 0.1*ppmLocal);
+      const maxW = Math.max(MIN_PW_PX, boundsWH.w*ppmLocal - 4 - left), maxH = Math.max(MIN_PH_PX, boundsWH.h*ppmLocal - 4 - top);
       function blocked(w,h){ return siblings.some(r=>rectOverlap(left,top,w,h,r)) || (shapePx && !rectInsidePolygon(left,top,w,h,shapePx)); }
       function updateReadout(curW,curH){
         const distFromLeft = left/ppmLocal, distFromBottom = boundsWH.h - (top+curH)/ppmLocal;
@@ -2560,8 +2566,8 @@ function wireCropBox(boxEl, item, ppmLocal, boundsWH, onChange, onTap, shape){
       function onMove(ev){
         ev.preventDefault();
         const dx=ev.clientX-startX, dy=ev.clientY-startY;
-        const wantW = Math.min(maxW, Math.max(30,startW+dx));
-        const wantH = Math.min(maxH, Math.max(22,startH+dy));
+        const wantW = Math.min(maxW, Math.max(MIN_PW_PX,startW+dx));
+        const wantH = Math.min(maxH, Math.max(MIN_PH_PX,startH+dy));
         const curW = parseFloat(boxEl.style.width), curH = parseFloat(boxEl.style.height);
         if(!blocked(wantW, wantH)){ boxEl.style.width=wantW+'px'; boxEl.style.height=wantH+'px'; }
         else if(!blocked(wantW, curH)){ boxEl.style.width=wantW+'px'; }
@@ -2720,9 +2726,15 @@ function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onCha
     const icon = isEmpty ? null : iconForLabel(label);
     const { html: content, iconUsed, centered } = cropBoxContentHTML(label, icon, w, h);
     const alignStyle = labelAlign[idx] ? `align-items:${labelAlign[idx]};` : '';
+    // The resize handle is a fixed 20x20px icon, which used to always fit because nothing could be
+    // resized narrower than ~30px anyway (see the drag-floor fix above). Now a box genuinely can be
+    // smaller than the icon itself — .crop-box's own overflow:hidden would otherwise clip it down to
+    // an unreachable sliver, making the handle impossible to grab precisely where it matters most.
+    // Scale the icon to the box's own size once the box is the smaller of the two.
+    const handleSize = Math.max(10, Math.min(20, w, h));
     html += `<div class="crop-box${hl}${isEmpty?' empty':''}${centered?' icon-centered':''}" data-idx="${idx}" data-allowoverlap="${it.allowOverlap?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${colStyle} ${alignStyle}">
       ${(!isEmpty && !iconUsed)?`<span class="fam-dot" style="background:${col};"></span>`:''}${content}${it.locked?' 🔒':''}
-      ${showResize?`<div class="resize-handle-sm" style="${col?`background:${col};`:''}"></div>`:''}</div>`;
+      ${showResize?`<div class="resize-handle-sm" style="width:${handleSize}px; height:${handleSize}px; ${col?`background:${col};`:''}"></div>`:''}</div>`;
   });
   el.innerHTML = html;
   el.querySelectorAll('.crop-box').forEach(boxEl=>{
