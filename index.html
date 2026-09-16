@@ -2877,7 +2877,7 @@ function renderMap(){
     const objs = [...STATE.beds.map(b=>({...b, _kind:'bed'})), ...STATE.features.map(f=>({...f, _kind:'feature'}))];
     for(const o of objs){
       const left=(o.x-bounds.minX)*ppm, top=(o.y-bounds.minY)*ppm, w=o.w*ppm, h=o.h*ppm;
-      const lockBadge = o.locked ? '<span class="lock-badge">🔒</span>' : '';
+      const lockBadge = (o.locked && mapZoom > 1.001) ? '<span class="lock-badge">🔒</span>' : '';
       const hasOverdue = STATE.tasks.some(t=>t.bedId===o.id && !t.done && t.dueDate && t.dueDate<todayISO());
       const overdueBadge = hasOverdue ? '<div class="overdue-badge-map" style="position:absolute; top:-8px; left:-8px; width:20px; height:20px; border-radius:50%; background:#E9B44C; border:2px solid #fff; display:flex; align-items:center; justify-content:center; font-size:15px; z-index:2;">⚠️</div>' : '';
       const iconPx = Math.max(11, Math.min(26, Math.min(w,h)*0.4));
@@ -6790,10 +6790,16 @@ async function checkAutoBackup(){
   if(!STATE.settings.autoBackupOn || !navigator.onLine) return;
   const last = STATE.settings.lastAutoBackupDate;
   if(last && daysBetween(last, todayISO()) < 7) return;
-  await doBackupExport();
-  STATE.settings.lastAutoBackupDate = todayISO();
-  await setMeta('lastAutoBackupDate', todayISO());
-  renderAll();
+  // Don't auto-trigger the download itself: on iOS Safari a script-clicked <a download>
+  // doesn't save quietly, it pops the full-screen "here's your file" share sheet — jarring
+  // if it happens on its own right at launch. Ask first with a small tappable toast instead,
+  // and only mark the backup done once the user actually taps it.
+  toastWithAction('Time for your weekly backup', 'Back up now', async ()=>{
+    await doBackupExport();
+    STATE.settings.lastAutoBackupDate = todayISO();
+    await setMeta('lastAutoBackupDate', todayISO());
+    renderAll();
+  });
 }
 document.getElementById('btnExport').addEventListener('click', doBackupExport);
 document.getElementById('importFile').addEventListener('change', async (e)=>{
