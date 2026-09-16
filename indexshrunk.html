@@ -2615,7 +2615,12 @@ placedSoFar.push(slot);
 items.forEach((it,idx)=>{
 let {px,py,pw,ph} = effectivePos[idx];
 const left0=px*ppmLocal, top0=py*ppmLocal;
-const w=Math.min(Math.max(30,pw*ppmLocal), pxW-2), h=Math.min(Math.max(22,ph*ppmLocal), pxH-2);
+// Same fixed-pixel-floor mistake as the resize drag had, just at render time instead of drag
+// time: converting a saved size back to pixels was still flooring at 30/22px regardless of
+// ppmLocal, so a genuinely small saved size (0.1m) got redrawn larger on every render — by a
+// different amount depending on this canvas's own zoom, since the same 30px means a different
+// real-world size at each scale. Match the drag floor: a real 0.1m minimum, not a pixel one.
+const w=Math.min(Math.max(0.1*ppmLocal,pw*ppmLocal), pxW-2), h=Math.min(Math.max(0.1*ppmLocal,ph*ppmLocal), pxH-2);
 const left = Math.max(0, Math.min(left0, pxW-w-2));
 const top = Math.max(0, Math.min(top0, pxH-h-2));
 effectivePos[idx]._boxLeft = left; effectivePos[idx]._boxTop = top; effectivePos[idx]._boxW = w; effectivePos[idx]._boxH = h;
@@ -3190,9 +3195,12 @@ feat.color = pickedColor;
 if(feat.type==='container') feat.round = document.getElementById('mRound').checked;
 if(feat.type==='compost') feat.createdDate = document.getElementById('mCreatedDate').value || null;
 if(feat.type==='water') { const v = document.getElementById('mCapacity').value; feat.capacityLitres = v===''?null:parseInt(v); }
+// 0.15 was an arbitrary floor here, tighter than what a thin feature (a path, a fence run)
+// can genuinely need — match the same 0.1m real-world minimum the bed picture canvas now uses,
+// so this screen doesn't itself impose a size limit the rest of the app has moved past.
 { const cap = capToPlotSize(readDimensionField('mW')||feat.w, readDimensionField('mH')||feat.h);
-feat.w = Math.max(0.15, snapMap(cap.w));
-feat.h = Math.max(0.15, snapMap(cap.h)); }
+feat.w = Math.max(0.1, snapMap(cap.w));
+feat.h = Math.max(0.1, snapMap(cap.h)); }
 feat.locked = document.getElementById('mLocked').checked;
 await put('features',feat); await afterChange(); closeModal();
 });
