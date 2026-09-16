@@ -2664,7 +2664,15 @@ function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onCha
     const pts = obj.shape.map(p=>`${(p.x/bw*pxW).toFixed(1)},${(p.y/bh*pxH).toFixed(1)}`).join(' ');
     shapeOutlineSvg = `<svg width="${pxW}" height="${pxH}" style="position:absolute; left:0; top:0;" shape-rendering="geometricPrecision"><polygon points="${pts}" fill="none" stroke="${outlineCol}" stroke-width="2" stroke-linejoin="round"></polygon></svg>`;
   }
-  if(outlineHolder){ outlineHolder.style.width = outerW+'px'; outlineHolder.style.height = outerH+'px'; outlineHolder.innerHTML = shapeOutlineSvg; }
+  if(outlineHolder){
+    // #bedPicShapeOutline is a separate sibling overlay, not a child of #bedPic itself — so when
+    // .bed-picture's own `margin:0 auto` centres it inside a wider wrapper (any bed narrower than
+    // the available width), the grid/ruler/crop-boxes (painted inside #bedPic) shift with it, but
+    // this overlay — hardcoded to sit at the wrapper's left:0 — doesn't follow. Read #bedPic's real
+    // rendered offset and match it, rather than assuming the two always start at the same spot.
+    outlineHolder.style.left = el.offsetLeft+'px';
+    outlineHolder.style.width = outerW+'px'; outlineHolder.style.height = outerH+'px'; outlineHolder.innerHTML = shapeOutlineSvg;
+  }
   let html = `<div class="picgrid" style="background-image:linear-gradient(to right, rgba(74,55,40,0.18) 1px, transparent 1px), linear-gradient(to bottom, rgba(74,55,40,0.18) 1px, transparent 1px); background-size:${ppmLocal*0.2}px ${ppmLocal*0.2}px;"></div>${rulerSvg}`;
   const effectivePos = [];
   const placedSoFar = items.filter(it=>it.px!=null && it.py!=null && it.pw!=null && it.ph!=null).map(it=>({px:it.px,py:it.py,pw:it.pw,ph:it.ph}));
