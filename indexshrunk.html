@@ -2561,10 +2561,15 @@ el.style.borderWidth = '0'; // the element's own straight-sided border can't fol
 el.style.clipPath = '';
 el.style.borderWidth = '2px';
 }
-// .bed-picture has a 2px border on each side; with box-sizing:border-box the element's own
-// declared width includes that border, so absolutely-positioned children only actually have
-// outerW-4 to work with, not outerW. Everything below positions against that real inner area.
-const pxW = outerW-4, pxH = outerH-4;
+// .bed-picture has a 2px border on each side EXCEPT for an odd (non-rectangular) shape, where
+// the border is removed above (clip-path traces the true outline instead) — so its padding-box,
+// which is what .picgrid/.pic-ruler (both `inset:0`) actually fill, is the full outerW×outerH
+// for a shaped bed but outerW-4×outerH-4 for a plain rectangular one. The grid/ruler/outline
+// built below must match whichever is really the case, or a shaped bed's overlay lands a few
+// pixels short of the real box (the only place this bites, since a rectangular bed's rendered
+// shape is just its own border, which is inherently in exactly the right place).
+const hasBorder = !(obj.shape && obj.shape.length>=3);
+const pxW = hasBorder ? outerW-4 : outerW, pxH = hasBorder ? outerH-4 : outerH;
 const n = items.length;
 let rulerSvg = `<svg class="pic-ruler" width="${pxW}" height="${pxH}">`;
 for(let m=0; m<=Math.ceil(bw)+0.001; m++){
