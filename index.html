@@ -6552,13 +6552,22 @@ async function connectSync(url, key, code, isOwner){
   // a routine reconnect on a device already established with this exact code (happens on every
   // app open, not just the first) must merge instead, or a normal reconnect would silently wipe
   // out anything not yet pushed, every single time the app is opened.
-  const isGenuinelyNew = STATE.settings.syncCode !== code;
+  const previousCode = STATE.settings.syncCode;
+  const isGenuinelyNew = previousCode !== code;
+  // The sharing library comes from a CDN script tag, so it simply isn't there if that failed to
+  // load (offline on first open, a blocked or flaky connection). Say so plainly rather than
+  // letting it fail deeper down as an unexplained TypeError.
+  if(!window.supabase) throw new Error("Couldn't load the sharing service — check your connection and try again.");
   // Reuse the existing client rather than creating a fresh one every reconnect - the url/key never
   // change, they're baked-in constants, and creating a new instance each time meant a channel
   // created by an earlier instance could no longer be cleanly removed by a later one, silently
   // breaking the realtime subscription on every routine reconnect after the first.
   if(!supa) supa = window.supabase.createClient(url, key);
-  await setMeta('syncUrl', url); await setMeta('syncKey', key); await setMeta('syncCode', code);
+  // Held in memory only for now, because pushNow()/retryFindRemotePlot() below read it - but NOT
+  // written to disk until the connection actually succeeds. Persisting it up front meant a failed
+  // first join still recorded the code as established, so the retry compared the code against
+  // itself, decided it was a routine reconnect and merged instead of doing the clean replace a
+  // genuine first join needs - the "have to join two or three times before I get their data" bug.
   STATE.settings.syncCode = code;
   try{
     const { data, error } = await supa.from('plots').select('data, updated_at').eq('code', code).maybeSingle();
@@ -6566,7 +6575,17 @@ async function connectSync(url, key, code, isOwner){
     if(data && data.data) await applyRemotePayload(data.data, data.updated_at, isGenuinelyNew);
     else if(isOwner) await pushNow();
     else await retryFindRemotePlot(code, 0, isGenuinelyNew);
-  }catch(e){ subscribeSync(code); throw e; }
+  }catch(e){
+    // Put the in-memory code back as it was, so the next attempt still sees this as a first join.
+    STATE.settings.syncCode = previousCode;
+    subscribeSync(code); throw e;
+  }
+  await setMeta('syncUrl', url); await setMeta('syncKey', key); await setMeta('syncCode', code);
+  // Re-assert in memory as well: applyRemotePayload() above reloads state from storage, which
+  // reads syncCode back from disk - and at that point it hadn't been written yet, so the in-memory
+  // value was left blank. That made the NEXT routine reconnect look like a fresh join and replace
+  // instead of merging, which is the more dangerous direction of this same bug.
+  STATE.settings.syncCode = code;
   subscribeSync(code);
 }
 async function retryFindRemotePlot(code, attempt, isGenuinelyNew){
