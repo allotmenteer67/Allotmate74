@@ -156,6 +156,7 @@
   .harvest-detail div{margin-top:2px;}
   .tappable{cursor:pointer;} .tappable:active{opacity:0.7;}
   .crop-head{display:flex; align-items:center; gap:8px;}
+  .crop-foot{display:flex; align-items:center; gap:8px; margin-top:6px;}
   .crop-head input[type=text]{border:none; background:transparent; font-family:'Zilla Slab',serif; font-size:19.5px; font-weight:600; color:var(--soil); flex:1; padding:2px 0;}
   details.timings{margin-top:8px;} details.timings summary{cursor:pointer; font-size:16.5px; color:var(--leaf); font-weight:700;}
   details.more-toggle{margin-top:10px;} details.more-toggle summary{cursor:pointer; font-size:17px; color:var(--leaf); font-weight:700; background:var(--card); border:1.5px solid var(--leaf); border-radius:var(--radius); padding:10px 14px; display:block; list-style:none;}
@@ -227,6 +228,11 @@
      so Delete and the second action always land in the same place relative to each other. */
   .planting-row .prow-main{flex:1 1 140px; min-width:0; display:flex; flex-wrap:wrap; align-items:baseline; column-gap:8px; row-gap:2px;}
   .planting-row .prow-actions{display:flex; gap:8px; flex-shrink:0; margin-left:auto;}
+  /* Scoped to the tray-list screen only, so this doesn't shrink the same row styles elsewhere
+     (task lists, bed crop lists) that still want their normal size. */
+  .tray-list .pname, .tray-list .pdate{font-size:15.5px;}
+  .tray-list .btn.small{padding:5px 9px; font-size:15.5px;}
+  .sort-row{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:10px 0;}
   .planting-row .inline-edit{font-size:17px; font-family:inherit; color:var(--ink); border:1.5px solid var(--line); border-radius:6px; padding:5px 8px; width:auto; max-width:140px; margin-left:auto; text-align:right;}
   .row-heading{font-size:15px; text-transform:uppercase; font-weight:700; opacity:0.85; margin-top:10px;}
   .warn-note{font-size:16.5px; color:var(--brick); margin-top:8px; background:#F7E9E4; padding:8px 10px; border-radius:var(--radius);}
@@ -1457,6 +1463,7 @@ function cancelBedPicker(){
 let movingFeature = null;
 let outlineEditing = false;
 let activeTier = {}; // featId -> tierId, transient (not persisted)
+let traySortMode = {}; // featId -> 'num'|'date'|'az', transient (not persisted)
 let autoJumpedTiers = new Set(); // featIds that have already had their first-open smart tier-jump applied this session
 
 function defaultShape(w,h){ return [{x:0,y:0},{x:w,y:0},{x:w,y:h},{x:0,y:h}]; }
@@ -4126,16 +4133,34 @@ function openStructureDetail(feat, highlightTrayId){
   const tierRow = tiers.length>1 ? `<div class="tier-row">${tiers.map(t=>`<button class="tier-pill ${t.id===tierId?'active':''}" data-tier="${t.id}">${escapeHTML(t.label)}</button>`).join('')}<button class="tier-pill" id="btnAddTier">+ Staging</button></div>` : `<button class="btn small secondary" id="btnAddTier" style="margin-bottom:10px;">+ Add staging / shelf</button>`;
 
   const listSource = tiers.length>1 ? everyTierTrays : allTrays;
+  const sortMode = traySortMode[feat.id] || 'num';
+  const trayNameForSort = (t)=> t.plantings.length===1 ? ((cropById(t.plantings[0].cropId)||{}).name || 'Something') : trayLabelText(t);
+  const trayDateForSort = (t)=>{
+    let earliest = null;
+    t.plantings.forEach(p=>{
+      const c = cropById(p.cropId);
+      const d = c && c.sowToPotOn ? addDays(p.sownDate, c.sowToPotOn) : null;
+      if(d && (!earliest || d<earliest)) earliest = d;
+    });
+    return earliest;
+  };
   const growingTrays = listSource.filter(t=>!trayIsEmpty(t)).sort((a,b)=>{
-    const ca = cropById(a.plantings[0].cropId), cb = cropById(b.plantings[0].cropId);
-    return (ca?cropTypeKey(ca):'').localeCompare(cb?cropTypeKey(cb):'');
+    if(sortMode==='date'){
+      const da=trayDateForSort(a), db=trayDateForSort(b);
+      if(!da && !db) return 0; if(!da) return 1; if(!db) return -1;
+      return da<db?-1:da>db?1:0;
+    }
+    if(sortMode==='az') return trayNameForSort(a).localeCompare(trayNameForSort(b));
+    return (a.number??Infinity)-(b.number??Infinity); // 'num', the default
   });
+  // Empty trays carry no name or date to speak of, so a chosen sort mode just doesn't apply to
+  // them — they keep their own always-by-number order (and the collapse-when-many behaviour)
+  // regardless of how the growing trays above are sorted.
   const emptyTrays = listSource.filter(t=>trayIsEmpty(t)).sort((a,b)=>(a.number||0)-(b.number||0));
   const trayRowHTML = (t)=>{
-    const levelTag = tiers.length>1 ? ` &middot; ${escapeHTML((tiers.find(ti=>ti.id===(t.tierId||tiers[0].id))||{}).label||'')}` : '';
     const numTag = t.number!=null ? ` #${t.number}` : '';
     if(trayIsEmpty(t)){
-      return `<div class="planting-row"><div class="prow-main"><span class="pname" style="opacity:0.85;">Empty tray${numTag}${levelTag}</span></div>
+      return `<div class="planting-row"><div class="prow-main"><span class="pname" style="opacity:0.85;">Empty tray${numTag}</span></div>
         <div class="prow-actions"><button class="btn small danger" data-deltray="${t.id}">Delete</button>
         <button class="btn small" data-sowinto="${t.id}">Sow into it</button></div></div>`;
     }
@@ -4143,14 +4168,14 @@ function openStructureDetail(feat, highlightTrayId){
       const p = t.plantings[0]; const c = cropById(p.cropId);
       const potOnDue = c && c.sowToPotOn ? addDays(p.sownDate, c.sowToPotOn) : null;
       return `<div class="planting-row"><span class="fam-dot" style="background:${c?cropColor(c):'#8a8a7a'};"></span>
-        <div class="prow-main"><span class="pname" style="cursor:pointer;" data-info="${t.id}">${(c && c.name)?escapeHTML(c.name):'Something'}${numTag}${p.quantity?' &middot; '+p.quantity+' left':''}${levelTag}</span>
+        <div class="prow-main"><span class="pname" style="cursor:pointer;" data-info="${t.id}">${(c && c.name)?escapeHTML(c.name):'Something'}${numTag}</span>
         <span class="pdate">${potOnDue?('plant out '+dayLabel(potOnDue)):''}</span></div>
         <div class="prow-actions"><button class="btn small danger" data-deltray="${t.id}">Delete</button>
         <button class="btn small" data-move="${t.id}">Plant out</button></div></div>`;
     }
     // Several crops sharing one tray — one summary row; tap in to see and act on each separately.
     return `<div class="planting-row"><span class="fam-dot" style="background:#8a8a7a;"></span>
-      <div class="prow-main"><span class="pname" style="cursor:pointer;" data-info="${t.id}">${escapeHTML(trayLabelText(t))}${numTag}${levelTag}</span>
+      <div class="prow-main"><span class="pname" style="cursor:pointer;" data-info="${t.id}">${escapeHTML(trayLabelText(t))}${numTag}</span>
       <span class="pdate">${t.plantings.length} varieties</span></div>
       <div class="prow-actions"><button class="btn small danger" data-deltray="${t.id}">Delete</button>
       <button class="btn small" data-info="${t.id}">Open</button></div></div>`;
@@ -4170,17 +4195,25 @@ function openStructureDetail(feat, highlightTrayId){
   }
   const rows = (growingRowsHTML + emptyRowsHTML) || '<p class="muted">Nothing here yet.</p>';
   const findTrayRowHTML = emptyTrays.length ? `<div class="form-row" style="margin-top:10px;"><div><label>Find an empty tray by number</label><input type="text" inputmode="numeric" id="mFindTrayNum" placeholder="e.g. 23"></div><div><label style="visibility:hidden;">Go</label><button type="button" class="btn secondary" id="mFindTrayGo" style="width:100%; height:46px;">Sow into it</button></div></div><p id="mFindTrayMsg" class="tiny-muted"></p>` : '';
+  // Only worth offering once there's more than one growing tray to reorder.
+  const sortRowHTML = growingTrays.length>1 ? `<div class="sort-row"><span class="tiny-muted">Sort by</span>
+    <button class="tier-pill ${sortMode==='num'?'active':''}" data-sort="num">Tray #</button>
+    <button class="tier-pill ${sortMode==='date'?'active':''}" data-sort="date">Plant out date</button>
+    <button class="tier-pill ${sortMode==='az'?'active':''}" data-sort="az">A&ndash;Z</button></div>` : '';
 
   openModal(`<h3>${info.icon} ${escapeHTML(feat.label||info.label)} <span style="display:inline-block; width:16px; height:16px; border-radius:4px; background:${feat.color||BED_COLORS[0]}; vertical-align:-2px;"></span></h3>
     ${stampHTML(feat)}
     ${tierRow}
     ${tiers.length>1?`<p class="viewing-tier">Viewing: <strong>${escapeHTML(tier.label)}</strong></p>`:''}
     <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
+    <div class="btn-row"><button class="btn" id="mSow">Sow something</button><button class="btn secondary" id="mAddPot">Add a tray/pot</button></div>
     <p class="picture-help">${tiers.length>1?'Drag a tray up onto another level\'s tab to move it there. ':''}Drag a tray's box to where it sits, and its corner to resize it. Tap it for details.</p>
-    ${rows}
+    <div class="tray-list">${rows}</div>
     ${findTrayRowHTML}
-    <div class="btn-row"><button class="btn" id="mSow">+ Sow something here</button><button class="btn secondary" id="mAddPot">+ Add a tray/pot</button>${tierId!=='ground'?'<button class="btn secondary" id="mEditTier">Edit this staging</button>':''}<button class="btn secondary" id="mEdit">Edit ${escapeHTML(info.label.toLowerCase())}</button></div>`, true);
+    ${sortRowHTML}
+    <div class="btn-row">${tierId!=='ground'?'<button class="btn secondary" id="mEditTier">Edit this staging</button>':''}<button class="btn secondary" id="mEdit">Edit ${escapeHTML(info.label.toLowerCase())}</button></div>`, true);
 
+  modalContent.querySelectorAll('.sort-row [data-sort]').forEach(b=>b.addEventListener('click', ()=>{ traySortMode[feat.id]=b.dataset.sort; openStructureDetail(feat, highlightTrayId); }));
   document.getElementById('mAddPot').addEventListener('click', ()=> openAddContainer(feat, tierId));
   const showAllEmptyBtn = document.getElementById('btnShowAllEmpty');
   if(showAllEmptyBtn) showAllEmptyBtn.addEventListener('click', ()=>{
@@ -4915,12 +4948,14 @@ function renderCropList(){
   if(current.length===0){ wrap.innerHTML='<p class="empty-note">Nothing currently growing — sow or plant something and it will show up here.</p>'; return; }
   wrap.innerHTML = current.map(c=>`
     <div class="crop-card" data-crop="${c.id}">
-      <div class="crop-head">
+      <div class="crop-head" style="cursor:pointer;" data-open="${c.id}">
         <span class="fam-dot" style="background:${cropColor(c)};"></span>
-        <strong style="flex:1; cursor:pointer;" data-open="${c.id}">${escapeHTML(c.name)}</strong>
+        <strong style="flex:1;">${escapeHTML(c.name)}</strong>
+      </div>
+      <div class="crop-foot">
+        <p class="tiny-muted" style="margin:0; flex:1; cursor:pointer;" data-open="${c.id}">${escapeHTML(whereIsCropNow(c.id).join(', '))}</p>
         <button class="btn small danger" data-del="${c.id}">Remove</button>
       </div>
-      <p class="tiny-muted" style="margin:2px 0 0; cursor:pointer;" data-open="${c.id}">Currently in: ${escapeHTML(whereIsCropNow(c.id).join(', '))}</p>
     </div>`).join('');
   wrap.querySelectorAll('[data-open]').forEach(el=>el.addEventListener('click', ()=> openEditCrop(el.dataset.open)));
   wrap.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', async (e)=>{
