@@ -440,6 +440,7 @@ body > *:not(#printView){display:none !important;}
 </div>
 <div class="toggle-row" style="margin-top:14px;"><span>Back up automatically</span><label class="switch"><input type="checkbox" id="autoBackupToggle"><span class="slider"></span></label></div>
 <p class="muted" id="autoBackupStatus" style="margin-top:6px;"></p>
+<button class="btn secondary" id="btnDownloadSnapshot" style="margin-top:8px; display:none;">Download last automatic backup</button>
 </section>
 <section class="panel">
 <h2>Your own companion-planting notes</h2>
@@ -675,11 +676,28 @@ return new Promise((res,rej)=>{ const r=txStore(store,'readwrite').put(obj); r.o
 // remote copy that hasn't learned about the deletion yet won't silently bring it back. Pruned to
 // the last 30 days - a deletion only needs to "win" until every device has genuinely converged,
 // not forever, matching the same "doesn't need to last long" reasoning as put()'s own _ts stamps.
+// Tombstones ride along inside backups and sync payloads, so a record can arrive from outside
+// this device (an older app version, another gardener's copy, a hand-edited or partial backup)
+// with its date in some other form — an ISO string, or missing entirely. Comparing those against
+// a number silently yields false, which would drop EVERY such tombstone in one go and let
+// genuinely-deleted items resurrect on the next merge. Coerce to a number, and treat anything
+// unreadable as "keep" rather than "discard": wrongly keeping a tombstone an extra while is
+// harmless, wrongly dropping one brings deleted data back.
+function tombstoneTime(t){
+if(!t) return NaN;
+const raw = t.deletedAt;
+if(typeof raw === 'number') return raw;
+const parsed = Date.parse(raw);
+return isNaN(parsed) ? NaN : parsed;
+}
 async function recordTombstone(id){
 if(!id) return;
 STATE.settings.tombstones = STATE.settings.tombstones || [];
 const cutoff = Date.now() - (30*24*60*60*1000);
-STATE.settings.tombstones = STATE.settings.tombstones.filter(t=>t.deletedAt >= cutoff);
+STATE.settings.tombstones = STATE.settings.tombstones.filter(t=>{
+const when = tombstoneTime(t);
+return isNaN(when) ? true : when >= cutoff;
+});
 STATE.settings.tombstones.push({id, deletedAt: Date.now()});
 await setMeta('tombstones', STATE.settings.tombstones);
 }
@@ -693,6 +711,11 @@ function setMeta(key,value){ return put('meta',{key,value}); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 function todayISO(){ return new Date().toISOString().slice(0,10); }
 function addDays(iso,n){ const d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+// A history/harvest record's own date, safe to sort on. Several places that READ these records
+// already cope with the date being absent, but the sorts that run first didn't — so one record
+// missing a date (an old or hand-edited backup, a part-written record) threw inside Array.sort,
+// which took out renderAll() and left the whole app blank rather than just that one row.
+function hDate(h){ return (h && h.harvestDate) || ''; }
 function checkRotationClash(bed, cropFamily, cropName){
 if(!cropFamily) return [];
 const recentHistory = (bed.history||[]).slice(-3);
@@ -1468,6 +1491,8 @@ STATE.settings.notifOn = await getMeta('notifOn', false);
 STATE.settings.tombstones = await getMeta('tombstones', []);
 STATE.settings.autoBackupOn = await getMeta('autoBackupOn', false);
 STATE.settings.lastAutoBackupDate = await getMeta('lastAutoBackupDate', '');
+STATE.settings.lastBackupReminderDate = await getMeta('lastBackupReminderDate', '');
+STATE.settings.autoSnapshotDate = await getMeta('autoSnapshotDate', '');
 STATE.settings.notifLevel = await getMeta('notifLevel', 'advice');
 STATE.settings.lastDigestDate = await getMeta('lastDigestDate', '');
 STATE.settings.syncUrl = await getMeta('syncUrl', '');
@@ -3877,7 +3902,7 @@ function openTreeDetail(featId){
 const feat = featureById(featId);
 if(!feat){ goHome(); return; }
 const crop = feat.treeCropId ? cropById(feat.treeCropId) : null;
-const history = STATE.harvests.filter(h=>h.treeId===feat.id).sort((a,b)=>b.harvestDate.localeCompare(a.harvestDate)).slice(0,10);
+const history = STATE.harvests.filter(h=>h.treeId===feat.id).sort((a,b)=>hDate(b).localeCompare(hDate(a))).slice(0,10);
 const histHTML = history.map(h=>`<div class="planting-row"><span class="pname">${dayLabel(h.harvestDate)}</span><span class="pdate">${h.rating}/10${h.by?' &middot; '+escapeHTML(h.by):''}</span></div>`).join('') || '<p class="muted">No harvests logged yet.</p>';
 openModal(`<h3>🌳 ${escapeHTML(feat.label||'Fruit tree')} <span style="display:inline-block; width:16px; height:16px; border-radius:4px; background:${feat.color||BED_COLORS[0]}; vertical-align:-2px;"></span></h3>
 ${stampHTML(feat)}
@@ -5017,9 +5042,9 @@ if(isProblemsMode){ wrap.innerHTML=''; renderSoilProblemsInto('historyProblemsWr
 let items = isFailedMode ? gatherRemovedHistory() : allItems.slice();
 const yearFilter = yearSelect ? yearSelect.value : '';
 if(yearFilter) items = items.filter(h=>h.harvestDate && h.harvestDate.slice(0,4)===yearFilter);
-if(historySort==='name') items.sort((a,b)=> a.cropName.localeCompare(b.cropName) || b.harvestDate.localeCompare(a.harvestDate));
-else if(historySort==='bed') items.sort((a,b)=> (a.locationLabel||'').localeCompare(b.locationLabel||'', undefined, {numeric:true}) || b.harvestDate.localeCompare(a.harvestDate));
-else items.sort((a,b)=> b.harvestDate.localeCompare(a.harvestDate));
+if(historySort==='name') items.sort((a,b)=> (a.cropName||'').localeCompare(b.cropName||'') || hDate(b).localeCompare(hDate(a)));
+else if(historySort==='bed') items.sort((a,b)=> (a.locationLabel||'').localeCompare(b.locationLabel||'', undefined, {numeric:true}) || hDate(b).localeCompare(hDate(a)));
+else items.sort((a,b)=> hDate(b).localeCompare(hDate(a)));
 if(items.length===0){ wrap.innerHTML = isFailedMode ? '<p class="empty-note">Nothing removed as a failure yet — good sign.</p>' : (yearFilter ? `<p class="empty-note">Nothing harvested in ${yearFilter}.</p>` : '<p class="empty-note">Nothing harvested yet — this fills up as you go.</p>'); return; }
 const chronological = historySort==='date' || isFailedMode;
 const thisYear = todayISO().slice(0,4);
@@ -5090,7 +5115,7 @@ const hMatch = matchCropWithConfidence(h.cropName);
 if(hMatch.crop && hMatch.confident) return hMatch.crop.name===baseName;
 }
 return (h.cropName||'').toLowerCase().includes(term.toLowerCase());
-}).sort((a,b)=> b.harvestDate.localeCompare(a.harvestDate));
+}).sort((a,b)=> hDate(b).localeCompare(hDate(a)));
 if(items.length===0){ wrap.innerHTML = `<p class="empty-note" style="margin-bottom:10px;">Nothing harvested matching "${escapeHTML(term)}" yet.</p><button class="btn secondary" id="btnAddHistorical" style="width:100%;">+ Add something from before</button>`; document.getElementById('btnAddHistorical').addEventListener('click', ()=> openAddHistoricalEntry(null, null, term)); return; }
 const ratings = items.filter(h=>h.rating!=null);
 const avgRating = ratings.length ? Math.round(ratings.reduce((a,h)=>a+h.rating,0)/ratings.length*10) : null;
@@ -5252,7 +5277,7 @@ const term = historyBedTerm.trim();
 if(!term){ wrap.innerHTML = '<p class="empty-note" style="margin-bottom:10px;">Type a bed or container name above to see its full record — everything grown there, harvested or not.</p><button class="btn secondary" id="btnAddHistorical" style="width:100%;">+ Add something from before</button>'; wireAddHistoricalButton(''); return; }
 const items = [...STATE.harvests, ...gatherRemovedHistory()]
 .filter(h=>(h.locationLabel||'').toLowerCase().includes(term.toLowerCase()))
-.sort((a,b)=> b.harvestDate.localeCompare(a.harvestDate));
+.sort((a,b)=> hDate(b).localeCompare(hDate(a)));
 if(items.length===0){ wrap.innerHTML = `<p class="empty-note">Nothing recorded for "${escapeHTML(term)}" yet.</p><button class="btn secondary" id="btnAddHistorical" style="width:100%; margin-top:10px;">+ Add something from before</button>`; wireAddHistoricalButton(term); return; }
 const harvestCount = items.filter(h=>!h.removed).length;
 const failedCount = items.filter(h=>h.removed).length;
@@ -5284,7 +5309,7 @@ document.getElementById('historyYearFilter').addEventListener('change', renderHi
 document.getElementById('btnAddHistoricalHome').addEventListener('click', ()=> openAddHistoricalEntry(null, null));
 function openHistoryDetail(hid){
 const h = STATE.harvests.find(x=>x.id===hid); if(!h) return;
-const others = STATE.harvests.filter(x=>x.cropName===h.cropName && x.id!==h.id).sort((a,b)=>b.harvestDate.localeCompare(a.harvestDate));
+const others = STATE.harvests.filter(x=>x.cropName===h.cropName && x.id!==h.id).sort((a,b)=>hDate(b).localeCompare(hDate(a)));
 openModal(`<h3>${escapeHTML(h.cropName)}</h3>
 <div class="planting-row"><span class="pname">Harvested</span><span class="pdate">${dayLabel(h.harvestDate)}${h.by?' &middot; by '+escapeHTML(h.by):''}</span></div>
 ${h.plantedDate?`<div class="planting-row"><span class="pname">Planted</span><span class="pdate">${dayLabel(h.plantedDate)}</span></div>`:''}
@@ -6336,7 +6361,11 @@ const tombstoneMap = new Map();
 for(const t of ((remotePayload.meta||{}).tombstones||[])) tombstoneMap.set(t.id, t);
 for(const t of ((localPayload.meta||{}).tombstones||[])){
 const existing = tombstoneMap.get(t.id);
-if(!existing || t.deletedAt >= existing.deletedAt) tombstoneMap.set(t.id, t);
+// Same coercion as recordTombstone's pruning: the two sides' dates may not be in the same
+// form. On an unreadable date, prefer the local record rather than comparing NaN (always
+// false), which would otherwise silently always favour whatever the remote happened to hold.
+const tw = tombstoneTime(t), ew = existing ? tombstoneTime(existing) : NaN;
+if(!existing || isNaN(ew) || isNaN(tw) || tw >= ew) tombstoneMap.set(t.id, t);
 }
 const mergedTombstones = Array.from(tombstoneMap.values());
 const tombstoned = new Set(mergedTombstones.map(t=>t.id));
@@ -6654,12 +6683,31 @@ for(const feat of STATE.features){ feat.locked = false; await put('features', fe
 await afterChange();
 toast('Everything unlocked');
 });
+const AUTO_SNAPSHOT_META_KEY = 'autoBackupSnapshot';
+async function buildBackupDump(){
+// Exclude the silent auto-snapshot's own meta entry from what gets bundled into a dump — a manual
+// export otherwise re-embeds that (potentially large) snapshot inside itself every single time,
+// growing every export a little for no reason.
+const meta = (await getAll('meta')).filter(m=>m.key!==AUTO_SNAPSHOT_META_KEY);
+return { crops:await getAll('crops'), beds:await getAll('beds'), features:await getAll('features'),
+trays:await getAll('trays'), tasks:await getAll('tasks'), harvests:await getAll('harvests'), wishlist:await getAll('wishlist'), planningItems:await getAll('planningItems'), planningChanges:await getAll('planningChanges'), notes:await getAll('notes'), meta, exportedAt:new Date().toISOString() };
+}
 async function doBackupExport(){
-const dump = { crops:await getAll('crops'), beds:await getAll('beds'), features:await getAll('features'),
-trays:await getAll('trays'), tasks:await getAll('tasks'), harvests:await getAll('harvests'), wishlist:await getAll('wishlist'), planningItems:await getAll('planningItems'), planningChanges:await getAll('planningChanges'), notes:await getAll('notes'), meta:await getAll('meta'), exportedAt:new Date().toISOString() };
+const dump = await buildBackupDump();
 const blob = new Blob([JSON.stringify(dump,null,2)], {type:'application/json'});
 const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`my-plot-backup-${todayISO()}.json`; a.click();
+// A manual "Save a copy" is a genuine backup too, so it should count the same as an automatic
+// one for deciding whether either kind of reminder is due — otherwise backing up by hand doesn't
+// stop the app thinking you're overdue.
+STATE.settings.lastAutoBackupDate = todayISO();
+await setMeta('lastAutoBackupDate', todayISO());
 }
+document.getElementById('btnDownloadSnapshot').addEventListener('click', async ()=>{
+const dump = await getMeta(AUTO_SNAPSHOT_META_KEY, null);
+if(!dump){ toast('No automatic backup saved yet.'); return; }
+const blob = new Blob([JSON.stringify(dump,null,2)], {type:'application/json'});
+const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`my-plot-backup-${(dump.exportedAt||'').slice(0,10)||todayISO()}.json`; a.click();
+});
 document.getElementById('autoBackupToggle').addEventListener('change', async (e)=>{
 STATE.settings.autoBackupOn = e.target.checked;
 await setMeta('autoBackupOn', e.target.checked);
@@ -6750,19 +6798,31 @@ document.querySelectorAll('#ucpTypeRow [data-ucptype], #ucpTierRow [data-ucptier
 renderUserCompanionPairs();
 });
 async function checkAutoBackup(){
-if(!STATE.settings.autoBackupOn || !navigator.onLine) return;
+if(!navigator.onLine) return;
 const last = STATE.settings.lastAutoBackupDate;
 if(last && daysBetween(last, todayISO()) < 7) return;
-// Don't auto-trigger the download itself: on iOS Safari a script-clicked <a download>
-// doesn't save quietly, it pops the full-screen "here's your file" share sheet — jarring
-// if it happens on its own right at launch. Ask first with a small tappable toast instead,
-// and only mark the backup done once the user actually taps it.
-toastWithAction('Time for your weekly backup', 'Back up now', async ()=>{
-await doBackupExport();
+if(STATE.settings.autoBackupOn){
+// Genuinely automatic: build and store a snapshot entirely in the background, with nothing
+// shown at all. "Automatic" should mean automatic — asking for a tap first (this screen's
+// previous approach) isn't automatic, it's a reminder with extra steps, and an easy-to-miss
+// one at that. Held internally rather than downloaded, since silently triggering a download
+// is exactly what caused the original disruptive-on-launch problem this replaced.
+const dump = await buildBackupDump();
+await setMeta(AUTO_SNAPSHOT_META_KEY, dump);
 STATE.settings.lastAutoBackupDate = todayISO();
 await setMeta('lastAutoBackupDate', todayISO());
+STATE.settings.autoSnapshotDate = todayISO();
+await setMeta('autoSnapshotDate', todayISO());
 renderAll();
-});
+} else {
+// Automatic backup is off by choice — this is exactly the kind of thing worth mentioning
+// rather than silently skipping, but as a dismissible nudge, not a blocking prompt; and at
+// most once a day, so reopening the app repeatedly in one day doesn't repeat it needlessly.
+if(STATE.settings.lastBackupReminderDate === todayISO()) return;
+STATE.settings.lastBackupReminderDate = todayISO();
+await setMeta('lastBackupReminderDate', todayISO());
+toast("It's been a while since your last backup — worth tapping Save a copy in Setup.");
+}
 }
 document.getElementById('btnExport').addEventListener('click', doBackupExport);
 document.getElementById('importFile').addEventListener('change', async (e)=>{
@@ -6828,8 +6888,11 @@ document.getElementById('notifToggle').checked = !!STATE.settings.notifOn;
 document.getElementById('notifStatus').textContent = STATE.settings.notifOn ? 'Alerts are on.' : 'Alerts are off.';
 document.getElementById('autoBackupToggle').checked = !!STATE.settings.autoBackupOn;
 document.getElementById('autoBackupStatus').textContent = STATE.settings.autoBackupOn
-? (STATE.settings.lastAutoBackupDate ? `Last automatic backup: ${dayLabel(STATE.settings.lastAutoBackupDate)}.` : 'On — will back up next time the app is open online.')
-: "Off — you'll need to tap Save a copy yourself.";
+? (STATE.settings.lastAutoBackupDate ? `Last backup: ${dayLabel(STATE.settings.lastAutoBackupDate)}. Automatic backups happen quietly in the background — nothing to tap.` : 'On — will back up quietly in the background next time the app is open online.')
+: "Off — you'll need to tap Save a copy yourself. You'll get an occasional reminder if it's been a while.";
+const snapBtn = document.getElementById('btnDownloadSnapshot');
+snapBtn.style.display = STATE.settings.autoSnapshotDate ? '' : 'none';
+if(STATE.settings.autoSnapshotDate) snapBtn.textContent = `Download last automatic backup (${dayLabel(STATE.settings.autoSnapshotDate)})`;
 document.querySelectorAll('#unitsRow [data-units]').forEach(b=>b.classList.toggle('picked', b.dataset.units===(STATE.settings.units||'metric')));
 renderExcludedCrops();
 renderUserCompanionPairs();
