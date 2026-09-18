@@ -1558,6 +1558,11 @@ async function loadAll(){
   STATE.settings.tombstones = await getMeta('tombstones', []);
   STATE.settings.autoBackupOn = await getMeta('autoBackupOn', false);
   STATE.settings.lastAutoBackupDate = await getMeta('lastAutoBackupDate', '');
+  // Exact timestamp for display only — lastAutoBackupDate above stays
+  // date-only and untouched, since checkAutoBackup's weekly-due check
+  // is built around it and there's no reason to risk that logic for a
+  // display-only improvement.
+  STATE.settings.lastBackupAt = await getMeta('lastBackupAt', '');
   STATE.settings.lastBackupReminderDate = await getMeta('lastBackupReminderDate', '');
   STATE.settings.autoSnapshotDate = await getMeta('autoSnapshotDate', '');
   STATE.settings.notifLevel = await getMeta('notifLevel', 'advice');
@@ -6907,6 +6912,14 @@ async function doBackupExport(){
   // stop the app thinking you're overdue.
   STATE.settings.lastAutoBackupDate = todayISO();
   await setMeta('lastAutoBackupDate', todayISO());
+  const now = new Date().toISOString();
+  STATE.settings.lastBackupAt = now;
+  await setMeta('lastBackupAt', now);
+  // Without this the Setup screen kept showing whatever it last painted
+  // (e.g. "Yesterday") until something else happened to trigger a
+  // repaint — the underlying date/time were saved correctly straight
+  // away, the screen just never got told to redraw itself.
+  renderAll();
 }
 document.getElementById('btnDownloadSnapshot').addEventListener('click', async ()=>{
   const dump = await getMeta(AUTO_SNAPSHOT_META_KEY, null);
@@ -7017,6 +7030,9 @@ async function checkAutoBackup(){
     await setMeta(AUTO_SNAPSHOT_META_KEY, dump);
     STATE.settings.lastAutoBackupDate = todayISO();
     await setMeta('lastAutoBackupDate', todayISO());
+    const now = new Date().toISOString();
+    STATE.settings.lastBackupAt = now;
+    await setMeta('lastBackupAt', now);
     STATE.settings.autoSnapshotDate = todayISO();
     await setMeta('autoSnapshotDate', todayISO());
     renderAll();
@@ -7096,7 +7112,7 @@ function renderAll(){
   document.getElementById('notifStatus').textContent = STATE.settings.notifOn ? 'Alerts are on.' : 'Alerts are off.';
   document.getElementById('autoBackupToggle').checked = !!STATE.settings.autoBackupOn;
   document.getElementById('autoBackupStatus').textContent = STATE.settings.autoBackupOn
-    ? (STATE.settings.lastAutoBackupDate ? `Last backup: ${dayLabel(STATE.settings.lastAutoBackupDate)}. Automatic backups happen quietly in the background — nothing to tap.` : 'On — will back up quietly in the background next time the app is open online.')
+    ? (STATE.settings.lastBackupAt ? `Last backup: ${dayLabel(STATE.settings.lastBackupAt.slice(0,10))} at ${new Date(STATE.settings.lastBackupAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}.` : 'On — will back up quietly in the background next time the app is open online.')
     : "Off — you'll need to tap Save a copy yourself. You'll get an occasional reminder if it's been a while.";
   const snapBtn = document.getElementById('btnDownloadSnapshot');
   snapBtn.style.display = STATE.settings.autoSnapshotDate ? '' : 'none';
