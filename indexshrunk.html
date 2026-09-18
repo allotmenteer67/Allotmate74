@@ -1409,6 +1409,12 @@ function cropColor(crop){ return (crop && crop.color) || (crop ? colorForCropNam
 /* ======================= STATE ======================= */
 let STATE = { crops:[], beds:[], features:[], trays:[], tasks:[], harvests:[], settings:{}, wishlist:[], planningItems:[], planningChanges:[], notes:[] };
 let LAST_WEATHER = null;
+// Cloude's own corrected feed — see fetchCorrectedForecast(). Null
+// whenever it's missing, stale, or unreachable; every read site treats
+// null the same as "not available" and falls back to LAST_WEATHER's own
+// raw Open-Meteo figures, so this can never make weather LESS available,
+// only more accurate when it's there.
+let LAST_CORRECTED = null;
 let dismissedAlertKeys = new Set();
 let placingMode = null;
 let bedPickerMode = null;
@@ -1926,14 +1932,53 @@ await put('tasks',{id:uid(), title, dueDate:due, recurrence:recur, done:false, d
 document.getElementById('taskTitle').value=''; await afterChange();
 });
 /* ======================= WEATHER ======================= */
+// ---- Cloude's corrected feed ----
+// Cloude (a separate weather app, same author) runs real Met Office/
+// ECMWF/GFS/ICON forecasts through a learned per-source accuracy
+// correction (FFV) built from a year of forecast-vs-actual history —
+// genuinely more accurate than the plain best_match blend Open-Meteo's
+// own default call below gives us. This is a second, independent fetch
+// layered on top of the existing one, never a replacement for it:
+// Open-Meteo still supplies weather ICONS and STORM detection (Cloude's
+// feed has neither), and every read site below falls back to the raw
+// Open-Meteo figures the instant this is missing, stale, or wrong-
+// shaped. Losing weather entirely because Cloude's own build failed
+// would be a worse outcome than an uncorrected figure — this can only
+// ever improve on the existing fetch, never block it.
+const CORRECTED_FORECAST_URL = 'https://allotmenteer67.github.io/Forecast4/data/forecast.json';
+// Cloude's own precache targets a ~20 minute refresh, with GitHub
+// Actions' own scheduling able to drift 15-45+ minutes under load (see
+// Cloude's own workflow comments on this) — 40 minutes gives that some
+// margin before this feed is treated as too old to trust, without being
+// so loose that a genuinely broken build goes unnoticed for hours.
+const CORRECTED_FORECAST_MAX_AGE_MS = 40*60*1000;
+async function fetchCorrectedForecast(){
+try{
+const res = await fetch(CORRECTED_FORECAST_URL, {cache:'no-store'});
+if(!res.ok) return null;
+const data = await res.json();
+if(!data.updated || !data.daily) return null;
+const age = Date.now() - new Date(data.updated).getTime();
+if(!(age>=0) || age>CORRECTED_FORECAST_MAX_AGE_MS) return null; // also catches an unparseable/garbage "updated"
+return data;
+}catch(e){ return null; }
+}
+function correctedDayFor(date){
+return LAST_CORRECTED?.daily?.[date] || null;
+}
 async function fetchWeather(showErrors){
 if(STATE.settings.lat==null || STATE.settings.lon==null){ document.getElementById('alertsBox').innerHTML=''; return; }
 try{
 const url = `https://api.open-meteo.com/v1/forecast?latitude=${STATE.settings.lat}&longitude=${STATE.settings.lon}&daily=temperature_2m_min,temperature_2m_max,precipitation_sum,windspeed_10m_max,weathercode&timezone=auto&forecast_days=7`;
-const res = await fetch(url);
+// Run together rather than one-after-the-other — Cloude's fetch
+// failing or being slow must never delay or block the existing
+// Open-Meteo call, so its own errors are swallowed inside
+// fetchCorrectedForecast() itself rather than caught here.
+const [res, corrected] = await Promise.all([fetch(url), fetchCorrectedForecast()]);
 if(!res.ok){ if(showErrors) toast(`Weather service error (${res.status})`); return; }
 const data = await res.json();
-LAST_WEATHER = data; processWeather(data);
+LAST_WEATHER = data; LAST_CORRECTED = corrected;
+processWeather(data);
 }catch(err){ if(showErrors) toast('Could not reach the weather service — check your connection'); }
 }
 function wIcon(code){
@@ -1948,8 +1993,10 @@ return '🌤️';
 function getTodayWeatherSnapshot(){
 if(!LAST_WEATHER) return null;
 const idx = LAST_WEATHER.daily.time.indexOf(todayISO()); if(idx<0) return null;
-return { tempMax:Math.round(LAST_WEATHER.daily.temperature_2m_max[idx]), tempMin:Math.round(LAST_WEATHER.daily.temperature_2m_min[idx]),
-rain:Math.round(LAST_WEATHER.daily.precipitation_sum[idx]), icon:wIcon(LAST_WEATHER.daily.weathercode[idx]) };
+const cday = correctedDayFor(todayISO());
+return { tempMax:Math.round(cday?.temperature?.max ?? LAST_WEATHER.daily.temperature_2m_max[idx]),
+tempMin:Math.round(cday?.temperature?.min ?? LAST_WEATHER.daily.temperature_2m_min[idx]),
+rain:Math.round(cday?.rain ?? LAST_WEATHER.daily.precipitation_sum[idx]), icon:wIcon(LAST_WEATHER.daily.weathercode[idx]) };
 }
 async function fetchGrowingWeatherSummary(startDate, endDate){
 if(STATE.settings.lat==null || STATE.settings.lon==null) return null;
@@ -1990,6 +2037,26 @@ const FROST_WIND_THRESHOLD = 20; // km/h — day's own windspeed_10m_max below t
 function frostConditionsLikely(dayCode, dayWindMax){
 return FROST_CLEAR_CODES.includes(dayCode) && dayWindMax<FROST_WIND_THRESHOLD;
 }
+// Cloude's own hourly-night frost check, layered on top of the daily-
+// code one above rather than replacing it: Cloude only ever computes
+// this for the single next night (frost.night), so every other night in
+// the 7-day window still falls back to the coarser but always-available
+// daily-code method below. When it IS available, it's a strictly better
+// signal — real per-hour cloud/wind through the actual 22:00-07:00
+// window that matters for frost, rather than one code summarising the
+// whole day (which can read "partly cloudy" on an afternoon's strength
+// while the night itself was clear). Deliberately still uses THIS app's
+// own thFrost setting for the temperature cutoff, not Cloude's own
+// fixed one — that stays a per-plot setting either way. Cloud/wind
+// thresholds match Cloude's own (40% / 8mph, the latter converted to
+// km/h here since this app's own wind figures are km/h throughout).
+const FROST_CLOUD_THRESHOLD_CORRECTED = 40; // % — matches Cloude's own default
+const MPH_TO_KMH = 1.60934;
+function correctedFrostLikelyFor(date, thFrost){
+const cf = LAST_CORRECTED?.frost;
+if(!cf || cf.night!==date || cf.minTemp==null || cf.cloud==null || cf.wind==null) return null; // not available for this date — caller falls back
+return cf.minTemp<=thFrost && cf.cloud<FROST_CLOUD_THRESHOLD_CORRECTED && (cf.wind*MPH_TO_KMH)<FROST_WIND_THRESHOLD;
+}
 async function processWeather(data){
 const days=data.daily.time, tmin=data.daily.temperature_2m_min, tmax=data.daily.temperature_2m_max;
 const rain=data.daily.precipitation_sum, wind=data.daily.windspeed_10m_max, codes=data.daily.weathercode;
@@ -1998,8 +2065,18 @@ const level = STATE.settings.notifLevel || 'advice';
 const wantsTips = level!=='quiet';
 const alerts=[];
 for(let i=0;i<days.length;i++){
-const frostLikely = tmin[i]<=thFrost && frostConditionsLikely(codes[i], wind[i]);
-const severe = frostLikely || rain[i]>=thRain || wind[i]>=thWind || [95,96,99].includes(codes[i]);
+// Cloude's corrected figures, when available for this date — rain
+// and wind feed straight into the severe-weather check below;
+// temperature stays as tmin[i] except inside the frost check itself,
+// which uses Cloude's own night-window minimum (a different, more
+// specific figure than the whole day's minimum) via
+// correctedFrostLikelyFor.
+const cday = correctedDayFor(days[i]);
+const dayRain = cday?.rain ?? rain[i];
+const dayWind = cday?.wind ?? wind[i];
+const correctedFrost = correctedFrostLikelyFor(days[i], thFrost);
+const frostLikely = correctedFrost!==null ? correctedFrost : (tmin[i]<=thFrost && frostConditionsLikely(codes[i], wind[i]));
+const severe = frostLikely || dayRain>=thRain || dayWind>=thWind || [95,96,99].includes(codes[i]);
 if(severe){
 const wk = new Date(days[i]+'T00:00:00').toLocaleDateString('en-GB',{weekday:'long'});
 let fact, tip, type;
@@ -2016,7 +2093,7 @@ alerts.push({key:days[i]+type, type, msg});
 }
 }
 if(wantsTips){
-const soonRain = rain.slice(0,3).reduce((a,b)=>a+b,0);
+const soonRain = days.slice(0,3).reduce((sum,d,i)=> sum + (correctedDayFor(d)?.rain ?? rain[i]), 0);
 if(soonRain < 2) alerts.push({key:'dry-'+days[0], type:'dry', msg:`🌦️ No rain expected for a few days — worth checking if anything needs a drink.`});
 }
 const visibleAlerts = alerts.filter(a=>!dismissedAlertKeys.has(a.key));
