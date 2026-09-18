@@ -1,0 +1,47 @@
+name: Keep Supabase awake
+
+# Supabase's free tier pauses a project after roughly a week with no API
+# activity at all. This workflow's only job is to stop that ever
+# happening on its own — a single, read-only request to the same
+# 'plots' table the app itself already queries on every routine
+# reconnect (see connectSync in index.html), just often enough that a
+# quiet week never occurs.
+#
+# Every 3 days — comfortably under the ~7 day pause window even
+# allowing for GitHub's own scheduling drift (documented as able to run
+# 15-45+ minutes late under load, occasionally more for infrequent
+# schedules like this one).
+on:
+  schedule:
+    - cron: "0 6 */3 * *"
+  workflow_dispatch: {} # lets you trigger it manually from the Actions tab, e.g. to check the secrets are set up right
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase (read-only, no data touched)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "SUPABASE_URL / SUPABASE_ANON_KEY secrets are not set — add them in repo Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          # select=code, limit=1: the smallest possible real read against
+          # the same table the app already uses. Nothing is written,
+          # nothing is deleted — this can only ever read one column of
+          # one row, never modify anything.
+          http_status=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            "$SUPABASE_URL/rest/v1/plots?select=code&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+          echo "Response ($http_status):"
+          cat /tmp/response.json
+          if [ "$http_status" -ge 200 ] && [ "$http_status" -lt 300 ]; then
+            echo "Ping succeeded — project stays active."
+          else
+            echo "Ping failed with HTTP $http_status — check the secrets are still correct, or whether the project needs manually resuming."
+            exit 1
+          fi
