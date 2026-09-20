@@ -3509,10 +3509,11 @@ function openFeatureDetail(feat){
 }
 
 /* ---- Bed detail ---- */
-function treatmentsSectionHTML(obj, storeKind, filterMode){
+function treatmentsSectionHTML(obj, storeKind, filterMode, heading){
   const all = obj.treatments||[];
   const filtered = filterMode===undefined ? all
     : filterMode==='bedwide' ? all.filter(t=>!t.plantingId)
+    : Array.isArray(filterMode) ? all.filter(t=>!t.plantingId || filterMode.includes(t.plantingId))
     : all.filter(t=>!t.plantingId || t.plantingId===filterMode);
   const sorted = filtered.slice().reverse();
   const cutoff = addDays(todayISO(), -365);
@@ -3525,7 +3526,7 @@ function treatmentsSectionHTML(obj, storeKind, filterMode){
   const presentTypes = new Set(filtered.map(t=>t.type));
   const typeButtons = TREATMENT_TYPES.map(t=>`<button class="btn small ${presentTypes.has(t)?'':'secondary'}" data-quicktreatment="${t}" title="${presentTypes.has(t)?'Already logged — tap to add another':'Tap to log this'}">${t}${presentTypes.has(t)?' ✓':''}</button>`).join('');
   return `<div class="treatments-box">
-    <div class="row-heading" style="margin-top:0;">Feed &amp; treatments</div>
+    <div class="row-heading" style="margin-top:0;">${heading?escapeHTML(heading):'Feed &amp; treatments'}</div>
     ${recentHTML || (older.length ? '' : '<p class="muted">Nothing logged yet.</p>')}
     ${olderHTML}
     <div class="swatch-row" style="flex-wrap:wrap; margin-top:8px;">${typeButtons}</div></div>`;
@@ -4066,15 +4067,15 @@ function openEditPlanting(bedId, plantingId, kind){
     }
   });
 }
-function openAddTreatment(obj, storeKind, onDone, existingId, cropForSuggestions, plantingId){
+function openAddTreatment(obj, storeKind, onDone, existingId, cropForSuggestions, plantingId, presetType){
   const existing = existingId ? (obj.treatments||[]).find(t=>t.id===existingId) : null;
   const issues = commonIssuesFor(cropForSuggestions);
-  const isCompost = existing ? existing.type==='Compost' : false;
+  const isCompost = existing ? existing.type==='Compost' : presetType==='Compost';
   const sources = compostSourceOptions();
   const sourceOptionsHTML = `<option value="bought" ${existing&&existing.sourceKind==='bought'?'selected':''}>Bought in</option>`
     + sources.map(s=>`<option value="${s.kind}:${s.id}" ${existing&&existing.sourceKind===s.kind&&existing.sourceId===s.id?'selected':''}>${escapeHTML(s.label)}</option>`).join('');
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${existing?'Edit treatment':'Add a treatment'}</h3>
-    <div class="form-row"><div><label>Type</label><select id="mType">${TREATMENT_TYPES.map(t=>`<option ${existing&&existing.type===t?'selected':''}>${t}</option>`).join('')}</select></div></div>
+    <div class="form-row"><div><label>Type</label><select id="mType">${TREATMENT_TYPES.map(t=>`<option ${(existing?existing.type===t:presetType===t)?'selected':''}>${t}</option>`).join('')}</select></div></div>
     <div class="form-row" id="compostSourceRow" style="display:${isCompost?'':'none'};"><div><label>Source</label><select id="mSource">${sourceOptionsHTML}</select></div></div>
     <div class="form-row"><div><label>Name / product (optional)</label><input type="text" id="mNotes" placeholder="e.g. Horse manure, Roundup" value="${existing?escapeAttr(existing.notes||''):''}"></div></div>
     <div class="form-row"><div><label>Why (optional)</label><input type="text" id="mReason" list="reasonSuggestions" placeholder="e.g. aphids, general feed" value="${existing?escapeAttr(existing.reason||''):''}"></div></div>
@@ -4116,9 +4117,14 @@ function openAddTreatment(obj, storeKind, onDone, existingId, cropForSuggestions
     }
   });
 }
-function wireTreatmentRows(obj, storeKind, onDone, cropForSuggestions, plantingId){
-  modalContent.querySelectorAll('[data-edittreatment]').forEach(el=>el.addEventListener('click', ()=> openAddTreatment(obj, storeKind, onDone, el.dataset.edittreatment, cropForSuggestions, plantingId)));
-  modalContent.querySelectorAll('[data-quicktreatment]').forEach(el=>el.addEventListener('click', async ()=>{
+function wireTreatmentRows(obj, storeKind, onDone, cropForSuggestions, plantingId, root){
+  root = root || modalContent;
+  root.querySelectorAll('[data-edittreatment]').forEach(el=>el.addEventListener('click', ()=> openAddTreatment(obj, storeKind, onDone, el.dataset.edittreatment, cropForSuggestions, plantingId)));
+  root.querySelectorAll('[data-quicktreatment]').forEach(el=>el.addEventListener('click', async ()=>{
+    // Compost is the one type where the source is the whole point - instant-logging it with
+    // nothing recorded would defeat the traceability this was built for, so it jumps straight
+    // into the full form (pre-selected) rather than logging blind like the other quick-tap types.
+    if(el.dataset.quicktreatment==='Compost'){ openAddTreatment(obj, storeKind, onDone, null, cropForSuggestions, plantingId, 'Compost'); return; }
     obj.treatments = obj.treatments||[];
     const rec = {id:uid(), type:el.dataset.quicktreatment, date:todayISO(), notes:'', reason:'', by:who(), plantingId};
     obj.treatments.push(rec);
@@ -5127,14 +5133,41 @@ function whereIsCropNow(cropId){
   for(const f of STATE.features) if((f.plantings||[]).some(p=>p.active && p.cropId===cropId)) spots.push(f.label);
   return [...new Set(spots)];
 }
+// One group per physical container currently growing this crop - a bed, a raised bed/container,
+// or an individual tray (trays are grouped separately from each other, not lumped under their
+// host greenhouse/polytunnel, since each tray is its own real container). Used to show this
+// crop's actual treatment history broken out by where it's growing, rather than as one flat list.
+function cropTreatmentGroups(cropId){
+  const groups = [];
+  for(const b of STATE.beds){
+    const ids = (b.plantings||[]).filter(p=>p.active && p.cropId===cropId).map(p=>p.id);
+    if(ids.length) groups.push({obj:b, storeKind:'beds', plantingIds:ids, label:b.name});
+  }
+  for(const f of STATE.features){
+    const ids = (f.plantings||[]).filter(p=>p.active && p.cropId===cropId).map(p=>p.id);
+    if(ids.length) groups.push({obj:f, storeKind:'features', plantingIds:ids, label:f.label||(FEATURE_TYPES[f.type]&&FEATURE_TYPES[f.type].label)||'Container'});
+  }
+  for(const t of STATE.trays){
+    const ids = (t.plantings||[]).filter(p=>p.cropId===cropId).map(p=>p.id);
+    if(ids.length){
+      const host = t.featureId ? featureById(t.featureId) : null;
+      const label = (t.number!=null?('Tray #'+t.number+' — '):'Tray — ') + (host?(host.label||(FEATURE_TYPES[host.type]&&FEATURE_TYPES[host.type].label)):t.location);
+      groups.push({obj:t, storeKind:'trays', plantingIds:ids, label});
+    }
+  }
+  return groups;
+}
 function cropTypeKey(crop){
   const m = matchCrop(crop.name);
   return (m ? m.name : crop.name).toLowerCase();
 }
 const TREATMENT_TYPES = ['Feed','Manure','Compost','Fertiliser','Insecticide','Pesticide','Weedkiller','Other'];
 function treatmentChipsHTML(){
+  // Compost is left out here on purpose - logging it properly needs a source picked, and there's
+  // nowhere sensible to ask that mid-sow. It's still fully available afterward via the quick-tap
+  // row or "+ Add a treatment" on the bed/container itself, both of which ask for the source.
   return `<label style="margin-top:6px;">Treatments used</label>
-    <div class="swatch-row" id="sowTagRow">${TREATMENT_TYPES.map(t=>`<button type="button" class="btn small secondary" data-tag="${t}">${t}</button>`).join('')}</div>`;
+    <div class="swatch-row" id="sowTagRow">${TREATMENT_TYPES.filter(t=>t!=='Compost').map(t=>`<button type="button" class="btn small secondary" data-tag="${t}">${t}</button>`).join('')}</div>`;
 }
 function wireTreatmentChips(container){
   let picked = [];
@@ -5311,7 +5344,6 @@ function renderCropList(){
 }
 function openEditCrop(cropId){
   const c = cropById(cropId); if(!c) return;
-  const tags = c.treatmentTags || [];
   const issues = commonIssuesFor(c);
   function targetDateLabel(daysFromToday){
     if(daysFromToday==null || isNaN(daysFromToday)) return '';
@@ -5325,6 +5357,12 @@ function openEditCrop(cropId){
   const directTarget = targetDateLabel(c.directSowToHarvest);
   const colorSwatches = CROP_COLORS.map(col=>`<div class="swatch ${c.color===col?'picked':''}" data-c="${col}" style="background:${col};"></div>`).join('');
   const spots = whereIsCropNowDetailed(cropId);
+  // Real treatment history, broken out by container - each one keeps its own quick-tap row so a
+  // second (or third) application of the same type, or a different one, is one tap away, and a
+  // type already used shows a tick rather than looking untouched.
+  const treatmentGroups = cropTreatmentGroups(cropId);
+  const groupsHTML = treatmentGroups.map((g,i)=> `<div id="cropTreatGroup${i}" style="margin-top:10px;">${treatmentsSectionHTML(g.obj, g.storeKind, g.plantingIds, g.label)}</div>`).join('')
+    || '<p class="muted" style="margin-top:8px;">Nothing growing yet to log a treatment against.</p>';
   openModal(`<h3>Edit ${escapeHTML(c.name)}</h3>
     ${spots.length?`<label>Growing in</label><div class="btn-row" style="flex-wrap:wrap; margin-bottom:10px;">${spots.map(s=>`<button type="button" class="btn small secondary" data-jump="${s.id}|${s.kind}">${escapeHTML(s.name)}</button>`).join('')}</div>`:''}
     <div class="form-row"><div><label>Name</label><input type="text" id="mName" value="${escapeAttr(c.name)}"></div></div>
@@ -5332,15 +5370,14 @@ function openEditCrop(cropId){
     <div class="timing-row"><input type="number" onfocus="this.select()" id="mSowToPot" value="${c.sowToPotOn??''}" placeholder="—"> days from sowing to planting out${sowToPotTarget?` <span class="timing-target">(${sowToPotTarget})</span>`:''}</div>
     <div class="timing-row"><input type="number" onfocus="this.select()" id="mTransToHarvest" value="${c.transplantToHarvest??''}" placeholder="—"> days from planting out to harvest${(c.sowToPotOn!=null && c.transplantToHarvest!=null)?` <span class="timing-target">(${transTarget})</span>`:''}</div>
     <div class="timing-row"><input type="number" onfocus="this.select()" id="mDirectToHarvest" value="${c.directSowToHarvest??''}" placeholder="—"> days from direct sowing to harvest${directTarget?` <span class="timing-target">(${directTarget})</span>`:''}</div>
-    <details class="timings" style="margin-top:14px;" ${tags.length?'open':''}><summary>Treatments used</summary>
-    <div class="swatch-row" id="tagRow" style="flex-wrap:wrap; margin-top:8px;">${TREATMENT_TYPES.map(t=>`<button type="button" class="btn small ${tags.includes(t)?'':'secondary'}" data-tag="${t}">${t}</button>`).join('')}</div></details>
+    <div class="row-heading" style="margin-top:14px;">Treatments used</div>
+    ${groupsHTML}
     ${issues.length?`<label style="margin-top:10px;">Common issues for this crop (tap to add to notes)</label><div class="swatch-row" id="issueChipRow" style="flex-wrap:wrap;">${issues.map(i=>`<button type="button" class="btn small secondary" data-issue="${escapeAttr(i)}">${escapeHTML(i)}</button>`).join('')}</div>`:''}
     ${c.wikiIssues?`<label style="margin-top:10px;">From Wikipedia (${escapeHTML(c.wikiIssues.sectionTitle)})</label><div class="muted" style="font-size:15px; background:var(--paper); padding:8px 10px; border-radius:6px;">${escapeHTML(c.wikiIssues.text)}</div>`:''}
     <div class="form-row" style="margin-top:14px;"><div><label>Notes (optional)</label><textarea id="mNotes" rows="3" placeholder="e.g. product names, timing, care tips">${escapeHTML(c.notes||'')}</textarea></div></div>
     <label style="margin-top:14px;">Colour</label>
     <div class="swatch-row" id="swRow">${colorSwatches}</div>
     <button class="btn big" id="mSave">Save</button>`, true);
-  let pickedTags = tags.slice();
   let pickedColor = c.color || colorForCropName(c.name);
   modalContent.querySelectorAll('[data-jump]').forEach(b=>b.addEventListener('click', ()=>{
     const [id, kind] = b.dataset.jump.split('|');
@@ -5351,11 +5388,10 @@ function openEditCrop(cropId){
   modalContent.querySelectorAll('.swatch').forEach(s=>s.addEventListener('click', ()=>{
     modalContent.querySelectorAll('.swatch').forEach(x=>x.classList.remove('picked')); s.classList.add('picked'); pickedColor=s.dataset.c;
   }));
-  modalContent.querySelectorAll('[data-tag]').forEach(b=>b.addEventListener('click', ()=>{
-    const t = b.dataset.tag;
-    if(pickedTags.includes(t)){ pickedTags = pickedTags.filter(x=>x!==t); b.classList.add('secondary'); }
-    else { pickedTags.push(t); b.classList.remove('secondary'); }
-  }));
+  treatmentGroups.forEach((g,i)=>{
+    const root = document.getElementById('cropTreatGroup'+i);
+    if(root) wireTreatmentRows(g.obj, g.storeKind, ()=>openEditCrop(cropId), c, g.plantingIds.length===1?g.plantingIds[0]:undefined, root);
+  });
   modalContent.querySelectorAll('[data-issue]').forEach(b=>b.addEventListener('click', ()=>{
     const notesEl = document.getElementById('mNotes');
     const existing = notesEl.value.trim();
@@ -5368,7 +5404,6 @@ function openEditCrop(cropId){
     c.transplantToHarvest = document.getElementById('mTransToHarvest').value===''?null:parseInt(document.getElementById('mTransToHarvest').value);
     c.directSowToHarvest = document.getElementById('mDirectToHarvest').value===''?null:parseInt(document.getElementById('mDirectToHarvest').value);
     c.notes = document.getElementById('mNotes').value.trim();
-    c.treatmentTags = pickedTags;
     await put('crops', c); await afterChange();
     closeModal();
   });
