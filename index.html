@@ -721,7 +721,7 @@ function put(store,obj,preserveTs){
     // beds/features nest their own crops (plantings) and logs (history, treatments) inside
     // them rather than saving each as its own standalone item - stamp those individually too,
     // so a merge can later tell which specific crop or log entry is newer, not just the bed as a whole
-    for(const nested of ['plantings','history','treatments']){
+    for(const nested of ['plantings','history','treatments','contentsLog']){
       if(Array.isArray(obj[nested])) for(const item of obj[nested]) if(item && typeof item==='object') item._ts = obj._ts;
     }
   }
@@ -3340,6 +3340,7 @@ function openObjectDetail(kind,id,type){
   else if(type==='tree') openTreeDetail(id);
   else if(type==='container' || type==='basket') openContainerDetail(id);
   else if(type==='greenhouse' || type==='polytunnel') openStructureDetail(featureById(id));
+  else if(type==='compost' && featureById(id) && featureById(id).dualUseBed) openContainerDetail(id);
   else openFeatureDetail(featureById(id));
 }
 function lockToggleHTML(obj){
@@ -3359,11 +3360,46 @@ function stampHTML(obj){
   if(obj.movedBy && obj.movedBy!==obj.createdBy) bits.push(`last moved by ${escapeHTML(obj.movedBy)}`);
   return bits.length ? `<p class="tiny-muted">${bits.join(' &middot; ')}</p>` : '';
 }
+// Shared between the plain compost-only screen (openFeatureDetail) and the dual-use edit screen
+// reached via openContainerDetail once a bed's been added on top - same crate, same log either
+// way. Kept as free-text entries (date + a few words) rather than a fixed set of ingredient
+// options, since real mixes are ad hoc ("half a barrow of horse manure and last month's bean
+// plants") and a fixed list would just force everything into "Other".
+function compostFieldsHTML(feat){
+  const entries = (feat.contentsLog||[]).slice().sort((a,b)=> b.date.localeCompare(a.date));
+  const logRows = entries.map(e=>`<div class="planting-row"><span class="pname">${escapeHTML(e.note)}</span><span class="pdate">${dayLabel(e.date)}</span></div>
+    <button type="button" class="btn small danger" data-dellog="${e.id}" style="margin:-6px 0 8px;">Remove entry</button>`).join('') || '<p class="muted">Nothing logged yet.</p>';
+  return `<div class="form-row"><div><label>Manure started (optional)</label><input type="date" id="mCreatedDate" value="${feat.createdDate||''}"></div></div>
+    <div class="row-heading">What's gone in</div>
+    ${logRows}
+    <div class="form-row" style="margin-top:6px;"><div><label>Date</label><input type="date" id="mLogDate" value="${todayISO()}"></div><div><label>Added</label><input type="text" id="mLogNote" placeholder="e.g. Horse manure"></div></div>
+    <button type="button" class="btn small secondary" id="mLogAdd" style="margin-bottom:14px;">+ Add to log</button>`;
+}
+// Log entries save and delete immediately, independent of whatever "Save" button the surrounding
+// screen has for the feature's own name/size/colour - same reasoning as treatments elsewhere:
+// each entry is its own event, not a draft waiting on the rest of the form.
+function wireCompostLog(feat, storeKind, onDone){
+  const addBtn = document.getElementById('mLogAdd');
+  if(addBtn) addBtn.addEventListener('click', async ()=>{
+    const note = document.getElementById('mLogNote').value.trim();
+    if(!note) return;
+    const date = document.getElementById('mLogDate').value || todayISO();
+    feat.contentsLog = feat.contentsLog || [];
+    feat.contentsLog.push({id:uid(), date, note});
+    await put(storeKind, feat); await afterChange(); onDone();
+  });
+  modalContent.querySelectorAll('[data-dellog]').forEach(b=>b.addEventListener('click', async ()=>{
+    const id = b.dataset.dellog;
+    feat.contentsLog = (feat.contentsLog||[]).filter(e=>e.id!==id);
+    await recordTombstone(id);
+    await put(storeKind, feat); await afterChange(); onDone();
+  }));
+}
 function openFeatureDetail(feat){
   const info = FEATURE_TYPES[feat.type];
   const featSwatches = BED_COLORS.map(c=>`<div class="swatch ${c===feat.color?'picked':''}" data-c="${c}" style="background:${c};"></div>`).join('');
   const roundToggle = feat.type==='container' ? `<div class="toggle-row"><span>Round</span><label class="switch"><input type="checkbox" id="mRound" ${feat.round?'checked':''}><span class="slider"></span></label></div>` : '';
-  const compostDateRow = feat.type==='compost' ? `<div class="form-row"><div><label>Started (optional)</label><input type="date" id="mCreatedDate" value="${feat.createdDate||''}"></div></div>` : '';
+  const compostDateRow = feat.type==='compost' ? `<div class="toggle-row"><span>Also has a bed on top right now</span><label class="switch"><input type="checkbox" id="mDualUse" ${feat.dualUseBed?'checked':''}><span class="slider"></span></label></div>${compostFieldsHTML(feat)}` : '';
   const capacityRow = feat.type==='water' ? `<div class="form-row"><div><label>Capacity, litres (optional)</label><input type="number" onfocus="this.select()" id="mCapacity" value="${feat.capacityLitres??''}" placeholder="e.g. 200"></div></div>` : '';
   openModal(`<h3>${info.icon} ${escapeHTML(feat.label||info.label)} <span style="display:inline-block; width:16px; height:16px; border-radius:4px; background:${feat.color||BED_COLORS[0]}; vertical-align:-2px;"></span></h3>
     ${stampHTML(feat)}
@@ -3377,6 +3413,7 @@ function openFeatureDetail(feat){
     <div id="nameError" class="muted" style="color:var(--danger,#b33); display:none; margin-bottom:8px;"></div>
     <div class="btn-row"><button class="btn" id="mSave">Save</button><button class="btn danger" id="mDel">Remove this ${escapeHTML(info.label.toLowerCase())} from the map</button></div>`);
   wireLockToggle();
+  if(feat.type==='compost') wireCompostLog(feat, 'features', ()=>openFeatureDetail(feat));
   let pickedColor = feat.color || BED_COLORS[0];
   modalContent.querySelectorAll('.swatch').forEach(s=>s.addEventListener('click', ()=>{
     modalContent.querySelectorAll('.swatch').forEach(x=>x.classList.remove('picked')); s.classList.add('picked'); pickedColor=s.dataset.c;
@@ -3392,7 +3429,10 @@ function openFeatureDetail(feat){
     feat.label=newLabel;
     feat.color = pickedColor;
     if(feat.type==='container') feat.round = document.getElementById('mRound').checked;
-    if(feat.type==='compost') feat.createdDate = document.getElementById('mCreatedDate').value || null;
+    if(feat.type==='compost'){
+      feat.createdDate = document.getElementById('mCreatedDate').value || null;
+      feat.dualUseBed = document.getElementById('mDualUse').checked;
+    }
     if(feat.type==='water') { const v = document.getElementById('mCapacity').value; feat.capacityLitres = v===''?null:parseInt(v); }
     // 0.15 was an arbitrary floor here, tighter than what a thin feature (a path, a fence run)
     // can genuinely need — match the same 0.1m real-world minimum the bed picture canvas now uses,
@@ -3401,7 +3441,10 @@ function openFeatureDetail(feat){
       feat.w = Math.max(0.1, snapMap(cap.w));
       feat.h = Math.max(0.1, snapMap(cap.h)); }
     feat.locked = document.getElementById('mLocked').checked;
-    await put('features',feat); await afterChange(); closeModal();
+    await put('features',feat); await afterChange();
+    // Switching dual-use on takes you straight into the planting screen for the bed that's now
+    // there, rather than back to a map/list view that wouldn't show anything different yet.
+    if(feat.type==='compost' && feat.dualUseBed) openContainerDetail(feat.id); else closeModal();
   });
   document.getElementById('mDel').addEventListener('click', ()=>{
     requireUnlock(async ()=>{ if(await confirmDialog('Remove this from your map?', ()=>openFeatureDetail(feat))){ await del('features',feat.id); await afterChange(); closeModal(); } });
@@ -3465,6 +3508,7 @@ function openContainerDetail(featId, highlightId){
       <span class="muted" style="font-size:15px; white-space:nowrap; margin-top:4px;">${formatArea(bedAreaSqM(feat))}</span>
     </div>
     ${stampHTML(feat)}
+    ${feat.type==='compost' && feat.createdDate ? `<p class="tiny-muted">Composting since ${dayLabel(feat.createdDate)}</p>` : ''}
     <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
     <p class="picture-help">Drag a crop's box to where it is, and its corner to resize it. Tap it for details.</p>
     ${rows}${warn}
@@ -3513,18 +3557,25 @@ function openContainerDetail(featId, highlightId){
   });
   document.getElementById('mSow').addEventListener('click', ()=> openDirectSow(featId, undefined, 'features'));
   document.getElementById('mEdit').addEventListener('click', ()=>{
-    requireUnlock(()=>{
+    requireUnlock(openContainerEditModal);
+  });
+  function openContainerEditModal(){
     const roundToggle = feat.type==='container' ? `<div class="toggle-row"><span>Round</span><label class="switch"><input type="checkbox" id="mRound" ${feat.round?'checked':''}><span class="slider"></span></label></div>` : '';
+    // A dual-use crate can be switched back to compost-only from right here, same place it was
+    // switched on from - no need to hunt for a different screen to undo it.
+    const compostBlock = feat.type==='compost' ? `<div class="toggle-row"><span>Also has a bed on top right now</span><label class="switch"><input type="checkbox" id="mDualUse" ${feat.dualUseBed?'checked':''}><span class="slider"></span></label></div>${compostFieldsHTML(feat)}` : '';
     openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit ${typeLabel}</h3>
       <div class="form-row"><div><label>Name</label><input type="text" id="mName" value="${escapeAttr(feat.label||'')}"></div></div>
       ${dimensionFieldsHTML("mW","mH","Width","Depth", feat.w, feat.h)}
       <label>Colour</label><div class="swatch-row" id="swRow">${swatches}</div>
       ${roundToggle}
+      ${compostBlock}
       ${lockToggleHTML(feat)}
       <div id="nameError" class="muted" style="color:var(--danger,#b33); display:none; margin-bottom:8px;"></div>
       <button class="btn big" id="mSave" style="margin-top:10px;">Save</button>
       <button class="btn danger" id="mDel" style="margin-top:24px;">Remove this ${typeLabel}</button>`, true);
     wireLockToggle();
+    if(feat.type==='compost') wireCompostLog(feat, 'features', openContainerEditModal);
     document.getElementById('mBack').addEventListener('click', ()=>openContainerDetail(featId));
     let picked = feat.color;
     modalContent.querySelectorAll('.swatch').forEach(s=>s.addEventListener('click', ()=>{
@@ -3540,17 +3591,23 @@ function openContainerDetail(featId, highlightId){
       }
       feat.label=newLabel; feat.color=picked;
       if(feat.type==='container') feat.round = document.getElementById('mRound').checked;
+      if(feat.type==='compost'){
+        feat.createdDate = document.getElementById('mCreatedDate').value || null;
+        feat.dualUseBed = document.getElementById('mDualUse').checked;
+      }
       const cap = capToPlotSize(readDimensionField('mW')||feat.w, readDimensionField('mH')||feat.h);
       feat.w = Math.max(0.15, snapMap(cap.w));
       feat.h = Math.max(0.15, snapMap(cap.h));
       feat.locked = document.getElementById('mLocked').checked;
-      await put('features',feat); await afterChange(); closeModal();
+      await put('features',feat); await afterChange();
+      // Switching dual-use off here sends you back to the plain compost screen instead of just
+      // closing, since the planting screen underneath no longer applies to this crate.
+      if(feat.type==='compost' && !feat.dualUseBed) openFeatureDetail(feat); else closeModal();
     });
     document.getElementById('mDel').addEventListener('click', async ()=>{
       if(await confirmDialog(`Remove this ${typeLabel} and everything planted in it?`, ()=>openContainerDetail(featId))){ await del('features',feat.id); await afterChange(); closeModal(); }
     });
-    });
-  });
+  }
 }
 
 function hostedContainersFor(bed){
@@ -6575,7 +6632,7 @@ function mergeItemListById(remoteList, localList, tombstoned){
 function mergeContainerLikeItem(remoteObj, localObj, tombstoned){
   const newer = (localObj._ts||0) >= (remoteObj._ts||0) ? localObj : remoteObj;
   const merged = {...newer};
-  for(const nested of ['plantings','history','treatments']){
+  for(const nested of ['plantings','history','treatments','contentsLog']){
     if(remoteObj[nested] || localObj[nested]) merged[nested] = mergeItemListById(remoteObj[nested], localObj[nested], tombstoned);
   }
   return merged;
