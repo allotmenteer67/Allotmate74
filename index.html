@@ -3340,7 +3340,6 @@ function openObjectDetail(kind,id,type){
   else if(type==='tree') openTreeDetail(id);
   else if(type==='container' || type==='basket') openContainerDetail(id);
   else if(type==='greenhouse' || type==='polytunnel') openStructureDetail(featureById(id));
-  else if(type==='compost' && featureById(id) && featureById(id).dualUseBed) openContainerDetail(id);
   else openFeatureDetail(featureById(id));
 }
 function lockToggleHTML(obj){
@@ -3399,7 +3398,7 @@ function openFeatureDetail(feat){
   const info = FEATURE_TYPES[feat.type];
   const featSwatches = BED_COLORS.map(c=>`<div class="swatch ${c===feat.color?'picked':''}" data-c="${c}" style="background:${c};"></div>`).join('');
   const roundToggle = feat.type==='container' ? `<div class="toggle-row"><span>Round</span><label class="switch"><input type="checkbox" id="mRound" ${feat.round?'checked':''}><span class="slider"></span></label></div>` : '';
-  const compostDateRow = feat.type==='compost' ? `<div class="toggle-row"><span>Also has a bed on top right now</span><label class="switch"><input type="checkbox" id="mDualUse" ${feat.dualUseBed?'checked':''}><span class="slider"></span></label></div>${compostFieldsHTML(feat)}` : '';
+  const compostDateRow = feat.type==='compost' ? compostFieldsHTML(feat) : '';
   const capacityRow = feat.type==='water' ? `<div class="form-row"><div><label>Capacity, litres (optional)</label><input type="number" onfocus="this.select()" id="mCapacity" value="${feat.capacityLitres??''}" placeholder="e.g. 200"></div></div>` : '';
   openModal(`<h3>${info.icon} ${escapeHTML(feat.label||info.label)} <span style="display:inline-block; width:16px; height:16px; border-radius:4px; background:${feat.color||BED_COLORS[0]}; vertical-align:-2px;"></span></h3>
     ${stampHTML(feat)}
@@ -3429,10 +3428,7 @@ function openFeatureDetail(feat){
     feat.label=newLabel;
     feat.color = pickedColor;
     if(feat.type==='container') feat.round = document.getElementById('mRound').checked;
-    if(feat.type==='compost'){
-      feat.createdDate = document.getElementById('mCreatedDate').value || null;
-      feat.dualUseBed = document.getElementById('mDualUse').checked;
-    }
+    if(feat.type==='compost') feat.createdDate = document.getElementById('mCreatedDate').value || null;
     if(feat.type==='water') { const v = document.getElementById('mCapacity').value; feat.capacityLitres = v===''?null:parseInt(v); }
     // 0.15 was an arbitrary floor here, tighter than what a thin feature (a path, a fence run)
     // can genuinely need — match the same 0.1m real-world minimum the bed picture canvas now uses,
@@ -3441,10 +3437,7 @@ function openFeatureDetail(feat){
       feat.w = Math.max(0.1, snapMap(cap.w));
       feat.h = Math.max(0.1, snapMap(cap.h)); }
     feat.locked = document.getElementById('mLocked').checked;
-    await put('features',feat); await afterChange();
-    // Switching dual-use on takes you straight into the planting screen for the bed that's now
-    // there, rather than back to a map/list view that wouldn't show anything different yet.
-    if(feat.type==='compost' && feat.dualUseBed) openContainerDetail(feat.id); else closeModal();
+    await put('features',feat); await afterChange(); closeModal();
   });
   document.getElementById('mDel').addEventListener('click', ()=>{
     requireUnlock(async ()=>{ if(await confirmDialog('Remove this from your map?', ()=>openFeatureDetail(feat))){ await del('features',feat.id); await afterChange(); closeModal(); } });
@@ -3508,7 +3501,7 @@ function openContainerDetail(featId, highlightId){
       <span class="muted" style="font-size:15px; white-space:nowrap; margin-top:4px;">${formatArea(bedAreaSqM(feat))}</span>
     </div>
     ${stampHTML(feat)}
-    ${feat.type==='compost' && feat.createdDate ? `<p class="tiny-muted">Composting since ${dayLabel(feat.createdDate)}</p>` : ''}
+    ${feat.composting && feat.createdDate ? `<p class="tiny-muted">Composting underneath since ${dayLabel(feat.createdDate)}</p>` : ''}
     <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
     <p class="picture-help">Drag a crop's box to where it is, and its corner to resize it. Tap it for details.</p>
     ${rows}${warn}
@@ -3561,21 +3554,33 @@ function openContainerDetail(featId, highlightId){
   });
   function openContainerEditModal(){
     const roundToggle = feat.type==='container' ? `<div class="toggle-row"><span>Round</span><label class="switch"><input type="checkbox" id="mRound" ${feat.round?'checked':''}><span class="slider"></span></label></div>` : '';
-    // A dual-use crate can be switched back to compost-only from right here, same place it was
-    // switched on from - no need to hunt for a different screen to undo it.
-    const compostBlock = feat.type==='compost' ? `<div class="toggle-row"><span>Also has a bed on top right now</span><label class="switch"><input type="checkbox" id="mDualUse" ${feat.dualUseBed?'checked':''}><span class="slider"></span></label></div>${compostFieldsHTML(feat)}` : '';
+    // Most containers/baskets are single-purpose, but some of these are the dual-use crates -
+    // manure rotting underneath a membrane and shop compost. The toggle just flags that and
+    // reveals the same started-date/log fields a plain compost heap has, without changing
+    // anything about how the planter itself works.
+    const compostToggle = (feat.type==='container'||feat.type==='basket') ? `<div class="toggle-row"><span>Composting underneath</span><label class="switch"><input type="checkbox" id="mComposting" ${feat.composting?'checked':''}><span class="slider"></span></label></div>` : '';
+    const compostBlock = (feat.type==='container'||feat.type==='basket') && feat.composting ? compostFieldsHTML(feat) : '';
     openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit ${typeLabel}</h3>
       <div class="form-row"><div><label>Name</label><input type="text" id="mName" value="${escapeAttr(feat.label||'')}"></div></div>
       ${dimensionFieldsHTML("mW","mH","Width","Depth", feat.w, feat.h)}
       <label>Colour</label><div class="swatch-row" id="swRow">${swatches}</div>
       ${roundToggle}
+      ${compostToggle}
       ${compostBlock}
       ${lockToggleHTML(feat)}
       <div id="nameError" class="muted" style="color:var(--danger,#b33); display:none; margin-bottom:8px;"></div>
       <button class="btn big" id="mSave" style="margin-top:10px;">Save</button>
       <button class="btn danger" id="mDel" style="margin-top:24px;">Remove this ${typeLabel}</button>`, true);
     wireLockToggle();
-    if(feat.type==='compost') wireCompostLog(feat, 'features', openContainerEditModal);
+    if(feat.type==='container'||feat.type==='basket') wireCompostLog(feat, 'features', openContainerEditModal);
+    const compostingEl = document.getElementById('mComposting');
+    // Saves and re-renders immediately, same as the log entries - this is what shows or hides
+    // the log section itself, so it has to take effect straight away rather than waiting on
+    // the main Save button below.
+    if(compostingEl) compostingEl.addEventListener('change', async ()=>{
+      feat.composting = compostingEl.checked;
+      await put('features', feat); await afterChange(); openContainerEditModal();
+    });
     document.getElementById('mBack').addEventListener('click', ()=>openContainerDetail(featId));
     let picked = feat.color;
     modalContent.querySelectorAll('.swatch').forEach(s=>s.addEventListener('click', ()=>{
@@ -3591,18 +3596,12 @@ function openContainerDetail(featId, highlightId){
       }
       feat.label=newLabel; feat.color=picked;
       if(feat.type==='container') feat.round = document.getElementById('mRound').checked;
-      if(feat.type==='compost'){
-        feat.createdDate = document.getElementById('mCreatedDate').value || null;
-        feat.dualUseBed = document.getElementById('mDualUse').checked;
-      }
+      if((feat.type==='container'||feat.type==='basket') && feat.composting) feat.createdDate = document.getElementById('mCreatedDate').value || null;
       const cap = capToPlotSize(readDimensionField('mW')||feat.w, readDimensionField('mH')||feat.h);
       feat.w = Math.max(0.15, snapMap(cap.w));
       feat.h = Math.max(0.15, snapMap(cap.h));
       feat.locked = document.getElementById('mLocked').checked;
-      await put('features',feat); await afterChange();
-      // Switching dual-use off here sends you back to the plain compost screen instead of just
-      // closing, since the planting screen underneath no longer applies to this crate.
-      if(feat.type==='compost' && !feat.dualUseBed) openFeatureDetail(feat); else closeModal();
+      await put('features',feat); await afterChange(); closeModal();
     });
     document.getElementById('mDel').addEventListener('click', async ()=>{
       if(await confirmDialog(`Remove this ${typeLabel} and everything planted in it?`, ()=>openContainerDetail(featId))){ await del('features',feat.id); await afterChange(); closeModal(); }
@@ -3660,6 +3659,7 @@ function openBedDetail(bedId, highlightId){
       <span class="muted" style="font-size:15px; white-space:nowrap; margin-top:4px;">${formatArea(bedAreaSqM(bed))}</span>
     </div>
     ${stampHTML(bed)}
+    ${bed.raised && bed.composting && bed.createdDate ? `<p class="tiny-muted">Composting underneath since ${dayLabel(bed.createdDate)}</p>` : ''}
     <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
     <p class="picture-help">Drag a crop's box to where it is, and its corner to resize it. Tap it for details.</p>
     ${rows}${hostedHTML}${warn}
@@ -3706,17 +3706,31 @@ function openBedDetail(bedId, highlightId){
   document.getElementById('mAddPath').addEventListener('click', ()=> openDirectSow(bedId, 'Path'));
   document.getElementById('mMarkFallow').addEventListener('click', ()=> openDirectSow(bedId, 'Fallow'));
   document.getElementById('mEdit').addEventListener('click', ()=>{
-    requireUnlock(()=>{
+    requireUnlock(openBedEditModal);
+  });
+  function openBedEditModal(){
+    // Ordinary in-ground beds don't get this - only raised beds are ever one of the dual-use
+    // crates with manure rotting underneath.
+    const compostToggle = bed.raised ? `<div class="toggle-row"><span>Composting underneath</span><label class="switch"><input type="checkbox" id="mComposting" ${bed.composting?'checked':''}><span class="slider"></span></label></div>` : '';
+    const compostBlock = bed.raised && bed.composting ? compostFieldsHTML(bed) : '';
     openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit bed</h3>
       <div class="form-row"><div><label>Name</label><input type="text" id="mName" value="${escapeAttr(bed.name)}"></div></div>
       ${dimensionFieldsHTML("mW","mH","Width","Depth", bed.w, bed.h)}
       ${lockToggleHTML(bed)}
       <div class="btn-row"><button class="btn secondary" id="mReshapeBed">${bed.shape?'Change bed shape':'Not a plain rectangle? Reshape it'}</button></div>
       <label style="margin-top:14px;">Colour</label><div class="swatch-row" id="swRow">${swatches}</div>
+      ${compostToggle}
+      ${compostBlock}
       <div id="nameError" class="muted" style="color:var(--danger,#b33); display:none; margin-bottom:8px;"></div>
       <button class="btn big" id="mSave" style="margin-top:10px;">Save</button>
       <button class="btn danger" id="mDel" style="margin-top:24px;">Remove this bed</button>`, true);
     wireLockToggle();
+    if(bed.raised) wireCompostLog(bed, 'beds', openBedEditModal);
+    const compostingEl = document.getElementById('mComposting');
+    if(compostingEl) compostingEl.addEventListener('change', async ()=>{
+      bed.composting = compostingEl.checked;
+      await put('beds', bed); await afterChange(); openBedEditModal();
+    });
     document.getElementById('mBack').addEventListener('click', ()=>openBedDetail(bedId));
     document.getElementById('mReshapeBed').addEventListener('click', ()=> openBedShapeEditor(bedId));
     let picked = bed.color;
@@ -3737,14 +3751,14 @@ function openBedDetail(bedId, highlightId){
       const newH = Math.max(0.3, snapMap(cap.h));
       if(bed.shape && (newW!==bed.w || newH!==bed.h)) bed.shape = scaleLocalShape(bed.shape, bed.w, bed.h, newW, newH);
       bed.w = newW; bed.h = newH;
+      if(bed.raised && bed.composting) bed.createdDate = document.getElementById('mCreatedDate').value || null;
       bed.locked = document.getElementById('mLocked').checked;
       await put('beds',bed); await afterChange(); closeModal();
     });
     document.getElementById('mDel').addEventListener('click', async ()=>{
       if(await confirmDialog('Remove this bed and everything planted in it?', ()=>openBedDetail(bedId))){ await del('beds',bed.id); await afterChange(); closeModal(); }
     });
-    });
-  });
+  }
 }
 function openPlantingInfo(bedId, plantingId, kind){
   kind = kind || 'beds';
@@ -4708,11 +4722,14 @@ function openAddContainer(feat, tierId){
   const opts = allContainerSizeOptions().map(p=>`<button class="type-opt" data-w="${p.w}" data-h="${p.h}"><span class="icon">🪴</span>${escapeHTML(p.label)}</button>`).join('')
     + `<button class="type-opt" id="mRepeatLast" ${lastContainerSize?'':'style="display:none;"'}><span class="icon">🔁</span>Same as last</button>`
     + `<button class="type-opt" id="mCustomSize"><span class="icon">📐</span>Custom size</button>`;
-  openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>What size tray or pot?</h3><div class="type-grid">${opts}</div>`);
+  const manageBtn = (STATE.settings.customContainerSizes||[]).length ? `<button type="button" class="btn small secondary" id="mManageSizes" style="margin-bottom:14px;">Manage custom sizes</button>` : '';
+  openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>What size tray or pot?</h3><div class="type-grid">${opts}</div>${manageBtn}`);
   document.getElementById('mBack').addEventListener('click', ()=> openStructureDetail(feat));
   modalContent.querySelectorAll('[data-w]').forEach(b=>b.addEventListener('click', ()=> createEmptyContainer(feat, tierId, parseFloat(b.dataset.w), parseFloat(b.dataset.h))));
   const repeatBtn = document.getElementById('mRepeatLast');
   if(repeatBtn) repeatBtn.addEventListener('click', ()=>{ if(lastContainerSize) createEmptyContainer(feat, tierId, lastContainerSize.w, lastContainerSize.h); });
+  const manageEl = document.getElementById('mManageSizes');
+  if(manageEl) manageEl.addEventListener('click', ()=> openManageContainerSizes(feat, tierId));
   document.getElementById('mCustomSize').addEventListener('click', ()=>{
     openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Custom size</h3>
       ${dimensionFieldsHTML("mW","mH","Width","Depth", 0.3, 0.2)}
@@ -4724,6 +4741,17 @@ function openAddContainer(feat, tierId){
       createEmptyContainer(feat, tierId, w, h);
     });
   });
+}
+function openManageContainerSizes(feat, tierId){
+  const list = STATE.settings.customContainerSizes||[];
+  const rows = list.map(s=>`<div class="planting-row"><span class="pname">${escapeHTML(s.label)}</span><button class="btn small danger" data-delsize="${escapeAttr(s.label)}">Remove</button></div>`).join('') || '<p class="muted">No custom sizes saved.</p>';
+  openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Custom tray/pot sizes</h3>${rows}`, true);
+  document.getElementById('mBack').addEventListener('click', ()=> openAddContainer(feat, tierId));
+  modalContent.querySelectorAll('[data-delsize]').forEach(b=>b.addEventListener('click', async ()=>{
+    STATE.settings.customContainerSizes = (STATE.settings.customContainerSizes||[]).filter(s=>s.label!==b.dataset.delsize);
+    await setMeta('customContainerSizes', STATE.settings.customContainerSizes);
+    openManageContainerSizes(feat, tierId);
+  }));
 }
 async function createEmptyContainer(feat, tierId, w, h){
   lastContainerSize = {w,h};
