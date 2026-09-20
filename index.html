@@ -3406,12 +3406,25 @@ function compostSourceOptions(){
   STATE.beds.forEach(b=>{ if(b.raised && b.composting) list.push({kind:'bed', id:b.id, label:b.name}); });
   return list;
 }
+// Shared label for wherever a crop or a compost trace might be growing - a bed's own name, a
+// container/basket/heap's label, or (for a tray) its number plus whichever greenhouse/polytunnel
+// it's sitting in, since a tray has no name of its own.
+function objectDisplayLabel(obj, storeKind){
+  if(storeKind==='beds') return obj.name;
+  if(storeKind==='trays'){
+    const host = obj.featureId ? featureById(obj.featureId) : null;
+    return (obj.number!=null?('Tray #'+obj.number+' — '):'Tray — ') + (host?(host.label||(FEATURE_TYPES[host.type]&&FEATURE_TYPES[host.type].label)):obj.location);
+  }
+  return obj.label||(FEATURE_TYPES[obj.type]&&FEATURE_TYPES[obj.type].label)||'Container';
+}
 // The reverse lookup: given one compost source, every Compost treatment anywhere that named it,
 // newest first - this is what makes a problem in a batch traceable to exactly what it went on,
-// rather than just recording the source one-way on the treatment itself.
+// rather than just recording the source one-way on the treatment itself. Scans beds, containers/
+// baskets/heaps AND individual trays/pots - a treatment logged from a crop's own Crops-tab entry
+// often lands on a tray specifically, so leaving trays out would silently miss those.
 function compostUsedOnUsages(sourceKind, sourceId){
   const usages = [];
-  function scan(objList){
+  function scan(objList, storeKind){
     objList.forEach(obj=>{
       (obj.treatments||[]).forEach(t=>{
         if(t.type==='Compost' && t.sourceKind===sourceKind && t.sourceId===sourceId){
@@ -3420,13 +3433,14 @@ function compostUsedOnUsages(sourceKind, sourceId){
             const p = (obj.plantings||[]).find(pp=>pp.id===t.plantingId);
             if(p){ const c=cropById(p.cropId); cropName = c?c.name:null; }
           }
-          usages.push({date:t.date, place: obj.name||obj.label||'Somewhere', cropName});
+          usages.push({date:t.date, place: objectDisplayLabel(obj, storeKind), cropName});
         }
       });
     });
   }
-  scan(STATE.beds);
-  scan(STATE.features);
+  scan(STATE.beds, 'beds');
+  scan(STATE.features, 'features');
+  scan(STATE.trays, 'trays');
   return usages.sort((a,b)=> b.date.localeCompare(a.date));
 }
 function compostUsedOnHTML(sourceKind, sourceId){
@@ -5141,19 +5155,15 @@ function cropTreatmentGroups(cropId){
   const groups = [];
   for(const b of STATE.beds){
     const ids = (b.plantings||[]).filter(p=>p.active && p.cropId===cropId).map(p=>p.id);
-    if(ids.length) groups.push({obj:b, storeKind:'beds', plantingIds:ids, label:b.name});
+    if(ids.length) groups.push({obj:b, storeKind:'beds', plantingIds:ids, label:objectDisplayLabel(b,'beds')});
   }
   for(const f of STATE.features){
     const ids = (f.plantings||[]).filter(p=>p.active && p.cropId===cropId).map(p=>p.id);
-    if(ids.length) groups.push({obj:f, storeKind:'features', plantingIds:ids, label:f.label||(FEATURE_TYPES[f.type]&&FEATURE_TYPES[f.type].label)||'Container'});
+    if(ids.length) groups.push({obj:f, storeKind:'features', plantingIds:ids, label:objectDisplayLabel(f,'features')});
   }
   for(const t of STATE.trays){
     const ids = (t.plantings||[]).filter(p=>p.cropId===cropId).map(p=>p.id);
-    if(ids.length){
-      const host = t.featureId ? featureById(t.featureId) : null;
-      const label = (t.number!=null?('Tray #'+t.number+' — '):'Tray — ') + (host?(host.label||(FEATURE_TYPES[host.type]&&FEATURE_TYPES[host.type].label)):t.location);
-      groups.push({obj:t, storeKind:'trays', plantingIds:ids, label});
-    }
+    if(ids.length) groups.push({obj:t, storeKind:'trays', plantingIds:ids, label:objectDisplayLabel(t,'trays')});
   }
   return groups;
 }
