@@ -4240,7 +4240,11 @@ function openStructureDetail(feat, highlightTrayId){
   const allTrays = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===locName) && (t.tierId||tiers[0].id)===tierId);
   const everyTierTrays = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===locName));
 
-  const tierRow = tiers.length>1 ? `<div class="tier-row">${tiers.map(t=>`<button class="tier-pill ${t.id===tierId?'active':''}" data-tier="${t.id}">${escapeHTML(t.label)}</button>`).join('')}<button class="tier-pill" id="btnAddTier">+ Staging</button></div>` : `<button class="btn small secondary" id="btnAddTier" style="margin-bottom:10px;">+ Add staging / shelf</button>`;
+  const tierRow = tiers.length>1 ? `<div class="tier-row">${tiers.map(t=>`<button class="tier-pill ${t.id===tierId?'active':''}" data-tier="${t.id}">${escapeHTML(t.label)}</button>`).join('')}</div>` : '';
+  // Pulled out of the level-switcher row (and, for a single-level structure, off its own line
+  // up top) down into the bottom action row alongside the two other "manage this structure"
+  // buttons - it's tapped rarely enough that it doesn't need prime real estate near the trays.
+  const addTierBtnHTML = `<button class="btn small secondary" id="btnAddTier">${tiers.length>1?'+ Staging':'+ Add staging / shelf'}</button>`;
 
   const listSource = tiers.length>1 ? everyTierTrays : allTrays;
   const sortMode = traySortMode[feat.id] || 'num';
@@ -4316,12 +4320,12 @@ function openStructureDetail(feat, highlightTrayId){
     ${tierRow}
     ${tiers.length>1?`<p class="viewing-tier">Viewing: <strong>${escapeHTML(tier.label)}</strong></p>`:''}
     <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
-    <div class="btn-row"><button class="btn small" id="mSow">Sow something</button><button class="btn small secondary" id="mAddPot">Add a tray/pot</button></div>
+    <div class="btn-row"><button class="btn small" id="mSow" style="flex:1;">Sow something</button><button class="btn small secondary" id="mAddPot" style="flex:1;">Add a tray/pot</button></div>
     <p class="picture-help">${tiers.length>1?'Drag a tray up onto another level\'s tab to move it there. ':''}Drag a tray's box to where it sits, and its corner to resize it. Tap it for details.</p>
     <div class="tray-list">${rows}</div>
     ${findTrayRowHTML}
     ${sortRowHTML}
-    <div class="btn-row">${tierId!=='ground'?'<button class="btn secondary" id="mEditTier">Edit this staging</button>':''}<button class="btn secondary" id="mEdit">Edit ${escapeHTML(info.label.toLowerCase())}</button></div>`, true);
+    <div class="btn-row">${tierId!=='ground'?'<button class="btn small secondary" id="mEditTier">Edit staging</button>':''}<button class="btn small secondary" id="mEdit">Edit ${escapeHTML(info.label.toLowerCase())}</button>${addTierBtnHTML}</div>`, true);
 
   modalContent.querySelectorAll('.sort-row [data-sort]').forEach(b=>b.addEventListener('click', ()=>{ traySortMode[feat.id]=b.dataset.sort; openStructureDetail(feat, highlightTrayId); }));
   document.getElementById('mAddPot').addEventListener('click', ()=> openAddContainer(feat, tierId));
