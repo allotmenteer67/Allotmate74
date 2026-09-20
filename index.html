@@ -4240,7 +4240,24 @@ function openStructureDetail(feat, highlightTrayId){
   const allTrays = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===locName) && (t.tierId||tiers[0].id)===tierId);
   const everyTierTrays = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===locName));
 
-  const tierRow = tiers.length>1 ? `<div class="tier-row">${tiers.map(t=>`<button class="tier-pill ${t.id===tierId?'active':''}" data-tier="${t.id}">${escapeHTML(t.label)}</button>`).join('')}</div>` : '';
+  // Grouped by structural position rather than by matching the words "North"/"South" - a
+  // future tunnel running the other way round would have East/West staging instead, and this
+  // still lines them up correctly since it only looks for "upper"/"lower" in the label. Each
+  // group gets its own row so the pairing holds regardless of how the pill text happens to wrap,
+  // rather than relying on flex-wrap to land exactly two per line. Anything that's neither
+  // upper nor lower (a custom label like "Middle shelf") gets its own row too, ahead of Ground,
+  // which always sits alone on the last line.
+  const tierRow = (()=>{
+    if(tiers.length<=1) return '';
+    const ground = tiers.find(t=>t.id==='ground');
+    const rest = tiers.filter(t=>t.id!=='ground');
+    const uppers = rest.filter(t=>/upper/i.test(t.label));
+    const lowers = rest.filter(t=>/lower/i.test(t.label));
+    const others = rest.filter(t=>!/upper/i.test(t.label) && !/lower/i.test(t.label));
+    const pillHTML = (t)=>`<button class="tier-pill ${t.id===tierId?'active':''}" data-tier="${t.id}">${escapeHTML(t.label)}</button>`;
+    const rowHTML = (group)=> group.length ? `<div class="tier-row">${group.map(pillHTML).join('')}</div>` : '';
+    return rowHTML(uppers) + rowHTML(lowers) + rowHTML(others) + (ground ? rowHTML([ground]) : '');
+  })();
   // Pulled out of the level-switcher row (and, for a single-level structure, off its own line
   // up top) down into the bottom action row alongside the two other "manage this structure"
   // buttons - it's tapped rarely enough that it doesn't need prime real estate near the trays.
