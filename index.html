@@ -718,10 +718,13 @@ function getAll(store){ return new Promise((res,rej)=>{ const r=txStore(store).g
 function put(store,obj,preserveTs){
   if(!preserveTs && store!=='meta' && obj && typeof obj==='object'){
     obj._ts = Date.now();
-    // beds/features nest their own crops (plantings) and logs (history, treatments) inside
-    // them rather than saving each as its own standalone item - stamp those individually too,
-    // so a merge can later tell which specific crop or log entry is newer, not just the bed as a whole
-    for(const nested of ['plantings','history','treatments','contentsLog']){
+    // beds/features nest their own crops (plantings) and logs (history, treatments, compost
+    // batches) inside them rather than saving each as its own standalone item - stamp those
+    // individually too, so a merge can later tell which specific one is newer, not just the bed
+    // as a whole. A compost batch's own contentsLog isn't stamped a level deeper than that - two
+    // devices editing the very same still-open batch while both offline is rare enough, for how
+    // this is actually used, that whole-batch last-write-wins is an acceptable simplification.
+    for(const nested of ['plantings','history','treatments','compostBatches']){
       if(Array.isArray(obj[nested])) for(const item of obj[nested]) if(item && typeof item==='object') item._ts = obj._ts;
     }
   }
@@ -1515,9 +1518,24 @@ function who(){ return STATE.settings.gardenerName || undefined; }
 async function loadAll(){
   STATE.crops = await getAll('crops');
   STATE.beds = await getAll('beds');
+  for(const b of STATE.beds){
+    if(!b.compostBatches && b.composting && (b.createdDate || (b.contentsLog&&b.contentsLog.length))){
+      b.compostBatches = [{id:uid(), startDate:b.createdDate||null, endDate:null, contentsLog:b.contentsLog||[]}];
+      b.createdDate = undefined; b.contentsLog = undefined;
+      await put('beds', b);
+    }
+  }
   STATE.features = await getAll('features');
   for(const f of STATE.features){
     if(f.type==='gate'){ f.type='container'; await put('features', f); }
+    // One-time migration: composting used to be tracked as a single ongoing date/log on the
+    // object itself. Real compost gets used up and refilled, so it's now a series of batches -
+    // whatever was already there becomes batch one, keeping its exact date and log.
+    if(!f.compostBatches && (f.type==='compost' || f.composting) && (f.createdDate || (f.contentsLog&&f.contentsLog.length))){
+      f.compostBatches = [{id:uid(), startDate:f.createdDate||null, endDate:null, contentsLog:f.contentsLog||[]}];
+      f.createdDate = undefined; f.contentsLog = undefined;
+      await put('features', f);
+    }
   }
   STATE.trays = await getAll('trays');
   for(const t of STATE.trays){
@@ -3359,52 +3377,122 @@ function stampHTML(obj){
   if(obj.movedBy && obj.movedBy!==obj.createdBy) bits.push(`last moved by ${escapeHTML(obj.movedBy)}`);
   return bits.length ? `<p class="tiny-muted">${bits.join(' &middot; ')}</p>` : '';
 }
-// Shared between the plain compost-only screen (openFeatureDetail) and the dual-use edit screen
-// reached via openContainerDetail once a bed's been added on top - same crate, same log either
-// way. Kept as free-text entries (date + a few words) rather than a fixed set of ingredient
-// options, since real mixes are ad hoc ("half a barrow of horse manure and last month's bean
-// plants") and a fixed list would just force everything into "Other".
-function compostFieldsHTML(feat){
-  const entries = (feat.contentsLog||[]).slice().sort((a,b)=> b.date.localeCompare(a.date));
+// Always includes the year, unlike dayLabel elsewhere - a compost batch routinely spans more
+// than a year, so dropping the year (dayLabel's usual habit for anything in the current year)
+// would make two different batches look identical at a glance, which is exactly the ambiguity
+// this whole batch system exists to avoid.
+function fullDateLabel(iso){
+  if(!iso) return '';
+  const d = new Date(iso+'T00:00:00');
+  return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+}
+// A crate or heap's compost history is a series of batches, not one ongoing thing - emptying it
+// out and refilling starts a fresh batch with its own dates and its own log, so a treatment can
+// always be traced to the specific batch that was actually spread rather than "whatever's in
+// there now", which days after a refill is almost never what's actually being used.
+function currentCompostBatch(obj){
+  obj.compostBatches = obj.compostBatches || [];
+  let open = obj.compostBatches.find(b=>!b.endDate);
+  if(!open){ open = {id:uid(), startDate:null, endDate:null, contentsLog:[]}; obj.compostBatches.push(open); }
+  return open;
+}
+// Read-only peek at the open batch, for a summary line that just wants to show a date if there
+// is one - never creates a batch as a side effect of merely being displayed, unlike
+// currentCompostBatch above which is for screens that are actually about to edit one.
+function openCompostBatchOf(obj){ return (obj.compostBatches||[]).find(b=>!b.endDate) || null; }
+function compostBatchLabel(batch){
+  if(batch.endDate) return `${fullDateLabel(batch.startDate)} to ${fullDateLabel(batch.endDate)}`;
+  return batch.startDate ? `since ${fullDateLabel(batch.startDate)}` : 'not yet started';
+}
+// Shared between the plain compost-only screen (openFeatureDetail) and the dual-use Composting
+// screen reached from a container/basket/raised bed - same crate, same log either way. Kept as
+// free-text entries (date + a few words) rather than a fixed set of ingredient options, since
+// real mixes are ad hoc ("half a barrow of horse manure and last month's bean plants") and a
+// fixed list would just force everything into "Other".
+function compostFieldsHTML(obj){
+  const batch = currentCompostBatch(obj);
+  const entries = (batch.contentsLog||[]).slice().sort((a,b)=> b.date.localeCompare(a.date));
   const logRows = entries.map(e=>`<div class="planting-row"><span class="pname">${escapeHTML(e.note)}</span><span class="pdate">${dayLabel(e.date)}</span></div>
     <button type="button" class="btn small danger" data-dellog="${e.id}" style="margin:-6px 0 8px;">Remove entry</button>`).join('') || '<p class="muted">Nothing logged yet.</p>';
-  return `<div class="form-row"><div><label>Manure started (optional)</label><input type="date" id="mCreatedDate" value="${feat.createdDate||''}"></div></div>
+  const pastBatches = (obj.compostBatches||[]).filter(b=>b.id!==batch.id && b.endDate).sort((a,b)=> (b.endDate||'').localeCompare(a.endDate||''));
+  const pastHTML = pastBatches.length ? `<div class="row-heading">Past batches</div>${pastBatches.map(b=>`<div class="planting-row" style="cursor:pointer;" data-viewbatch="${b.id}"><span class="pname">${escapeHTML(compostBatchLabel(b))}</span></div>`).join('')}` : '';
+  return `<div class="form-row"><div><label>Manure started (optional)</label><input type="date" id="mCreatedDate" value="${batch.startDate||''}"></div></div>
     <div class="row-heading">What's gone in</div>
     ${logRows}
     <div class="form-row" style="margin-top:6px;"><div><label>Date</label><input type="date" id="mLogDate" value="${todayISO()}"></div><div><label>Added</label><input type="text" id="mLogNote" placeholder="e.g. Horse manure"></div></div>
-    <button type="button" class="btn small secondary" id="mLogAdd" style="margin-bottom:14px;">+ Add to log</button>`;
+    <div class="btn-row" style="margin-bottom:14px;">
+      <button type="button" class="btn small secondary" id="mLogAdd">+ Add to log</button>
+      <button type="button" class="btn small secondary" id="mNewBatch">Start a new batch</button>
+    </div>
+    ${pastHTML}`;
 }
-// Log entries save and delete immediately, independent of whatever "Save" button the surrounding
-// screen has for the feature's own name/size/colour - same reasoning as treatments elsewhere:
-// each entry is its own event, not a draft waiting on the rest of the form.
-function wireCompostLog(feat, storeKind, onDone){
+// Everything compostFieldsHTML renders that needs wiring up - the date, the log's add/remove,
+// starting a new batch, and jumping into a past one. Kept as one function since they all act on
+// the same current batch and all save/re-render immediately, independent of whatever "Save"
+// button the surrounding screen has for the object's own name/size/colour.
+function wireCompostFields(obj, storeKind, onDone){
+  const batch = currentCompostBatch(obj);
+  const dateEl = document.getElementById('mCreatedDate');
+  if(dateEl) dateEl.addEventListener('change', async ()=>{
+    batch.startDate = dateEl.value || null;
+    await put(storeKind, obj); await afterChange();
+  });
   const addBtn = document.getElementById('mLogAdd');
   if(addBtn) addBtn.addEventListener('click', async ()=>{
     const note = document.getElementById('mLogNote').value.trim();
     if(!note) return;
     const date = document.getElementById('mLogDate').value || todayISO();
-    feat.contentsLog = feat.contentsLog || [];
-    feat.contentsLog.push({id:uid(), date, note});
-    await put(storeKind, feat); await afterChange(); onDone();
+    batch.contentsLog = batch.contentsLog || [];
+    batch.contentsLog.push({id:uid(), date, note});
+    await put(storeKind, obj); await afterChange(); onDone();
   });
   modalContent.querySelectorAll('[data-dellog]').forEach(b=>b.addEventListener('click', async ()=>{
     const id = b.dataset.dellog;
-    feat.contentsLog = (feat.contentsLog||[]).filter(e=>e.id!==id);
+    batch.contentsLog = (batch.contentsLog||[]).filter(e=>e.id!==id);
     await recordTombstone(id);
-    await put(storeKind, feat); await afterChange(); onDone();
+    await put(storeKind, obj); await afterChange(); onDone();
+  }));
+  const newBatchBtn = document.getElementById('mNewBatch');
+  if(newBatchBtn) newBatchBtn.addEventListener('click', async ()=>{
+    if(await confirmDialog("Start a new batch? Today's date closes off the current one - its log and \"Used on\" history stay exactly as they are, just filed away as a past batch.")){
+      batch.endDate = todayISO();
+      obj.compostBatches.push({id:uid(), startDate:todayISO(), endDate:null, contentsLog:[]});
+      await put(storeKind, obj); await afterChange(); onDone();
+    }
+  });
+  modalContent.querySelectorAll('[data-viewbatch]').forEach(b=>b.addEventListener('click', ()=>{
+    const past = (obj.compostBatches||[]).find(x=>x.id===b.dataset.viewbatch);
+    if(past) openCompostBatchDetail(past, onDone);
   }));
 }
-// Every current source of home-made compost - plain heaps, plus any container/basket or raised
-// bed with "Composting underneath" switched on - offered as a pick when logging a Compost
-// treatment, so a batch can be traced back to exactly where it came from.
+// A closed batch's own read-only view - its log exactly as it was left, plus its own "Used on"
+// trace. Kept separate from the current batch's screen so an old batch can never be mistaken for
+// what's actually in the crate right now.
+function openCompostBatchDetail(batch, backFn){
+  const entries = (batch.contentsLog||[]).slice().sort((a,b)=> b.date.localeCompare(a.date));
+  const logRows = entries.map(e=>`<div class="planting-row"><span class="pname">${escapeHTML(e.note)}</span><span class="pdate">${dayLabel(e.date)}</span></div>`).join('') || '<p class="muted">Nothing logged.</p>';
+  openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${escapeHTML(compostBatchLabel(batch))}</h3>
+    <div class="row-heading">What went in</div>${logRows}
+    ${compostUsedOnHTML(batch.id)}`, true);
+  document.getElementById('mBack').addEventListener('click', backFn);
+  wireCompostUsedOn();
+}
+// Every batch, past and current, from every compost source - plain heaps, plus any container/
+// basket or raised bed with "Composting underneath" switched on. Listed explicitly by its own
+// date range rather than guessing which one's "current", since the compost actually being spread
+// is almost always an old, finished batch, not whatever's just gone in. Newest batch first within
+// each source, sources ordered by their own most recent batch.
 function compostSourceOptions(){
-  const list = [];
+  const crates = [];
   STATE.features.forEach(f=>{
-    if(f.type==='compost') list.push({kind:'feature', id:f.id, label:f.label||FEATURE_TYPES[f.type].label});
-    else if((f.type==='container'||f.type==='basket') && f.composting) list.push({kind:'feature', id:f.id, label:f.label||FEATURE_TYPES[f.type].label});
+    if(f.type==='compost' || ((f.type==='container'||f.type==='basket') && f.composting)) crates.push({kind:'feature', id:f.id, label:f.label||FEATURE_TYPES[f.type].label, obj:f});
   });
-  STATE.beds.forEach(b=>{ if(b.raised && b.composting) list.push({kind:'bed', id:b.id, label:b.name}); });
-  return list;
+  STATE.beds.forEach(b=>{ if(b.raised && b.composting) crates.push({kind:'bed', id:b.id, label:b.name, obj:b}); });
+  const groups = crates.map(c=>({...c, batches:(c.obj.compostBatches||[]).slice().sort((a,b)=> (b.startDate||'').localeCompare(a.startDate||''))})).filter(g=>g.batches.length);
+  groups.sort((a,b)=> (b.batches[0].startDate||'').localeCompare(a.batches[0].startDate||''));
+  const options = [];
+  groups.forEach(g=> g.batches.forEach(batch=> options.push({sourceKind:g.kind, sourceId:g.id, batchId:batch.id, label:`${g.label} — ${compostBatchLabel(batch)}`})));
+  return options;
 }
 // Shared label for wherever a crop or a compost trace might be growing - a bed's own name, a
 // container/basket/heap's label, or (for a tray) its number plus whichever greenhouse/polytunnel
@@ -3417,17 +3505,18 @@ function objectDisplayLabel(obj, storeKind){
   }
   return obj.label||(FEATURE_TYPES[obj.type]&&FEATURE_TYPES[obj.type].label)||'Container';
 }
-// The reverse lookup: given one compost source, every Compost treatment anywhere that named it,
-// newest first - this is what makes a problem in a batch traceable to exactly what it went on,
-// rather than just recording the source one-way on the treatment itself. Scans beds, containers/
-// baskets/heaps AND individual trays/pots - a treatment logged from a crop's own Crops-tab entry
-// often lands on a tray specifically, so leaving trays out would silently miss those.
-function compostUsedOnUsages(sourceKind, sourceId){
+// The reverse lookup: given one specific batch, every Compost treatment anywhere that named it,
+// newest first - this is what makes a problem traceable to exactly what it went on, rather than
+// just recording the source one-way on the treatment itself. Matched purely by batch id, so
+// refilling the same crate and starting a new batch can never pull in an old batch's history.
+// Scans beds, containers/baskets/heaps AND individual trays/pots - a treatment logged from a
+// crop's own Crops-tab entry often lands on a tray specifically.
+function compostUsedOnUsages(batchId){
   const usages = [];
   function scan(objList, storeKind){
     objList.forEach(obj=>{
       (obj.treatments||[]).forEach(t=>{
-        if(t.type==='Compost' && t.sourceKind===sourceKind && t.sourceId===sourceId){
+        if(t.type==='Compost' && t.batchId===batchId){
           let cropName = null;
           if(t.plantingId){
             const p = (obj.plantings||[]).find(pp=>pp.id===t.plantingId);
@@ -3443,8 +3532,8 @@ function compostUsedOnUsages(sourceKind, sourceId){
   scan(STATE.trays, 'trays');
   return usages.sort((a,b)=> b.date.localeCompare(a.date));
 }
-function compostUsedOnHTML(sourceKind, sourceId){
-  const usages = compostUsedOnUsages(sourceKind, sourceId);
+function compostUsedOnHTML(batchId){
+  const usages = compostUsedOnUsages(batchId);
   if(!usages.length) return '';
   const rows = usages.map(u=>`<div class="planting-row" style="cursor:pointer;" data-usedon="${u.kind}|${u.objId}|${u.plantingId||''}"><span class="pname">${escapeHTML(u.cropName ? (u.cropName+' — '+u.place) : u.place)}</span><span class="pdate">${dayLabel(u.date)}</span></div>`).join('');
   return `<div class="row-heading">Used on</div>${rows}`;
@@ -3465,10 +3554,10 @@ function wireCompostUsedOn(){
 }
 // Composting underneath a container/basket or raised bed lives on its own small screen rather
 // than buried in the planter's general Edit form - reachable from a button right next to Edit,
-// and it's also where a problem traced back to this source would show up (see compostUsedOnHTML).
+// and it's also where a problem traced back to the current batch would show up.
 function openCompostScreen(obj, storeKind, backFn){
   const toggleHTML = `<div class="toggle-row"><span>Composting underneath</span><label class="switch"><input type="checkbox" id="mComposting" ${obj.composting?'checked':''}><span class="slider"></span></label></div>`;
-  const fieldsHTML = obj.composting ? compostFieldsHTML(obj) + compostUsedOnHTML(storeKind==='beds'?'bed':'feature', obj.id) : '';
+  const fieldsHTML = obj.composting ? compostFieldsHTML(obj) + compostUsedOnHTML(currentCompostBatch(obj).id) : '';
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Composting</h3>${toggleHTML}${fieldsHTML}`, true);
   document.getElementById('mBack').addEventListener('click', backFn);
   const compostingEl = document.getElementById('mComposting');
@@ -3478,20 +3567,15 @@ function openCompostScreen(obj, storeKind, backFn){
     openCompostScreen(obj, storeKind, backFn);
   });
   if(obj.composting){
-    wireCompostLog(obj, storeKind, ()=>openCompostScreen(obj, storeKind, backFn));
+    wireCompostFields(obj, storeKind, ()=>openCompostScreen(obj, storeKind, backFn));
     wireCompostUsedOn();
-    const dateEl = document.getElementById('mCreatedDate');
-    if(dateEl) dateEl.addEventListener('change', async ()=>{
-      obj.createdDate = dateEl.value || null;
-      await put(storeKind, obj); await afterChange();
-    });
   }
 }
 function openFeatureDetail(feat){
   const info = FEATURE_TYPES[feat.type];
   const featSwatches = BED_COLORS.map(c=>`<div class="swatch ${c===feat.color?'picked':''}" data-c="${c}" style="background:${c};"></div>`).join('');
   const roundToggle = feat.type==='container' ? `<div class="toggle-row"><span>Round</span><label class="switch"><input type="checkbox" id="mRound" ${feat.round?'checked':''}><span class="slider"></span></label></div>` : '';
-  const compostDateRow = feat.type==='compost' ? compostFieldsHTML(feat) + compostUsedOnHTML('feature', feat.id) : '';
+  const compostDateRow = feat.type==='compost' ? compostFieldsHTML(feat) + compostUsedOnHTML(currentCompostBatch(feat).id) : '';
   const capacityRow = feat.type==='water' ? `<div class="form-row"><div><label>Capacity, litres (optional)</label><input type="number" onfocus="this.select()" id="mCapacity" value="${feat.capacityLitres??''}" placeholder="e.g. 200"></div></div>` : '';
   openModal(`<h3>${info.icon} ${escapeHTML(feat.label||info.label)} <span style="display:inline-block; width:16px; height:16px; border-radius:4px; background:${feat.color||BED_COLORS[0]}; vertical-align:-2px;"></span></h3>
     ${stampHTML(feat)}
@@ -3505,7 +3589,7 @@ function openFeatureDetail(feat){
     <div id="nameError" class="muted" style="color:var(--danger,#b33); display:none; margin-bottom:8px;"></div>
     <div class="btn-row"><button class="btn" id="mSave">Save</button><button class="btn danger" id="mDel">Remove this ${escapeHTML(info.label.toLowerCase())} from the map</button></div>`);
   wireLockToggle();
-  if(feat.type==='compost') { wireCompostLog(feat, 'features', ()=>openFeatureDetail(feat)); wireCompostUsedOn(); }
+  if(feat.type==='compost') { wireCompostFields(feat, 'features', ()=>openFeatureDetail(feat)); wireCompostUsedOn(); }
   let pickedColor = feat.color || BED_COLORS[0];
   modalContent.querySelectorAll('.swatch').forEach(s=>s.addEventListener('click', ()=>{
     modalContent.querySelectorAll('.swatch').forEach(x=>x.classList.remove('picked')); s.classList.add('picked'); pickedColor=s.dataset.c;
@@ -3521,7 +3605,6 @@ function openFeatureDetail(feat){
     feat.label=newLabel;
     feat.color = pickedColor;
     if(feat.type==='container') feat.round = document.getElementById('mRound').checked;
-    if(feat.type==='compost') feat.createdDate = document.getElementById('mCreatedDate').value || null;
     if(feat.type==='water') { const v = document.getElementById('mCapacity').value; feat.capacityLitres = v===''?null:parseInt(v); }
     // 0.15 was an arbitrary floor here, tighter than what a thin feature (a path, a fence run)
     // can genuinely need — match the same 0.1m real-world minimum the bed picture canvas now uses,
@@ -3596,7 +3679,7 @@ function openContainerDetail(featId, highlightId){
       <span class="muted" style="font-size:15px; white-space:nowrap; margin-top:4px;">${formatArea(bedAreaSqM(feat))}</span>
     </div>
     ${stampHTML(feat)}
-    ${feat.composting && feat.createdDate ? `<p class="tiny-muted">Composting underneath since ${dayLabel(feat.createdDate)}</p>` : ''}
+    ${feat.composting && openCompostBatchOf(feat) && openCompostBatchOf(feat).startDate ? `<p class="tiny-muted">Composting underneath since ${fullDateLabel(openCompostBatchOf(feat).startDate)}</p>` : ''}
     <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
     <p class="picture-help">Drag a crop's box to where it is, and its corner to resize it. Tap it for details.</p>
     ${rows}${warn}
@@ -3739,7 +3822,7 @@ function openBedDetail(bedId, highlightId){
       <span class="muted" style="font-size:15px; white-space:nowrap; margin-top:4px;">${formatArea(bedAreaSqM(bed))}</span>
     </div>
     ${stampHTML(bed)}
-    ${bed.raised && bed.composting && bed.createdDate ? `<p class="tiny-muted">Composting underneath since ${dayLabel(bed.createdDate)}</p>` : ''}
+    ${bed.raised && bed.composting && openCompostBatchOf(bed) && openCompostBatchOf(bed).startDate ? `<p class="tiny-muted">Composting underneath since ${fullDateLabel(openCompostBatchOf(bed).startDate)}</p>` : ''}
     <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
     <p class="picture-help">Drag a crop's box to where it is, and its corner to resize it. Tap it for details.</p>
     ${rows}${hostedHTML}${warn}
@@ -4102,7 +4185,7 @@ function openAddTreatment(obj, storeKind, onDone, existingId, cropForSuggestions
   const isCompost = existing ? existing.type==='Compost' : presetType==='Compost';
   const sources = compostSourceOptions();
   const sourceOptionsHTML = `<option value="bought" ${existing&&existing.sourceKind==='bought'?'selected':''}>Bought in</option>`
-    + sources.map(s=>`<option value="${s.kind}:${s.id}" ${existing&&existing.sourceKind===s.kind&&existing.sourceId===s.id?'selected':''}>${escapeHTML(s.label)}</option>`).join('');
+    + sources.map(s=>`<option value="${s.sourceKind}:${s.sourceId}:${s.batchId}" ${existing&&existing.batchId===s.batchId?'selected':''}>${escapeHTML(s.label)}</option>`).join('');
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${existing?'Edit treatment':'Add a treatment'}</h3>
     <div class="form-row"><div><label>Type</label><select id="mType">${TREATMENT_TYPES.map(t=>`<option ${(existing?existing.type===t:presetType===t)?'selected':''}>${t}</option>`).join('')}</select></div></div>
     <div class="form-row" id="compostSourceRow" style="display:${isCompost?'':'none'};"><div><label>Source</label><select id="mSource">${sourceOptionsHTML}</select></div></div>
@@ -4133,7 +4216,7 @@ function openAddTreatment(obj, storeKind, onDone, existingId, cropForSuggestions
     if(typeEl.value==='Compost'){
       const sv = document.getElementById('mSource').value;
       if(sv==='bought') rec.sourceKind = 'bought';
-      else { const [k,id] = sv.split(':'); const src = sources.find(s=>s.kind===k && s.id===id); rec.sourceKind=k; rec.sourceId=id; rec.sourceLabel = src?src.label:undefined; }
+      else { const [k,id,batchId] = sv.split(':'); const src = sources.find(s=>s.batchId===batchId); rec.sourceKind=k; rec.sourceId=id; rec.batchId=batchId; rec.sourceLabel = src?src.label:undefined; }
     }
     if(existing){ const idx=obj.treatments.findIndex(t=>t.id===existing.id); obj.treatments[idx]=rec; }
     else obj.treatments.push(rec);
@@ -6781,7 +6864,7 @@ function mergeItemListById(remoteList, localList, tombstoned){
 function mergeContainerLikeItem(remoteObj, localObj, tombstoned){
   const newer = (localObj._ts||0) >= (remoteObj._ts||0) ? localObj : remoteObj;
   const merged = {...newer};
-  for(const nested of ['plantings','history','treatments','contentsLog']){
+  for(const nested of ['plantings','history','treatments','compostBatches']){
     if(remoteObj[nested] || localObj[nested]) merged[nested] = mergeItemListById(remoteObj[nested], localObj[nested], tombstoned);
   }
   return merged;
