@@ -3394,11 +3394,75 @@ function wireCompostLog(feat, storeKind, onDone){
     await put(storeKind, feat); await afterChange(); onDone();
   }));
 }
+// Every current source of home-made compost - plain heaps, plus any container/basket or raised
+// bed with "Composting underneath" switched on - offered as a pick when logging a Compost
+// treatment, so a batch can be traced back to exactly where it came from.
+function compostSourceOptions(){
+  const list = [];
+  STATE.features.forEach(f=>{
+    if(f.type==='compost') list.push({kind:'feature', id:f.id, label:f.label||FEATURE_TYPES[f.type].label});
+    else if((f.type==='container'||f.type==='basket') && f.composting) list.push({kind:'feature', id:f.id, label:f.label||FEATURE_TYPES[f.type].label});
+  });
+  STATE.beds.forEach(b=>{ if(b.raised && b.composting) list.push({kind:'bed', id:b.id, label:b.name}); });
+  return list;
+}
+// The reverse lookup: given one compost source, every Compost treatment anywhere that named it,
+// newest first - this is what makes a problem in a batch traceable to exactly what it went on,
+// rather than just recording the source one-way on the treatment itself.
+function compostUsedOnUsages(sourceKind, sourceId){
+  const usages = [];
+  function scan(objList){
+    objList.forEach(obj=>{
+      (obj.treatments||[]).forEach(t=>{
+        if(t.type==='Compost' && t.sourceKind===sourceKind && t.sourceId===sourceId){
+          let cropName = null;
+          if(t.plantingId){
+            const p = (obj.plantings||[]).find(pp=>pp.id===t.plantingId);
+            if(p){ const c=cropById(p.cropId); cropName = c?c.name:null; }
+          }
+          usages.push({date:t.date, place: obj.name||obj.label||'Somewhere', cropName});
+        }
+      });
+    });
+  }
+  scan(STATE.beds);
+  scan(STATE.features);
+  return usages.sort((a,b)=> b.date.localeCompare(a.date));
+}
+function compostUsedOnHTML(sourceKind, sourceId){
+  const usages = compostUsedOnUsages(sourceKind, sourceId);
+  if(!usages.length) return '';
+  const rows = usages.map(u=>`<div class="planting-row"><span class="pname">${escapeHTML(u.cropName ? (u.cropName+' — '+u.place) : u.place)}</span><span class="pdate">${dayLabel(u.date)}</span></div>`).join('');
+  return `<div class="row-heading">Used on</div>${rows}`;
+}
+// Composting underneath a container/basket or raised bed lives on its own small screen rather
+// than buried in the planter's general Edit form - reachable from a button right next to Edit,
+// and it's also where a problem traced back to this source would show up (see compostUsedOnHTML).
+function openCompostScreen(obj, storeKind, backFn){
+  const toggleHTML = `<div class="toggle-row"><span>Composting underneath</span><label class="switch"><input type="checkbox" id="mComposting" ${obj.composting?'checked':''}><span class="slider"></span></label></div>`;
+  const fieldsHTML = obj.composting ? compostFieldsHTML(obj) + compostUsedOnHTML(storeKind==='beds'?'bed':'feature', obj.id) : '';
+  openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Composting</h3>${toggleHTML}${fieldsHTML}`, true);
+  document.getElementById('mBack').addEventListener('click', backFn);
+  const compostingEl = document.getElementById('mComposting');
+  compostingEl.addEventListener('change', async ()=>{
+    obj.composting = compostingEl.checked;
+    await put(storeKind, obj); await afterChange();
+    openCompostScreen(obj, storeKind, backFn);
+  });
+  if(obj.composting){
+    wireCompostLog(obj, storeKind, ()=>openCompostScreen(obj, storeKind, backFn));
+    const dateEl = document.getElementById('mCreatedDate');
+    if(dateEl) dateEl.addEventListener('change', async ()=>{
+      obj.createdDate = dateEl.value || null;
+      await put(storeKind, obj); await afterChange();
+    });
+  }
+}
 function openFeatureDetail(feat){
   const info = FEATURE_TYPES[feat.type];
   const featSwatches = BED_COLORS.map(c=>`<div class="swatch ${c===feat.color?'picked':''}" data-c="${c}" style="background:${c};"></div>`).join('');
   const roundToggle = feat.type==='container' ? `<div class="toggle-row"><span>Round</span><label class="switch"><input type="checkbox" id="mRound" ${feat.round?'checked':''}><span class="slider"></span></label></div>` : '';
-  const compostDateRow = feat.type==='compost' ? compostFieldsHTML(feat) : '';
+  const compostDateRow = feat.type==='compost' ? compostFieldsHTML(feat) + compostUsedOnHTML('feature', feat.id) : '';
   const capacityRow = feat.type==='water' ? `<div class="form-row"><div><label>Capacity, litres (optional)</label><input type="number" onfocus="this.select()" id="mCapacity" value="${feat.capacityLitres??''}" placeholder="e.g. 200"></div></div>` : '';
   openModal(`<h3>${info.icon} ${escapeHTML(feat.label||info.label)} <span style="display:inline-block; width:16px; height:16px; border-radius:4px; background:${feat.color||BED_COLORS[0]}; vertical-align:-2px;"></span></h3>
     ${stampHTML(feat)}
@@ -3454,7 +3518,8 @@ function treatmentsSectionHTML(obj, storeKind, filterMode){
   const cutoff = addDays(todayISO(), -365);
   const recent = sorted.filter(t=>t.date>=cutoff);
   const older = sorted.filter(t=>t.date<cutoff);
-  const rowHTML = t => `<div class="planting-row" style="cursor:pointer;" data-edittreatment="${t.id}"><span class="pname">${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}${t.reason?' — '+escapeHTML(t.reason):''}${(filterMode && filterMode!=='bedwide' && !t.plantingId)?' <span class="tiny-muted">(whole bed)</span>':''}</span><span class="pdate">${dayLabel(t.date)}${t.by?' &middot; '+escapeHTML(t.by):''}</span></div>`;
+  const sourceText = t => t.sourceKind==='bought' ? ' (bought in)' : t.sourceLabel ? ` (from ${escapeHTML(t.sourceLabel)})` : '';
+  const rowHTML = t => `<div class="planting-row" style="cursor:pointer;" data-edittreatment="${t.id}"><span class="pname">${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}${sourceText(t)}${t.reason?' — '+escapeHTML(t.reason):''}${(filterMode && filterMode!=='bedwide' && !t.plantingId)?' <span class="tiny-muted">(whole bed)</span>':''}</span><span class="pdate">${dayLabel(t.date)}${t.by?' &middot; '+escapeHTML(t.by):''}</span></div>`;
   const recentHTML = recent.map(rowHTML).join('');
   const olderHTML = older.length ? `<details class="timings more-toggle"><summary>+ Show ${older.length} more (older than a year)</summary><div style="margin-top:8px;">${older.map(rowHTML).join('')}</div></details>` : '';
   const presentTypes = new Set(filtered.map(t=>t.type));
@@ -3509,6 +3574,7 @@ function openContainerDetail(featId, highlightId){
     ${treatmentsSectionHTML(feat,'features','bedwide')}
     <div class="btn-row">
       <button class="btn secondary" id="mEdit">Edit ${typeLabel}</button>
+      ${(feat.type==='container'||feat.type==='basket')?`<button class="btn secondary" id="mCompost">Composting</button>`:''}
     </div>
     <button class="btn secondary" id="mMoveFeature" style="margin-top:8px;">Move this ${typeLabel}</button>`, true);
   wireTreatmentRows(feat,'features', ()=>openContainerDetail(featId), null, undefined);
@@ -3552,35 +3618,20 @@ function openContainerDetail(featId, highlightId){
   document.getElementById('mEdit').addEventListener('click', ()=>{
     requireUnlock(openContainerEditModal);
   });
+  const compostBtn = document.getElementById('mCompost');
+  if(compostBtn) compostBtn.addEventListener('click', ()=> openCompostScreen(feat, 'features', ()=>openContainerDetail(featId)));
   function openContainerEditModal(){
     const roundToggle = feat.type==='container' ? `<div class="toggle-row"><span>Round</span><label class="switch"><input type="checkbox" id="mRound" ${feat.round?'checked':''}><span class="slider"></span></label></div>` : '';
-    // Most containers/baskets are single-purpose, but some of these are the dual-use crates -
-    // manure rotting underneath a membrane and shop compost. The toggle just flags that and
-    // reveals the same started-date/log fields a plain compost heap has, without changing
-    // anything about how the planter itself works.
-    const compostToggle = (feat.type==='container'||feat.type==='basket') ? `<div class="toggle-row"><span>Composting underneath</span><label class="switch"><input type="checkbox" id="mComposting" ${feat.composting?'checked':''}><span class="slider"></span></label></div>` : '';
-    const compostBlock = (feat.type==='container'||feat.type==='basket') && feat.composting ? compostFieldsHTML(feat) : '';
     openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit ${typeLabel}</h3>
       <div class="form-row"><div><label>Name</label><input type="text" id="mName" value="${escapeAttr(feat.label||'')}"></div></div>
       ${dimensionFieldsHTML("mW","mH","Width","Depth", feat.w, feat.h)}
       <label>Colour</label><div class="swatch-row" id="swRow">${swatches}</div>
       ${roundToggle}
-      ${compostToggle}
-      ${compostBlock}
       ${lockToggleHTML(feat)}
       <div id="nameError" class="muted" style="color:var(--danger,#b33); display:none; margin-bottom:8px;"></div>
       <button class="btn big" id="mSave" style="margin-top:10px;">Save</button>
       <button class="btn danger" id="mDel" style="margin-top:24px;">Remove this ${typeLabel}</button>`, true);
     wireLockToggle();
-    if(feat.type==='container'||feat.type==='basket') wireCompostLog(feat, 'features', openContainerEditModal);
-    const compostingEl = document.getElementById('mComposting');
-    // Saves and re-renders immediately, same as the log entries - this is what shows or hides
-    // the log section itself, so it has to take effect straight away rather than waiting on
-    // the main Save button below.
-    if(compostingEl) compostingEl.addEventListener('change', async ()=>{
-      feat.composting = compostingEl.checked;
-      await put('features', feat); await afterChange(); openContainerEditModal();
-    });
     document.getElementById('mBack').addEventListener('click', ()=>openContainerDetail(featId));
     let picked = feat.color;
     modalContent.querySelectorAll('.swatch').forEach(s=>s.addEventListener('click', ()=>{
@@ -3596,7 +3647,6 @@ function openContainerDetail(featId, highlightId){
       }
       feat.label=newLabel; feat.color=picked;
       if(feat.type==='container') feat.round = document.getElementById('mRound').checked;
-      if((feat.type==='container'||feat.type==='basket') && feat.composting) feat.createdDate = document.getElementById('mCreatedDate').value || null;
       const cap = capToPlotSize(readDimensionField('mW')||feat.w, readDimensionField('mH')||feat.h);
       feat.w = Math.max(0.15, snapMap(cap.w));
       feat.h = Math.max(0.15, snapMap(cap.h));
@@ -3669,6 +3719,7 @@ function openBedDetail(bedId, highlightId){
       <button class="btn secondary" id="mAddPath">+ Add path</button>
       <button class="btn secondary" id="mMarkFallow">+ Mark fallow</button>
       <button class="btn secondary" id="mEdit">Edit bed</button>
+      ${bed.raised?`<button class="btn secondary" id="mCompost">Composting</button>`:''}
     </div>`, true);
   modalContent.querySelectorAll('[data-hostedcontainer]').forEach(el=>el.addEventListener('click', ()=> openContainerDetail(el.dataset.hostedcontainer)));
   wireTreatmentRows(bed,'beds', ()=>openBedDetail(bedId), null, undefined);
@@ -3708,29 +3759,19 @@ function openBedDetail(bedId, highlightId){
   document.getElementById('mEdit').addEventListener('click', ()=>{
     requireUnlock(openBedEditModal);
   });
+  const compostBtn = document.getElementById('mCompost');
+  if(compostBtn) compostBtn.addEventListener('click', ()=> openCompostScreen(bed, 'beds', ()=>openBedDetail(bedId)));
   function openBedEditModal(){
-    // Ordinary in-ground beds don't get this - only raised beds are ever one of the dual-use
-    // crates with manure rotting underneath.
-    const compostToggle = bed.raised ? `<div class="toggle-row"><span>Composting underneath</span><label class="switch"><input type="checkbox" id="mComposting" ${bed.composting?'checked':''}><span class="slider"></span></label></div>` : '';
-    const compostBlock = bed.raised && bed.composting ? compostFieldsHTML(bed) : '';
     openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit bed</h3>
       <div class="form-row"><div><label>Name</label><input type="text" id="mName" value="${escapeAttr(bed.name)}"></div></div>
       ${dimensionFieldsHTML("mW","mH","Width","Depth", bed.w, bed.h)}
       ${lockToggleHTML(bed)}
       <div class="btn-row"><button class="btn secondary" id="mReshapeBed">${bed.shape?'Change bed shape':'Not a plain rectangle? Reshape it'}</button></div>
       <label style="margin-top:14px;">Colour</label><div class="swatch-row" id="swRow">${swatches}</div>
-      ${compostToggle}
-      ${compostBlock}
       <div id="nameError" class="muted" style="color:var(--danger,#b33); display:none; margin-bottom:8px;"></div>
       <button class="btn big" id="mSave" style="margin-top:10px;">Save</button>
       <button class="btn danger" id="mDel" style="margin-top:24px;">Remove this bed</button>`, true);
     wireLockToggle();
-    if(bed.raised) wireCompostLog(bed, 'beds', openBedEditModal);
-    const compostingEl = document.getElementById('mComposting');
-    if(compostingEl) compostingEl.addEventListener('change', async ()=>{
-      bed.composting = compostingEl.checked;
-      await put('beds', bed); await afterChange(); openBedEditModal();
-    });
     document.getElementById('mBack').addEventListener('click', ()=>openBedDetail(bedId));
     document.getElementById('mReshapeBed').addEventListener('click', ()=> openBedShapeEditor(bedId));
     let picked = bed.color;
@@ -3751,7 +3792,6 @@ function openBedDetail(bedId, highlightId){
       const newH = Math.max(0.3, snapMap(cap.h));
       if(bed.shape && (newW!==bed.w || newH!==bed.h)) bed.shape = scaleLocalShape(bed.shape, bed.w, bed.h, newW, newH);
       bed.w = newW; bed.h = newH;
-      if(bed.raised && bed.composting) bed.createdDate = document.getElementById('mCreatedDate').value || null;
       bed.locked = document.getElementById('mLocked').checked;
       await put('beds',bed); await afterChange(); closeModal();
     });
@@ -4029,21 +4069,42 @@ function openEditPlanting(bedId, plantingId, kind){
 function openAddTreatment(obj, storeKind, onDone, existingId, cropForSuggestions, plantingId){
   const existing = existingId ? (obj.treatments||[]).find(t=>t.id===existingId) : null;
   const issues = commonIssuesFor(cropForSuggestions);
+  const isCompost = existing ? existing.type==='Compost' : false;
+  const sources = compostSourceOptions();
+  const sourceOptionsHTML = `<option value="bought" ${existing&&existing.sourceKind==='bought'?'selected':''}>Bought in</option>`
+    + sources.map(s=>`<option value="${s.kind}:${s.id}" ${existing&&existing.sourceKind===s.kind&&existing.sourceId===s.id?'selected':''}>${escapeHTML(s.label)}</option>`).join('');
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${existing?'Edit treatment':'Add a treatment'}</h3>
     <div class="form-row"><div><label>Type</label><select id="mType">${TREATMENT_TYPES.map(t=>`<option ${existing&&existing.type===t?'selected':''}>${t}</option>`).join('')}</select></div></div>
+    <div class="form-row" id="compostSourceRow" style="display:${isCompost?'':'none'};"><div><label>Source</label><select id="mSource">${sourceOptionsHTML}</select></div></div>
     <div class="form-row"><div><label>Name / product (optional)</label><input type="text" id="mNotes" placeholder="e.g. Horse manure, Roundup" value="${existing?escapeAttr(existing.notes||''):''}"></div></div>
     <div class="form-row"><div><label>Why (optional)</label><input type="text" id="mReason" list="reasonSuggestions" placeholder="e.g. aphids, general feed" value="${existing?escapeAttr(existing.reason||''):''}"></div></div>
     ${issues.length?`<div class="swatch-row" id="issueChipRow" style="margin:-6px 0 12px; flex-wrap:wrap;">${issues.map(i=>`<button type="button" class="btn small secondary" data-issue="${escapeAttr(i)}">${escapeHTML(i)}</button>`).join('')}</div>`:''}
-    <div class="form-row"><div><label>Date</label><input type="date" id="mDate" value="${existing?existing.date:todayISO()}"></div></div>
+    <div class="form-row"><div><label id="mDateLabel">${isCompost?'Date added':'Date'}</label><input type="date" id="mDate" value="${existing?existing.date:todayISO()}"></div></div>
     <button class="btn big" id="mSave">Save</button>
     ${existing?`<button class="btn danger" id="mDelTreat" style="margin-top:24px;">Remove this treatment</button>`:''}`, true);
   document.getElementById('mBack').addEventListener('click', onDone);
+  // The source picker and the "Date added" wording only make sense for a Compost entry - synced
+  // live off the Type dropdown so switching types (in either direction) is never left showing a
+  // stale label or an irrelevant source field.
+  const typeEl = document.getElementById('mType');
+  const sourceRow = document.getElementById('compostSourceRow');
+  const dateLabel = document.getElementById('mDateLabel');
+  typeEl.addEventListener('change', ()=>{
+    const nowCompost = typeEl.value==='Compost';
+    sourceRow.style.display = nowCompost ? '' : 'none';
+    dateLabel.textContent = nowCompost ? 'Date added' : 'Date';
+  });
   modalContent.querySelectorAll('[data-issue]').forEach(b=>b.addEventListener('click', ()=>{ document.getElementById('mReason').value = b.dataset.issue; }));
   document.getElementById('mSave').addEventListener('click', async ()=>{
     const reason = document.getElementById('mReason').value.trim();
     await rememberTreatmentReason(reason);
     obj.treatments = obj.treatments||[];
-    const rec = {id: existing?existing.id:uid(), type:document.getElementById('mType').value, date:document.getElementById('mDate').value||todayISO(), notes:document.getElementById('mNotes').value.trim(), reason, by: existing?(existing.by||who()):who(), plantingId: existing?existing.plantingId:plantingId};
+    const rec = {id: existing?existing.id:uid(), type:typeEl.value, date:document.getElementById('mDate').value||todayISO(), notes:document.getElementById('mNotes').value.trim(), reason, by: existing?(existing.by||who()):who(), plantingId: existing?existing.plantingId:plantingId};
+    if(typeEl.value==='Compost'){
+      const sv = document.getElementById('mSource').value;
+      if(sv==='bought') rec.sourceKind = 'bought';
+      else { const [k,id] = sv.split(':'); const src = sources.find(s=>s.kind===k && s.id===id); rec.sourceKind=k; rec.sourceId=id; rec.sourceLabel = src?src.label:undefined; }
+    }
     if(existing){ const idx=obj.treatments.findIndex(t=>t.id===existing.id); obj.treatments[idx]=rec; }
     else obj.treatments.push(rec);
     await put(storeKind, obj); await afterChange(); onDone();
@@ -5070,7 +5131,7 @@ function cropTypeKey(crop){
   const m = matchCrop(crop.name);
   return (m ? m.name : crop.name).toLowerCase();
 }
-const TREATMENT_TYPES = ['Feed','Manure','Fertiliser','Insecticide','Pesticide','Weedkiller','Other'];
+const TREATMENT_TYPES = ['Feed','Manure','Compost','Fertiliser','Insecticide','Pesticide','Weedkiller','Other'];
 function treatmentChipsHTML(){
   return `<label style="margin-top:6px;">Treatments used</label>
     <div class="swatch-row" id="sowTagRow">${TREATMENT_TYPES.map(t=>`<button type="button" class="btn small secondary" data-tag="${t}">${t}</button>`).join('')}</div>`;
