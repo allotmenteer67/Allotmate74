@@ -3433,7 +3433,7 @@ function compostUsedOnUsages(sourceKind, sourceId){
             const p = (obj.plantings||[]).find(pp=>pp.id===t.plantingId);
             if(p){ const c=cropById(p.cropId); cropName = c?c.name:null; }
           }
-          usages.push({date:t.date, place: objectDisplayLabel(obj, storeKind), cropName});
+          usages.push({date:t.date, place: objectDisplayLabel(obj, storeKind), cropName, kind:storeKind, objId:obj.id, plantingId:t.plantingId});
         }
       });
     });
@@ -3446,8 +3446,22 @@ function compostUsedOnUsages(sourceKind, sourceId){
 function compostUsedOnHTML(sourceKind, sourceId){
   const usages = compostUsedOnUsages(sourceKind, sourceId);
   if(!usages.length) return '';
-  const rows = usages.map(u=>`<div class="planting-row"><span class="pname">${escapeHTML(u.cropName ? (u.cropName+' — '+u.place) : u.place)}</span><span class="pdate">${dayLabel(u.date)}</span></div>`).join('');
+  const rows = usages.map(u=>`<div class="planting-row" style="cursor:pointer;" data-usedon="${u.kind}|${u.objId}|${u.plantingId||''}"><span class="pname">${escapeHTML(u.cropName ? (u.cropName+' — '+u.place) : u.place)}</span><span class="pdate">${dayLabel(u.date)}</span></div>`).join('');
   return `<div class="row-heading">Used on</div>${rows}`;
+}
+// Jumps back to wherever one "Used on" row points - the specific planting when the treatment was
+// tied to one, otherwise the bed/container/tray's own screen. Same navigation the rest of the app
+// already uses for beds vs containers vs trays, just picked by the usage's own kind.
+function openUsedOnSpot(kind, objId, plantingId){
+  if(kind==='beds') plantingId ? openPlantingInfo(objId, plantingId) : openBedDetail(objId);
+  else if(kind==='features') plantingId ? openPlantingInfo(objId, plantingId, 'features') : openContainerDetail(objId);
+  else if(kind==='trays') plantingId ? openTrayPlantingInfo(objId, plantingId) : openTrayInfo(objId);
+}
+function wireCompostUsedOn(){
+  modalContent.querySelectorAll('[data-usedon]').forEach(el=>el.addEventListener('click', ()=>{
+    const [kind, objId, plantingId] = el.dataset.usedon.split('|');
+    openUsedOnSpot(kind, objId, plantingId||undefined);
+  }));
 }
 // Composting underneath a container/basket or raised bed lives on its own small screen rather
 // than buried in the planter's general Edit form - reachable from a button right next to Edit,
@@ -3465,6 +3479,7 @@ function openCompostScreen(obj, storeKind, backFn){
   });
   if(obj.composting){
     wireCompostLog(obj, storeKind, ()=>openCompostScreen(obj, storeKind, backFn));
+    wireCompostUsedOn();
     const dateEl = document.getElementById('mCreatedDate');
     if(dateEl) dateEl.addEventListener('change', async ()=>{
       obj.createdDate = dateEl.value || null;
@@ -3490,7 +3505,7 @@ function openFeatureDetail(feat){
     <div id="nameError" class="muted" style="color:var(--danger,#b33); display:none; margin-bottom:8px;"></div>
     <div class="btn-row"><button class="btn" id="mSave">Save</button><button class="btn danger" id="mDel">Remove this ${escapeHTML(info.label.toLowerCase())} from the map</button></div>`);
   wireLockToggle();
-  if(feat.type==='compost') wireCompostLog(feat, 'features', ()=>openFeatureDetail(feat));
+  if(feat.type==='compost') { wireCompostLog(feat, 'features', ()=>openFeatureDetail(feat)); wireCompostUsedOn(); }
   let pickedColor = feat.color || BED_COLORS[0];
   modalContent.querySelectorAll('.swatch').forEach(s=>s.addEventListener('click', ()=>{
     modalContent.querySelectorAll('.swatch').forEach(x=>x.classList.remove('picked')); s.classList.add('picked'); pickedColor=s.dataset.c;
