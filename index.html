@@ -2046,6 +2046,14 @@ const CORRECTED_FORECAST_URL = 'https://allotmenteer67.github.io/Forecast4/data/
 // margin before this feed is treated as too old to trust, without being
 // so loose that a genuinely broken build goes unnoticed for hours.
 const CORRECTED_FORECAST_MAX_AGE_MS = 40*60*1000;
+// ---- Offline weather snapshot ----
+// A trimmed, two-day-ahead copy of just the fields that matter for "is anything exceptional
+// heading this way" - rain, wind, frost, storm, and soil temperature - saved every time a live
+// weather fetch actually succeeds. Read back ONLY when today's live fetch fails outright (no
+// signal at the allotment), so there's still something to glance at rather than a blank screen.
+// Deliberately not a general-purpose weather cache: no icons, no 7-day view, nothing beyond what
+// this specific "anything alarming coming?" check needs.
+const WEATHER_OFFLINE_CACHE_KEY = 'weatherOfflineCache';
 async function fetchCorrectedForecast(){
   try{
     const res = await fetch(CORRECTED_FORECAST_URL, {cache:'no-store'});
@@ -2069,11 +2077,11 @@ async function fetchWeather(showErrors){
     // Open-Meteo call, so its own errors are swallowed inside
     // fetchCorrectedForecast() itself rather than caught here.
     const [res, corrected] = await Promise.all([fetch(url), fetchCorrectedForecast()]);
-    if(!res.ok){ if(showErrors) toast(`Weather service error (${res.status})`); return; }
+    if(!res.ok){ if(showErrors) toast(`Weather service error (${res.status})`); await renderOfflineWeatherAlerts(); return; }
     const data = await res.json();
     LAST_WEATHER = data; LAST_CORRECTED = corrected;
-    processWeather(data);
-  }catch(err){ if(showErrors) toast('Could not reach the weather service — check your connection'); }
+    await processWeather(data);
+  }catch(err){ if(showErrors) toast('Could not reach the weather service — check your connection'); await renderOfflineWeatherAlerts(); }
 }
 function wIcon(code){
   if([95,96,99].includes(code)) return '⛈️';
@@ -2151,6 +2159,52 @@ function correctedFrostLikelyFor(date, thFrost){
   if(!cf || cf.night!==date || cf.minTemp==null || cf.cloud==null || cf.wind==null) return null; // not available for this date — caller falls back
   return cf.minTemp<=thFrost && cf.cloud<FROST_CLOUD_THRESHOLD_CORRECTED && (cf.wind*MPH_TO_KMH)<FROST_WIND_THRESHOLD;
 }
+// True only if at least one saved day is today or later - a two-day-old snapshot whose "today"
+// has already passed isn't a stand-in for a live forecast, it's just stale, so it's better to show
+// nothing at all than something that quietly no longer applies.
+function offlineWeatherCacheStillCovers(cache, today){
+  return !!(cache && Array.isArray(cache.days) && cache.days.some(d=>d.date>=today));
+}
+// Same alert wording and severity rules as the live path in processWeather below, just fed from
+// the saved snapshot instead of a fresh fetch, and with a "last checked" note added to each
+// message so it's never mistaken for a live reading.
+async function renderOfflineWeatherAlerts(){
+  const cache = await getMeta(WEATHER_OFFLINE_CACHE_KEY, null);
+  const today = todayISO();
+  if(!offlineWeatherCacheStillCovers(cache, today)){
+    if(!placingMode) document.getElementById('alertsBox').innerHTML = '';
+    return;
+  }
+  const thRain=STATE.settings.thRain, thWind=STATE.settings.thWind;
+  const level = STATE.settings.notifLevel || 'advice';
+  const wantsTips = level!=='quiet';
+  const savedLabel = new Date(cache.savedAt).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'});
+  const alerts=[];
+  for(const d of cache.days.filter(d=>d.date>=today)){
+    const severe = d.frostLikely || d.rain>=thRain || d.wind>=thWind || d.stormLikely;
+    if(!severe) continue;
+    const wk = new Date(d.date+'T00:00:00').toLocaleDateString('en-GB',{weekday:'long'});
+    let fact, tip, type;
+    if(d.frostLikely){
+      type='frost';
+      fact = `❄️ Frost expected ${d.date===today?'tonight':wk+' night'}.`;
+      const tender = exposedTenderCrops();
+      tip = tender.length ? `Cover or bring in: ${tender.join(', ')}.` : `Worth covering anything tender if you can.`;
+    } else if(d.stormLikely){ type='storm'; fact=`⛈️ Stormy weather expected ${wk}.`; tip=`Secure canes, cloches and anything loose.`; }
+    else if(d.rain>=thRain){ type='rain'; fact=`🌧️ Heavy rain expected ${wk}.`; tip=`Check drainage and hold off watering.`; }
+    else { type='wind'; fact=`💨 Strong winds expected ${wk}.`; tip=`Secure canes, cloches and greenhouse vents.`; }
+    const msg = (wantsTips ? `${fact} ${tip}` : fact) + ` (last checked ${savedLabel})`;
+    alerts.push({key:d.date+type+'-offline', type, msg});
+  }
+  const visibleAlerts = alerts.filter(a=>!dismissedAlertKeys.has(a.key));
+  if(!placingMode){
+    document.getElementById('alertsBox').innerHTML = visibleAlerts.map(a=>`<div class="alert ${a.type==='frost'?'frost':(a.type==='wind'?'wind':'')}"><span>${a.msg}</span><button class="alert-dismiss" data-dismiss="${a.key}">✕</button></div>`).join('');
+    document.querySelectorAll('[data-dismiss]').forEach(b=>b.addEventListener('click', ()=>{
+      dismissedAlertKeys.add(b.dataset.dismiss);
+      b.closest('.alert').remove();
+    }));
+  }
+}
 async function processWeather(data){
   const days=data.daily.time, tmin=data.daily.temperature_2m_min, tmax=data.daily.temperature_2m_max;
   const rain=data.daily.precipitation_sum, wind=data.daily.windspeed_10m_max, codes=data.daily.weathercode;
@@ -2158,6 +2212,8 @@ async function processWeather(data){
   const level = STATE.settings.notifLevel || 'advice';
   const wantsTips = level!=='quiet';
   const alerts=[];
+  // Today and tomorrow only, for the offline snapshot - see WEATHER_OFFLINE_CACHE_KEY above.
+  const offlineSnapshotDays = [];
   for(let i=0;i<days.length;i++){
     // Cloude's corrected figures, when available for this date — rain
     // and wind feed straight into the severe-weather check below;
@@ -2171,6 +2227,16 @@ async function processWeather(data){
     const correctedFrost = correctedFrostLikelyFor(days[i], thFrost);
     const frostLikely = correctedFrost!==null ? correctedFrost : (tmin[i]<=thFrost && frostConditionsLikely(codes[i], wind[i]));
     const severe = frostLikely || dayRain>=thRain || dayWind>=thWind || [95,96,99].includes(codes[i]);
+    if(i<2){
+      offlineSnapshotDays.push({
+        date: days[i],
+        rain: Math.round(dayRain*10)/10,
+        wind: Math.round(dayWind),
+        frostLikely,
+        stormLikely: [95,96,99].includes(codes[i]),
+        soilTemperature: cday?.soilTemperature || null
+      });
+    }
     if(severe){
       const wk = new Date(days[i]+'T00:00:00').toLocaleDateString('en-GB',{weekday:'long'});
       let fact, tip, type;
@@ -2198,6 +2264,9 @@ async function processWeather(data){
       b.closest('.alert').remove();
     }));
   }
+  // Live fetch just succeeded, so this is the freshest possible moment to refresh the offline
+  // snapshot - see WEATHER_OFFLINE_CACHE_KEY above.
+  await setMeta(WEATHER_OFFLINE_CACHE_KEY, {savedAt: Date.now(), days: offlineSnapshotDays});
   const todaySnap = getTodayWeatherSnapshot();
   document.getElementById('wxIcon').textContent = todaySnap ? `${todaySnap.icon} ${todaySnap.tempMax}\u00B0` : 'Weather';
 

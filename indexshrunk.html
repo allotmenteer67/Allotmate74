@@ -663,10 +663,13 @@ function getAll(store){ return new Promise((res,rej)=>{ const r=txStore(store).g
 function put(store,obj,preserveTs){
 if(!preserveTs && store!=='meta' && obj && typeof obj==='object'){
 obj._ts = Date.now();
-// beds/features nest their own crops (plantings) and logs (history, treatments) inside
-// them rather than saving each as its own standalone item - stamp those individually too,
-// so a merge can later tell which specific crop or log entry is newer, not just the bed as a whole
-for(const nested of ['plantings','history','treatments']){
+// beds/features nest their own crops (plantings) and logs (history, treatments, compost
+// batches) inside them rather than saving each as its own standalone item - stamp those
+// individually too, so a merge can later tell which specific one is newer, not just the bed
+// as a whole. A compost batch's own contentsLog isn't stamped a level deeper than that - two
+// devices editing the very same still-open batch while both offline is rare enough, for how
+// this is actually used, that whole-batch last-write-wins is an acceptable simplification.
+for(const nested of ['plantings','history','treatments','compostBatches']){
 if(Array.isArray(obj[nested])) for(const item of obj[nested]) if(item && typeof item==='object') item._ts = obj._ts;
 }
 }
@@ -674,8 +677,11 @@ return new Promise((res,rej)=>{ const r=txStore(store,'readwrite').put(obj); r.o
 }
 // Records that this id was genuinely, deliberately deleted, so a union-based merge against a
 // remote copy that hasn't learned about the deletion yet won't silently bring it back. Pruned to
-// the last 30 days - a deletion only needs to "win" until every device has genuinely converged,
-// not forever, matching the same "doesn't need to last long" reasoning as put()'s own _ts stamps.
+// the last 10 years - in practice this never expires, which is deliberate: a two-person plot with
+// an occasional visitor means one of you could easily go a month or more without opening the app,
+// and a deletion that "won" until every device converged, on the original 30-day window, could age
+// out and let the deleted item quietly reappear on the next sync. A handful of deletions a year
+// costs nothing to keep indefinitely, so there's no real tradeoff in erring this far toward safety.
 // Tombstones ride along inside backups and sync payloads, so a record can arrive from outside
 // this device (an older app version, another gardener's copy, a hand-edited or partial backup)
 // with its date in some other form — an ISO string, or missing entirely. Comparing those against
@@ -693,7 +699,7 @@ return isNaN(parsed) ? NaN : parsed;
 async function recordTombstone(id){
 if(!id) return;
 STATE.settings.tombstones = STATE.settings.tombstones || [];
-const cutoff = Date.now() - (30*24*60*60*1000);
+const cutoff = Date.now() - (3650*24*60*60*1000);
 STATE.settings.tombstones = STATE.settings.tombstones.filter(t=>{
 const when = tombstoneTime(t);
 return isNaN(when) ? true : when >= cutoff;
@@ -1451,9 +1457,24 @@ function who(){ return STATE.settings.gardenerName || undefined; }
 async function loadAll(){
 STATE.crops = await getAll('crops');
 STATE.beds = await getAll('beds');
+for(const b of STATE.beds){
+if(!b.compostBatches && b.composting && (b.createdDate || (b.contentsLog&&b.contentsLog.length))){
+b.compostBatches = [{id:uid(), startDate:b.createdDate||null, endDate:null, contentsLog:b.contentsLog||[]}];
+b.createdDate = undefined; b.contentsLog = undefined;
+await put('beds', b);
+}
+}
 STATE.features = await getAll('features');
 for(const f of STATE.features){
 if(f.type==='gate'){ f.type='container'; await put('features', f); }
+// One-time migration: composting used to be tracked as a single ongoing date/log on the
+// object itself. Real compost gets used up and refilled, so it's now a series of batches -
+// whatever was already there becomes batch one, keeping its exact date and log.
+if(!f.compostBatches && (f.type==='compost' || f.composting) && (f.createdDate || (f.contentsLog&&f.contentsLog.length))){
+f.compostBatches = [{id:uid(), startDate:f.createdDate||null, endDate:null, contentsLog:f.contentsLog||[]}];
+f.createdDate = undefined; f.contentsLog = undefined;
+await put('features', f);
+}
 }
 STATE.trays = await getAll('trays');
 for(const t of STATE.trays){
@@ -1957,6 +1978,14 @@ const CORRECTED_FORECAST_URL = 'https://allotmenteer67.github.io/Forecast4/data/
 // margin before this feed is treated as too old to trust, without being
 // so loose that a genuinely broken build goes unnoticed for hours.
 const CORRECTED_FORECAST_MAX_AGE_MS = 40*60*1000;
+// ---- Offline weather snapshot ----
+// A trimmed, two-day-ahead copy of just the fields that matter for "is anything exceptional
+// heading this way" - rain, wind, frost, storm, and soil temperature - saved every time a live
+// weather fetch actually succeeds. Read back ONLY when today's live fetch fails outright (no
+// signal at the allotment), so there's still something to glance at rather than a blank screen.
+// Deliberately not a general-purpose weather cache: no icons, no 7-day view, nothing beyond what
+// this specific "anything alarming coming?" check needs.
+const WEATHER_OFFLINE_CACHE_KEY = 'weatherOfflineCache';
 async function fetchCorrectedForecast(){
 try{
 const res = await fetch(CORRECTED_FORECAST_URL, {cache:'no-store'});
@@ -1980,11 +2009,11 @@ const url = `https://api.open-meteo.com/v1/forecast?latitude=${STATE.settings.la
 // Open-Meteo call, so its own errors are swallowed inside
 // fetchCorrectedForecast() itself rather than caught here.
 const [res, corrected] = await Promise.all([fetch(url), fetchCorrectedForecast()]);
-if(!res.ok){ if(showErrors) toast(`Weather service error (${res.status})`); return; }
+if(!res.ok){ if(showErrors) toast(`Weather service error (${res.status})`); await renderOfflineWeatherAlerts(); return; }
 const data = await res.json();
 LAST_WEATHER = data; LAST_CORRECTED = corrected;
-processWeather(data);
-}catch(err){ if(showErrors) toast('Could not reach the weather service — check your connection'); }
+await processWeather(data);
+}catch(err){ if(showErrors) toast('Could not reach the weather service — check your connection'); await renderOfflineWeatherAlerts(); }
 }
 function wIcon(code){
 if([95,96,99].includes(code)) return '⛈️';
@@ -2062,6 +2091,52 @@ const cf = LAST_CORRECTED?.frost;
 if(!cf || cf.night!==date || cf.minTemp==null || cf.cloud==null || cf.wind==null) return null; // not available for this date — caller falls back
 return cf.minTemp<=thFrost && cf.cloud<FROST_CLOUD_THRESHOLD_CORRECTED && (cf.wind*MPH_TO_KMH)<FROST_WIND_THRESHOLD;
 }
+// True only if at least one saved day is today or later - a two-day-old snapshot whose "today"
+// has already passed isn't a stand-in for a live forecast, it's just stale, so it's better to show
+// nothing at all than something that quietly no longer applies.
+function offlineWeatherCacheStillCovers(cache, today){
+return !!(cache && Array.isArray(cache.days) && cache.days.some(d=>d.date>=today));
+}
+// Same alert wording and severity rules as the live path in processWeather below, just fed from
+// the saved snapshot instead of a fresh fetch, and with a "last checked" note added to each
+// message so it's never mistaken for a live reading.
+async function renderOfflineWeatherAlerts(){
+const cache = await getMeta(WEATHER_OFFLINE_CACHE_KEY, null);
+const today = todayISO();
+if(!offlineWeatherCacheStillCovers(cache, today)){
+if(!placingMode) document.getElementById('alertsBox').innerHTML = '';
+return;
+}
+const thRain=STATE.settings.thRain, thWind=STATE.settings.thWind;
+const level = STATE.settings.notifLevel || 'advice';
+const wantsTips = level!=='quiet';
+const savedLabel = new Date(cache.savedAt).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'});
+const alerts=[];
+for(const d of cache.days.filter(d=>d.date>=today)){
+const severe = d.frostLikely || d.rain>=thRain || d.wind>=thWind || d.stormLikely;
+if(!severe) continue;
+const wk = new Date(d.date+'T00:00:00').toLocaleDateString('en-GB',{weekday:'long'});
+let fact, tip, type;
+if(d.frostLikely){
+type='frost';
+fact = `❄️ Frost expected ${d.date===today?'tonight':wk+' night'}.`;
+const tender = exposedTenderCrops();
+tip = tender.length ? `Cover or bring in: ${tender.join(', ')}.` : `Worth covering anything tender if you can.`;
+} else if(d.stormLikely){ type='storm'; fact=`⛈️ Stormy weather expected ${wk}.`; tip=`Secure canes, cloches and anything loose.`; }
+else if(d.rain>=thRain){ type='rain'; fact=`🌧️ Heavy rain expected ${wk}.`; tip=`Check drainage and hold off watering.`; }
+else { type='wind'; fact=`💨 Strong winds expected ${wk}.`; tip=`Secure canes, cloches and greenhouse vents.`; }
+const msg = (wantsTips ? `${fact} ${tip}` : fact) + ` (last checked ${savedLabel})`;
+alerts.push({key:d.date+type+'-offline', type, msg});
+}
+const visibleAlerts = alerts.filter(a=>!dismissedAlertKeys.has(a.key));
+if(!placingMode){
+document.getElementById('alertsBox').innerHTML = visibleAlerts.map(a=>`<div class="alert ${a.type==='frost'?'frost':(a.type==='wind'?'wind':'')}"><span>${a.msg}</span><button class="alert-dismiss" data-dismiss="${a.key}">✕</button></div>`).join('');
+document.querySelectorAll('[data-dismiss]').forEach(b=>b.addEventListener('click', ()=>{
+dismissedAlertKeys.add(b.dataset.dismiss);
+b.closest('.alert').remove();
+}));
+}
+}
 async function processWeather(data){
 const days=data.daily.time, tmin=data.daily.temperature_2m_min, tmax=data.daily.temperature_2m_max;
 const rain=data.daily.precipitation_sum, wind=data.daily.windspeed_10m_max, codes=data.daily.weathercode;
@@ -2069,6 +2144,8 @@ const thFrost=STATE.settings.thFrost, thRain=STATE.settings.thRain, thWind=STATE
 const level = STATE.settings.notifLevel || 'advice';
 const wantsTips = level!=='quiet';
 const alerts=[];
+// Today and tomorrow only, for the offline snapshot - see WEATHER_OFFLINE_CACHE_KEY above.
+const offlineSnapshotDays = [];
 for(let i=0;i<days.length;i++){
 // Cloude's corrected figures, when available for this date — rain
 // and wind feed straight into the severe-weather check below;
@@ -2082,6 +2159,16 @@ const dayWind = cday?.wind ?? wind[i];
 const correctedFrost = correctedFrostLikelyFor(days[i], thFrost);
 const frostLikely = correctedFrost!==null ? correctedFrost : (tmin[i]<=thFrost && frostConditionsLikely(codes[i], wind[i]));
 const severe = frostLikely || dayRain>=thRain || dayWind>=thWind || [95,96,99].includes(codes[i]);
+if(i<2){
+offlineSnapshotDays.push({
+date: days[i],
+rain: Math.round(dayRain*10)/10,
+wind: Math.round(dayWind),
+frostLikely,
+stormLikely: [95,96,99].includes(codes[i]),
+soilTemperature: cday?.soilTemperature || null
+});
+}
 if(severe){
 const wk = new Date(days[i]+'T00:00:00').toLocaleDateString('en-GB',{weekday:'long'});
 let fact, tip, type;
@@ -2109,6 +2196,9 @@ dismissedAlertKeys.add(b.dataset.dismiss);
 b.closest('.alert').remove();
 }));
 }
+// Live fetch just succeeded, so this is the freshest possible moment to refresh the offline
+// snapshot - see WEATHER_OFFLINE_CACHE_KEY above.
+await setMeta(WEATHER_OFFLINE_CACHE_KEY, {savedAt: Date.now(), days: offlineSnapshotDays});
 const todaySnap = getTodayWeatherSnapshot();
 document.getElementById('wxIcon').textContent = todaySnap ? `${todaySnap.icon} ${todaySnap.tempMax}\u00B0` : 'Weather';
 if(STATE.settings.notifOn && 'Notification' in window && Notification.permission==='granted'){
@@ -3274,11 +3364,205 @@ if(obj.createdBy) bits.push(`added by ${escapeHTML(obj.createdBy)}`);
 if(obj.movedBy && obj.movedBy!==obj.createdBy) bits.push(`last moved by ${escapeHTML(obj.movedBy)}`);
 return bits.length ? `<p class="tiny-muted">${bits.join(' &middot; ')}</p>` : '';
 }
+// Always includes the year, unlike dayLabel elsewhere - a compost batch routinely spans more
+// than a year, so dropping the year (dayLabel's usual habit for anything in the current year)
+// would make two different batches look identical at a glance, which is exactly the ambiguity
+// this whole batch system exists to avoid.
+function fullDateLabel(iso){
+if(!iso) return '';
+const d = new Date(iso+'T00:00:00');
+return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+}
+// A crate or heap's compost history is a series of batches, not one ongoing thing - emptying it
+// out and refilling starts a fresh batch with its own dates and its own log, so a treatment can
+// always be traced to the specific batch that was actually spread rather than "whatever's in
+// there now", which days after a refill is almost never what's actually being used.
+function currentCompostBatch(obj){
+obj.compostBatches = obj.compostBatches || [];
+let open = obj.compostBatches.find(b=>!b.endDate);
+if(!open){ open = {id:uid(), startDate:null, endDate:null, contentsLog:[]}; obj.compostBatches.push(open); }
+return open;
+}
+// Read-only peek at the open batch, for a summary line that just wants to show a date if there
+// is one - never creates a batch as a side effect of merely being displayed, unlike
+// currentCompostBatch above which is for screens that are actually about to edit one.
+function openCompostBatchOf(obj){ return (obj.compostBatches||[]).find(b=>!b.endDate) || null; }
+function compostBatchLabel(batch){
+if(batch.endDate) return `${fullDateLabel(batch.startDate)} to ${fullDateLabel(batch.endDate)}`;
+return batch.startDate ? `since ${fullDateLabel(batch.startDate)}` : 'not yet started';
+}
+// Shared between the plain compost-only screen (openFeatureDetail) and the dual-use Composting
+// screen reached from a container/basket/raised bed - same crate, same log either way. Kept as
+// free-text entries (date + a few words) rather than a fixed set of ingredient options, since
+// real mixes are ad hoc ("half a barrow of horse manure and last month's bean plants") and a
+// fixed list would just force everything into "Other".
+function compostFieldsHTML(obj){
+const batch = currentCompostBatch(obj);
+const entries = (batch.contentsLog||[]).slice().sort((a,b)=> b.date.localeCompare(a.date));
+const logRows = entries.map(e=>`<div class="planting-row"><span class="pname">${escapeHTML(e.note)}</span><span class="pdate">${dayLabel(e.date)}</span></div>
+<button type="button" class="btn small danger" data-dellog="${e.id}" style="margin:-6px 0 8px;">Remove entry</button>`).join('') || '<p class="muted">Nothing logged yet.</p>';
+const pastBatches = (obj.compostBatches||[]).filter(b=>b.id!==batch.id && b.endDate).sort((a,b)=> (b.endDate||'').localeCompare(a.endDate||''));
+const pastHTML = pastBatches.length ? `<div class="row-heading">Past batches</div>${pastBatches.map(b=>`<div class="planting-row" style="cursor:pointer;" data-viewbatch="${b.id}"><span class="pname">${escapeHTML(compostBatchLabel(b))}</span></div>`).join('')}` : '';
+return `<div class="form-row"><div><label>Manure started (optional)</label><input type="date" id="mCreatedDate" value="${batch.startDate||''}"></div></div>
+<div class="row-heading">What's gone in</div>
+${logRows}
+<div class="form-row" style="margin-top:6px;"><div><label>Date</label><input type="date" id="mLogDate" value="${todayISO()}"></div><div><label>Added</label><input type="text" id="mLogNote" placeholder="e.g. Horse manure"></div></div>
+<div class="btn-row" style="margin-bottom:14px;">
+<button type="button" class="btn small secondary" id="mLogAdd">+ Add to log</button>
+<button type="button" class="btn small secondary" id="mNewBatch">Start a new batch</button>
+</div>
+${pastHTML}`;
+}
+// Everything compostFieldsHTML renders that needs wiring up - the date, the log's add/remove,
+// starting a new batch, and jumping into a past one. Kept as one function since they all act on
+// the same current batch and all save/re-render immediately, independent of whatever "Save"
+// button the surrounding screen has for the object's own name/size/colour.
+function wireCompostFields(obj, storeKind, onDone){
+const batch = currentCompostBatch(obj);
+const dateEl = document.getElementById('mCreatedDate');
+if(dateEl) dateEl.addEventListener('change', async ()=>{
+batch.startDate = dateEl.value || null;
+await put(storeKind, obj); await afterChange();
+});
+const addBtn = document.getElementById('mLogAdd');
+if(addBtn) addBtn.addEventListener('click', async ()=>{
+const note = document.getElementById('mLogNote').value.trim();
+if(!note) return;
+const date = document.getElementById('mLogDate').value || todayISO();
+batch.contentsLog = batch.contentsLog || [];
+batch.contentsLog.push({id:uid(), date, note});
+await put(storeKind, obj); await afterChange(); onDone();
+});
+modalContent.querySelectorAll('[data-dellog]').forEach(b=>b.addEventListener('click', async ()=>{
+const id = b.dataset.dellog;
+batch.contentsLog = (batch.contentsLog||[]).filter(e=>e.id!==id);
+await recordTombstone(id);
+await put(storeKind, obj); await afterChange(); onDone();
+}));
+const newBatchBtn = document.getElementById('mNewBatch');
+if(newBatchBtn) newBatchBtn.addEventListener('click', async ()=>{
+if(await confirmDialog("Start a new batch? Today's date closes off the current one - its log and \"Used on\" history stay exactly as they are, just filed away as a past batch.")){
+batch.endDate = todayISO();
+obj.compostBatches.push({id:uid(), startDate:todayISO(), endDate:null, contentsLog:[]});
+await put(storeKind, obj); await afterChange(); onDone();
+}
+});
+modalContent.querySelectorAll('[data-viewbatch]').forEach(b=>b.addEventListener('click', ()=>{
+const past = (obj.compostBatches||[]).find(x=>x.id===b.dataset.viewbatch);
+if(past) openCompostBatchDetail(past, onDone);
+}));
+}
+// A closed batch's own read-only view - its log exactly as it was left, plus its own "Used on"
+// trace. Kept separate from the current batch's screen so an old batch can never be mistaken for
+// what's actually in the crate right now.
+function openCompostBatchDetail(batch, backFn){
+const entries = (batch.contentsLog||[]).slice().sort((a,b)=> b.date.localeCompare(a.date));
+const logRows = entries.map(e=>`<div class="planting-row"><span class="pname">${escapeHTML(e.note)}</span><span class="pdate">${dayLabel(e.date)}</span></div>`).join('') || '<p class="muted">Nothing logged.</p>';
+openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${escapeHTML(compostBatchLabel(batch))}</h3>
+<div class="row-heading">What went in</div>${logRows}
+${compostUsedOnHTML(batch.id)}`, true);
+document.getElementById('mBack').addEventListener('click', backFn);
+wireCompostUsedOn();
+}
+// Every batch, past and current, from every compost source - plain heaps, plus any container/
+// basket or raised bed with "Composting underneath" switched on. Listed explicitly by its own
+// date range rather than guessing which one's "current", since the compost actually being spread
+// is almost always an old, finished batch, not whatever's just gone in. Newest batch first within
+// each source, sources ordered by their own most recent batch.
+function compostSourceOptions(){
+const crates = [];
+STATE.features.forEach(f=>{
+if(f.type==='compost' || ((f.type==='container'||f.type==='basket') && f.composting)) crates.push({kind:'feature', id:f.id, label:f.label||FEATURE_TYPES[f.type].label, obj:f});
+});
+STATE.beds.forEach(b=>{ if(b.raised && b.composting) crates.push({kind:'bed', id:b.id, label:b.name, obj:b}); });
+const groups = crates.map(c=>({...c, batches:(c.obj.compostBatches||[]).slice().sort((a,b)=> (b.startDate||'').localeCompare(a.startDate||''))})).filter(g=>g.batches.length);
+groups.sort((a,b)=> (b.batches[0].startDate||'').localeCompare(a.batches[0].startDate||''));
+const options = [];
+groups.forEach(g=> g.batches.forEach(batch=> options.push({sourceKind:g.kind, sourceId:g.id, batchId:batch.id, label:`${g.label} — ${compostBatchLabel(batch)}`})));
+return options;
+}
+// Shared label for wherever a crop or a compost trace might be growing - a bed's own name, a
+// container/basket/heap's label, or (for a tray) its number plus whichever greenhouse/polytunnel
+// it's sitting in, since a tray has no name of its own.
+function objectDisplayLabel(obj, storeKind){
+if(storeKind==='beds') return obj.name;
+if(storeKind==='trays'){
+const host = obj.featureId ? featureById(obj.featureId) : null;
+return (obj.number!=null?('Tray #'+obj.number+' — '):'Tray — ') + (host?(host.label||(FEATURE_TYPES[host.type]&&FEATURE_TYPES[host.type].label)):obj.location);
+}
+return obj.label||(FEATURE_TYPES[obj.type]&&FEATURE_TYPES[obj.type].label)||'Container';
+}
+// The reverse lookup: given one specific batch, every Compost treatment anywhere that named it,
+// newest first - this is what makes a problem traceable to exactly what it went on, rather than
+// just recording the source one-way on the treatment itself. Matched purely by batch id, so
+// refilling the same crate and starting a new batch can never pull in an old batch's history.
+// Scans beds, containers/baskets/heaps AND individual trays/pots - a treatment logged from a
+// crop's own Crops-tab entry often lands on a tray specifically.
+function compostUsedOnUsages(batchId){
+const usages = [];
+function scan(objList, storeKind){
+objList.forEach(obj=>{
+(obj.treatments||[]).forEach(t=>{
+if(t.type==='Compost' && t.batchId===batchId){
+let cropName = null;
+if(t.plantingId){
+const p = (obj.plantings||[]).find(pp=>pp.id===t.plantingId);
+if(p){ const c=cropById(p.cropId); cropName = c?c.name:null; }
+}
+usages.push({date:t.date, place: objectDisplayLabel(obj, storeKind), cropName, kind:storeKind, objId:obj.id, plantingId:t.plantingId});
+}
+});
+});
+}
+scan(STATE.beds, 'beds');
+scan(STATE.features, 'features');
+scan(STATE.trays, 'trays');
+return usages.sort((a,b)=> b.date.localeCompare(a.date));
+}
+function compostUsedOnHTML(batchId){
+const usages = compostUsedOnUsages(batchId);
+if(!usages.length) return '';
+const rows = usages.map(u=>`<div class="planting-row" style="cursor:pointer;" data-usedon="${u.kind}|${u.objId}|${u.plantingId||''}"><span class="pname">${escapeHTML(u.cropName ? (u.cropName+' — '+u.place) : u.place)}</span><span class="pdate">${dayLabel(u.date)}</span></div>`).join('');
+return `<div class="row-heading">Used on</div>${rows}`;
+}
+// Jumps back to wherever one "Used on" row points - the specific planting when the treatment was
+// tied to one, otherwise the bed/container/tray's own screen. Same navigation the rest of the app
+// already uses for beds vs containers vs trays, just picked by the usage's own kind.
+function openUsedOnSpot(kind, objId, plantingId){
+if(kind==='beds') plantingId ? openPlantingInfo(objId, plantingId) : openBedDetail(objId);
+else if(kind==='features') plantingId ? openPlantingInfo(objId, plantingId, 'features') : openContainerDetail(objId);
+else if(kind==='trays') plantingId ? openTrayPlantingInfo(objId, plantingId) : openTrayInfo(objId);
+}
+function wireCompostUsedOn(){
+modalContent.querySelectorAll('[data-usedon]').forEach(el=>el.addEventListener('click', ()=>{
+const [kind, objId, plantingId] = el.dataset.usedon.split('|');
+openUsedOnSpot(kind, objId, plantingId||undefined);
+}));
+}
+// Composting underneath a container/basket or raised bed lives on its own small screen rather
+// than buried in the planter's general Edit form - reachable from a button right next to Edit,
+// and it's also where a problem traced back to the current batch would show up.
+function openCompostScreen(obj, storeKind, backFn){
+const toggleHTML = `<div class="toggle-row"><span>Composting underneath</span><label class="switch"><input type="checkbox" id="mComposting" ${obj.composting?'checked':''}><span class="slider"></span></label></div>`;
+const fieldsHTML = obj.composting ? compostFieldsHTML(obj) + compostUsedOnHTML(currentCompostBatch(obj).id) : '';
+openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Composting</h3>${toggleHTML}${fieldsHTML}`, true);
+document.getElementById('mBack').addEventListener('click', backFn);
+const compostingEl = document.getElementById('mComposting');
+compostingEl.addEventListener('change', async ()=>{
+obj.composting = compostingEl.checked;
+await put(storeKind, obj); await afterChange();
+openCompostScreen(obj, storeKind, backFn);
+});
+if(obj.composting){
+wireCompostFields(obj, storeKind, ()=>openCompostScreen(obj, storeKind, backFn));
+wireCompostUsedOn();
+}
+}
 function openFeatureDetail(feat){
 const info = FEATURE_TYPES[feat.type];
 const featSwatches = BED_COLORS.map(c=>`<div class="swatch ${c===feat.color?'picked':''}" data-c="${c}" style="background:${c};"></div>`).join('');
 const roundToggle = feat.type==='container' ? `<div class="toggle-row"><span>Round</span><label class="switch"><input type="checkbox" id="mRound" ${feat.round?'checked':''}><span class="slider"></span></label></div>` : '';
-const compostDateRow = feat.type==='compost' ? `<div class="form-row"><div><label>Started (optional)</label><input type="date" id="mCreatedDate" value="${feat.createdDate||''}"></div></div>` : '';
+const compostDateRow = feat.type==='compost' ? compostFieldsHTML(feat) + compostUsedOnHTML(currentCompostBatch(feat).id) : '';
 const capacityRow = feat.type==='water' ? `<div class="form-row"><div><label>Capacity, litres (optional)</label><input type="number" onfocus="this.select()" id="mCapacity" value="${feat.capacityLitres??''}" placeholder="e.g. 200"></div></div>` : '';
 openModal(`<h3>${info.icon} ${escapeHTML(feat.label||info.label)} <span style="display:inline-block; width:16px; height:16px; border-radius:4px; background:${feat.color||BED_COLORS[0]}; vertical-align:-2px;"></span></h3>
 ${stampHTML(feat)}
@@ -3292,6 +3576,7 @@ ${lockToggleHTML(feat)}
 <div id="nameError" class="muted" style="color:var(--danger,#b33); display:none; margin-bottom:8px;"></div>
 <div class="btn-row"><button class="btn" id="mSave">Save</button><button class="btn danger" id="mDel">Remove this ${escapeHTML(info.label.toLowerCase())} from the map</button></div>`);
 wireLockToggle();
+if(feat.type==='compost') { wireCompostFields(feat, 'features', ()=>openFeatureDetail(feat)); wireCompostUsedOn(); }
 let pickedColor = feat.color || BED_COLORS[0];
 modalContent.querySelectorAll('.swatch').forEach(s=>s.addEventListener('click', ()=>{
 modalContent.querySelectorAll('.swatch').forEach(x=>x.classList.remove('picked')); s.classList.add('picked'); pickedColor=s.dataset.c;
@@ -3307,7 +3592,6 @@ return;
 feat.label=newLabel;
 feat.color = pickedColor;
 if(feat.type==='container') feat.round = document.getElementById('mRound').checked;
-if(feat.type==='compost') feat.createdDate = document.getElementById('mCreatedDate').value || null;
 if(feat.type==='water') { const v = document.getElementById('mCapacity').value; feat.capacityLitres = v===''?null:parseInt(v); }
 // 0.15 was an arbitrary floor here, tighter than what a thin feature (a path, a fence run)
 // can genuinely need — match the same 0.1m real-world minimum the bed picture canvas now uses,
@@ -3323,22 +3607,24 @@ requireUnlock(async ()=>{ if(await confirmDialog('Remove this from your map?', (
 });
 }
 /* ---- Bed detail ---- */
-function treatmentsSectionHTML(obj, storeKind, filterMode){
+function treatmentsSectionHTML(obj, storeKind, filterMode, heading){
 const all = obj.treatments||[];
 const filtered = filterMode===undefined ? all
 : filterMode==='bedwide' ? all.filter(t=>!t.plantingId)
+: Array.isArray(filterMode) ? all.filter(t=>!t.plantingId || filterMode.includes(t.plantingId))
 : all.filter(t=>!t.plantingId || t.plantingId===filterMode);
 const sorted = filtered.slice().reverse();
 const cutoff = addDays(todayISO(), -365);
 const recent = sorted.filter(t=>t.date>=cutoff);
 const older = sorted.filter(t=>t.date<cutoff);
-const rowHTML = t => `<div class="planting-row" style="cursor:pointer;" data-edittreatment="${t.id}"><span class="pname">${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}${t.reason?' — '+escapeHTML(t.reason):''}${(filterMode && filterMode!=='bedwide' && !t.plantingId)?' <span class="tiny-muted">(whole bed)</span>':''}</span><span class="pdate">${dayLabel(t.date)}${t.by?' &middot; '+escapeHTML(t.by):''}</span></div>`;
+const sourceText = t => t.sourceKind==='bought' ? ' (bought in)' : t.sourceLabel ? ` (from ${escapeHTML(t.sourceLabel)})` : '';
+const rowHTML = t => `<div class="planting-row" style="cursor:pointer;" data-edittreatment="${t.id}"><span class="pname">${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}${sourceText(t)}${t.reason?' — '+escapeHTML(t.reason):''}${(filterMode && filterMode!=='bedwide' && !t.plantingId)?' <span class="tiny-muted">(whole bed)</span>':''}</span><span class="pdate">${dayLabel(t.date)}${t.by?' &middot; '+escapeHTML(t.by):''}</span></div>`;
 const recentHTML = recent.map(rowHTML).join('');
 const olderHTML = older.length ? `<details class="timings more-toggle"><summary>+ Show ${older.length} more (older than a year)</summary><div style="margin-top:8px;">${older.map(rowHTML).join('')}</div></details>` : '';
 const presentTypes = new Set(filtered.map(t=>t.type));
 const typeButtons = TREATMENT_TYPES.map(t=>`<button class="btn small ${presentTypes.has(t)?'':'secondary'}" data-quicktreatment="${t}" title="${presentTypes.has(t)?'Already logged — tap to add another':'Tap to log this'}">${t}${presentTypes.has(t)?' ✓':''}</button>`).join('');
 return `<div class="treatments-box">
-<div class="row-heading" style="margin-top:0;">Feed &amp; treatments</div>
+<div class="row-heading" style="margin-top:0;">${heading?escapeHTML(heading):'Feed &amp; treatments'}</div>
 ${recentHTML || (older.length ? '' : '<p class="muted">Nothing logged yet.</p>')}
 ${olderHTML}
 <div class="swatch-row" style="flex-wrap:wrap; margin-top:8px;">${typeButtons}</div></div>`;
@@ -3376,6 +3662,7 @@ openModal(`<div style="display:flex; align-items:flex-start; justify-content:spa
 <span class="muted" style="font-size:15px; white-space:nowrap; margin-top:4px;">${formatArea(bedAreaSqM(feat))}</span>
 </div>
 ${stampHTML(feat)}
+${feat.composting && openCompostBatchOf(feat) && openCompostBatchOf(feat).startDate ? `<p class="tiny-muted">Composting underneath since ${fullDateLabel(openCompostBatchOf(feat).startDate)}</p>` : ''}
 <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
 <p class="picture-help">Drag a crop's box to where it is, and its corner to resize it. Tap it for details.</p>
 ${rows}${warn}
@@ -3383,6 +3670,7 @@ ${rows}${warn}
 ${treatmentsSectionHTML(feat,'features','bedwide')}
 <div class="btn-row">
 <button class="btn secondary" id="mEdit">Edit ${typeLabel}</button>
+${(feat.type==='container'||feat.type==='basket')?`<button class="btn secondary" id="mCompost">Composting</button>`:''}
 </div>
 <button class="btn secondary" id="mMoveFeature" style="margin-top:8px;">Move this ${typeLabel}</button>`, true);
 wireTreatmentRows(feat,'features', ()=>openContainerDetail(featId), null, undefined);
@@ -3422,7 +3710,11 @@ openContainerDetail(feat.id);
 });
 document.getElementById('mSow').addEventListener('click', ()=> openDirectSow(featId, undefined, 'features'));
 document.getElementById('mEdit').addEventListener('click', ()=>{
-requireUnlock(()=>{
+requireUnlock(openContainerEditModal);
+});
+const compostBtn = document.getElementById('mCompost');
+if(compostBtn) compostBtn.addEventListener('click', ()=> openCompostScreen(feat, 'features', ()=>openContainerDetail(featId)));
+function openContainerEditModal(){
 const roundToggle = feat.type==='container' ? `<div class="toggle-row"><span>Round</span><label class="switch"><input type="checkbox" id="mRound" ${feat.round?'checked':''}><span class="slider"></span></label></div>` : '';
 openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit ${typeLabel}</h3>
 <div class="form-row"><div><label>Name</label><input type="text" id="mName" value="${escapeAttr(feat.label||'')}"></div></div>
@@ -3458,8 +3750,7 @@ await put('features',feat); await afterChange(); closeModal();
 document.getElementById('mDel').addEventListener('click', async ()=>{
 if(await confirmDialog(`Remove this ${typeLabel} and everything planted in it?`, ()=>openContainerDetail(featId))){ await del('features',feat.id); await afterChange(); closeModal(); }
 });
-});
-});
+}
 }
 function hostedContainersFor(bed){
 return STATE.features.filter(f=>(f.type==='container'||f.type==='basket') && metresOverlap(f.x, f.y, f.w, f.h, bed.x, bed.y, bed.w, bed.h));
@@ -3507,6 +3798,7 @@ openModal(`<div style="display:flex; align-items:flex-start; justify-content:spa
 <span class="muted" style="font-size:15px; white-space:nowrap; margin-top:4px;">${formatArea(bedAreaSqM(bed))}</span>
 </div>
 ${stampHTML(bed)}
+${bed.raised && bed.composting && openCompostBatchOf(bed) && openCompostBatchOf(bed).startDate ? `<p class="tiny-muted">Composting underneath since ${fullDateLabel(openCompostBatchOf(bed).startDate)}</p>` : ''}
 <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
 <p class="picture-help">Drag a crop's box to where it is, and its corner to resize it. Tap it for details.</p>
 ${rows}${hostedHTML}${warn}
@@ -3516,6 +3808,7 @@ ${treatmentsSectionHTML(bed,'beds','bedwide')}
 <button class="btn secondary" id="mAddPath">+ Add path</button>
 <button class="btn secondary" id="mMarkFallow">+ Mark fallow</button>
 <button class="btn secondary" id="mEdit">Edit bed</button>
+${bed.raised?`<button class="btn secondary" id="mCompost">Composting</button>`:''}
 </div>`, true);
 modalContent.querySelectorAll('[data-hostedcontainer]').forEach(el=>el.addEventListener('click', ()=> openContainerDetail(el.dataset.hostedcontainer)));
 wireTreatmentRows(bed,'beds', ()=>openBedDetail(bedId), null, undefined);
@@ -3551,7 +3844,11 @@ document.getElementById('mSow').addEventListener('click', ()=> openDirectSow(bed
 document.getElementById('mAddPath').addEventListener('click', ()=> openDirectSow(bedId, 'Path'));
 document.getElementById('mMarkFallow').addEventListener('click', ()=> openDirectSow(bedId, 'Fallow'));
 document.getElementById('mEdit').addEventListener('click', ()=>{
-requireUnlock(()=>{
+requireUnlock(openBedEditModal);
+});
+const compostBtn = document.getElementById('mCompost');
+if(compostBtn) compostBtn.addEventListener('click', ()=> openCompostScreen(bed, 'beds', ()=>openBedDetail(bedId)));
+function openBedEditModal(){
 openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit bed</h3>
 <div class="form-row"><div><label>Name</label><input type="text" id="mName" value="${escapeAttr(bed.name)}"></div></div>
 ${dimensionFieldsHTML("mW","mH","Width","Depth", bed.w, bed.h)}
@@ -3588,8 +3885,7 @@ await put('beds',bed); await afterChange(); closeModal();
 document.getElementById('mDel').addEventListener('click', async ()=>{
 if(await confirmDialog('Remove this bed and everything planted in it?', ()=>openBedDetail(bedId))){ await del('beds',bed.id); await afterChange(); closeModal(); }
 });
-});
-});
+}
 }
 function openPlantingInfo(bedId, plantingId, kind){
 kind = kind || 'beds';
@@ -3857,24 +4153,45 @@ kind==='features' ? openContainerDetail(bedId) : openBedDetail(bedId);
 }
 });
 }
-function openAddTreatment(obj, storeKind, onDone, existingId, cropForSuggestions, plantingId){
+function openAddTreatment(obj, storeKind, onDone, existingId, cropForSuggestions, plantingId, presetType){
 const existing = existingId ? (obj.treatments||[]).find(t=>t.id===existingId) : null;
 const issues = commonIssuesFor(cropForSuggestions);
+const isCompost = existing ? existing.type==='Compost' : presetType==='Compost';
+const sources = compostSourceOptions();
+const sourceOptionsHTML = `<option value="bought" ${existing&&existing.sourceKind==='bought'?'selected':''}>Bought in</option>`
++ sources.map(s=>`<option value="${s.sourceKind}:${s.sourceId}:${s.batchId}" ${existing&&existing.batchId===s.batchId?'selected':''}>${escapeHTML(s.label)}</option>`).join('');
 openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${existing?'Edit treatment':'Add a treatment'}</h3>
-<div class="form-row"><div><label>Type</label><select id="mType">${TREATMENT_TYPES.map(t=>`<option ${existing&&existing.type===t?'selected':''}>${t}</option>`).join('')}</select></div></div>
+<div class="form-row"><div><label>Type</label><select id="mType">${TREATMENT_TYPES.map(t=>`<option ${(existing?existing.type===t:presetType===t)?'selected':''}>${t}</option>`).join('')}</select></div></div>
+<div class="form-row" id="compostSourceRow" style="display:${isCompost?'':'none'};"><div><label>Source</label><select id="mSource">${sourceOptionsHTML}</select></div></div>
 <div class="form-row"><div><label>Name / product (optional)</label><input type="text" id="mNotes" placeholder="e.g. Horse manure, Roundup" value="${existing?escapeAttr(existing.notes||''):''}"></div></div>
 <div class="form-row"><div><label>Why (optional)</label><input type="text" id="mReason" list="reasonSuggestions" placeholder="e.g. aphids, general feed" value="${existing?escapeAttr(existing.reason||''):''}"></div></div>
 ${issues.length?`<div class="swatch-row" id="issueChipRow" style="margin:-6px 0 12px; flex-wrap:wrap;">${issues.map(i=>`<button type="button" class="btn small secondary" data-issue="${escapeAttr(i)}">${escapeHTML(i)}</button>`).join('')}</div>`:''}
-<div class="form-row"><div><label>Date</label><input type="date" id="mDate" value="${existing?existing.date:todayISO()}"></div></div>
+<div class="form-row"><div><label id="mDateLabel">${isCompost?'Date added':'Date'}</label><input type="date" id="mDate" value="${existing?existing.date:todayISO()}"></div></div>
 <button class="btn big" id="mSave">Save</button>
 ${existing?`<button class="btn danger" id="mDelTreat" style="margin-top:24px;">Remove this treatment</button>`:''}`, true);
 document.getElementById('mBack').addEventListener('click', onDone);
+// The source picker and the "Date added" wording only make sense for a Compost entry - synced
+// live off the Type dropdown so switching types (in either direction) is never left showing a
+// stale label or an irrelevant source field.
+const typeEl = document.getElementById('mType');
+const sourceRow = document.getElementById('compostSourceRow');
+const dateLabel = document.getElementById('mDateLabel');
+typeEl.addEventListener('change', ()=>{
+const nowCompost = typeEl.value==='Compost';
+sourceRow.style.display = nowCompost ? '' : 'none';
+dateLabel.textContent = nowCompost ? 'Date added' : 'Date';
+});
 modalContent.querySelectorAll('[data-issue]').forEach(b=>b.addEventListener('click', ()=>{ document.getElementById('mReason').value = b.dataset.issue; }));
 document.getElementById('mSave').addEventListener('click', async ()=>{
 const reason = document.getElementById('mReason').value.trim();
 await rememberTreatmentReason(reason);
 obj.treatments = obj.treatments||[];
-const rec = {id: existing?existing.id:uid(), type:document.getElementById('mType').value, date:document.getElementById('mDate').value||todayISO(), notes:document.getElementById('mNotes').value.trim(), reason, by: existing?(existing.by||who()):who(), plantingId: existing?existing.plantingId:plantingId};
+const rec = {id: existing?existing.id:uid(), type:typeEl.value, date:document.getElementById('mDate').value||todayISO(), notes:document.getElementById('mNotes').value.trim(), reason, by: existing?(existing.by||who()):who(), plantingId: existing?existing.plantingId:plantingId};
+if(typeEl.value==='Compost'){
+const sv = document.getElementById('mSource').value;
+if(sv==='bought') rec.sourceKind = 'bought';
+else { const [k,id,batchId] = sv.split(':'); const src = sources.find(s=>s.batchId===batchId); rec.sourceKind=k; rec.sourceId=id; rec.batchId=batchId; rec.sourceLabel = src?src.label:undefined; }
+}
 if(existing){ const idx=obj.treatments.findIndex(t=>t.id===existing.id); obj.treatments[idx]=rec; }
 else obj.treatments.push(rec);
 await put(storeKind, obj); await afterChange(); onDone();
@@ -3886,9 +4203,14 @@ await put(storeKind, obj); await afterChange(); onDone();
 }
 });
 }
-function wireTreatmentRows(obj, storeKind, onDone, cropForSuggestions, plantingId){
-modalContent.querySelectorAll('[data-edittreatment]').forEach(el=>el.addEventListener('click', ()=> openAddTreatment(obj, storeKind, onDone, el.dataset.edittreatment, cropForSuggestions, plantingId)));
-modalContent.querySelectorAll('[data-quicktreatment]').forEach(el=>el.addEventListener('click', async ()=>{
+function wireTreatmentRows(obj, storeKind, onDone, cropForSuggestions, plantingId, root){
+root = root || modalContent;
+root.querySelectorAll('[data-edittreatment]').forEach(el=>el.addEventListener('click', ()=> openAddTreatment(obj, storeKind, onDone, el.dataset.edittreatment, cropForSuggestions, plantingId)));
+root.querySelectorAll('[data-quicktreatment]').forEach(el=>el.addEventListener('click', async ()=>{
+// Compost is the one type where the source is the whole point - instant-logging it with
+// nothing recorded would defeat the traceability this was built for, so it jumps straight
+// into the full form (pre-selected) rather than logging blind like the other quick-tap types.
+if(el.dataset.quicktreatment==='Compost'){ openAddTreatment(obj, storeKind, onDone, null, cropForSuggestions, plantingId, 'Compost'); return; }
 obj.treatments = obj.treatments||[];
 const rec = {id:uid(), type:el.dataset.quicktreatment, date:todayISO(), notes:'', reason:'', by:who(), plantingId};
 obj.treatments.push(rec);
@@ -4139,7 +4461,28 @@ const tierId = activeTier[feat.id];
 const tier = tiers.find(t=>t.id===tierId) || tiers[0];
 const allTrays = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===locName) && (t.tierId||tiers[0].id)===tierId);
 const everyTierTrays = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===locName));
-const tierRow = tiers.length>1 ? `<div class="tier-row">${tiers.map(t=>`<button class="tier-pill ${t.id===tierId?'active':''}" data-tier="${t.id}">${escapeHTML(t.label)}</button>`).join('')}<button class="tier-pill" id="btnAddTier">+ Staging</button></div>` : `<button class="btn small secondary" id="btnAddTier" style="margin-bottom:10px;">+ Add staging / shelf</button>`;
+// Grouped by structural position rather than by matching the words "North"/"South" - a
+// future tunnel running the other way round would have East/West staging instead, and this
+// still lines them up correctly since it only looks for "upper"/"lower" in the label. Each
+// group gets its own row so the pairing holds regardless of how the pill text happens to wrap,
+// rather than relying on flex-wrap to land exactly two per line. Anything that's neither
+// upper nor lower (a custom label like "Middle shelf") gets its own row too, ahead of Ground,
+// which always sits alone on the last line.
+const tierRow = (()=>{
+if(tiers.length<=1) return '';
+const ground = tiers.find(t=>t.id==='ground');
+const rest = tiers.filter(t=>t.id!=='ground');
+const uppers = rest.filter(t=>/upper/i.test(t.label));
+const lowers = rest.filter(t=>/lower/i.test(t.label));
+const others = rest.filter(t=>!/upper/i.test(t.label) && !/lower/i.test(t.label));
+const pillHTML = (t)=>`<button class="tier-pill ${t.id===tierId?'active':''}" data-tier="${t.id}">${escapeHTML(t.label)}</button>`;
+const rowHTML = (group)=> group.length ? `<div class="tier-row">${group.map(pillHTML).join('')}</div>` : '';
+return rowHTML(uppers) + rowHTML(lowers) + rowHTML(others) + (ground ? rowHTML([ground]) : '');
+})();
+// Pulled out of the level-switcher row (and, for a single-level structure, off its own line
+// up top) down into the bottom action row alongside the two other "manage this structure"
+// buttons - it's tapped rarely enough that it doesn't need prime real estate near the trays.
+const addTierBtnHTML = `<button class="btn small secondary" id="btnAddTier">${tiers.length>1?'+ Staging':'+ Add staging / shelf'}</button>`;
 const listSource = tiers.length>1 ? everyTierTrays : allTrays;
 const sortMode = traySortMode[feat.id] || 'num';
 const trayNameForSort = (t)=> t.plantings.length===1 ? ((cropById(t.plantings[0].cropId)||{}).name || 'Something') : trayLabelText(t);
@@ -4147,7 +4490,7 @@ const trayDateForSort = (t)=>{
 let earliest = null;
 t.plantings.forEach(p=>{
 const c = cropById(p.cropId);
-const d = c && c.sowToPotOn ? addDays(p.sownDate, c.sowToPotOn) : null;
+const d = c && c.sowToPotOn && !p.stayInPlace ? addDays(p.sownDate, c.sowToPotOn) : null;
 if(d && (!earliest || d<earliest)) earliest = d;
 });
 return earliest;
@@ -4174,12 +4517,12 @@ return `<div class="planting-row"><div class="prow-main"><span class="pname" sty
 }
 if(t.plantings.length===1){
 const p = t.plantings[0]; const c = cropById(p.cropId);
-const potOnDue = c && c.sowToPotOn ? addDays(p.sownDate, c.sowToPotOn) : null;
+const potOnDue = c && c.sowToPotOn && !p.stayInPlace ? addDays(p.sownDate, c.sowToPotOn) : null;
 return `<div class="planting-row"><span class="fam-dot" style="background:${c?cropColor(c):'#8a8a7a'};"></span>
 <div class="prow-main"><span class="pname" style="cursor:pointer;" data-info="${t.id}">${(c && c.name)?escapeHTML(c.name):'Something'}${numTag}</span>
-<span class="pdate">${potOnDue?('plant out '+dayLabel(potOnDue)):''}</span></div>
+<span class="pdate">${potOnDue?('plant out '+dayLabel(potOnDue)):(p.stayInPlace?'staying here':'')}</span></div>
 <div class="prow-actions"><button class="btn small danger" data-deltray="${t.id}">Delete</button>
-<button class="btn small" data-move="${t.id}">Plant out</button></div></div>`;
+${p.stayInPlace?'':`<button class="btn small" data-move="${t.id}">Plant out</button>`}</div></div>`;
 }
 // Several crops sharing one tray — one summary row; tap in to see and act on each separately.
 return `<div class="planting-row"><span class="fam-dot" style="background:#8a8a7a;"></span>
@@ -4213,12 +4556,12 @@ ${stampHTML(feat)}
 ${tierRow}
 ${tiers.length>1?`<p class="viewing-tier">Viewing: <strong>${escapeHTML(tier.label)}</strong></p>`:''}
 <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
-<div class="btn-row"><button class="btn" id="mSow">Sow something</button><button class="btn secondary" id="mAddPot">Add a tray/pot</button></div>
+<div class="btn-row"><button class="btn small" id="mSow" style="flex:1;">Sow something</button><button class="btn small secondary" id="mAddPot" style="flex:1;">Add a tray/pot</button></div>
 <p class="picture-help">${tiers.length>1?'Drag a tray up onto another level\'s tab to move it there. ':''}Drag a tray's box to where it sits, and its corner to resize it. Tap it for details.</p>
 <div class="tray-list">${rows}</div>
 ${findTrayRowHTML}
 ${sortRowHTML}
-<div class="btn-row">${tierId!=='ground'?'<button class="btn secondary" id="mEditTier">Edit this staging</button>':''}<button class="btn secondary" id="mEdit">Edit ${escapeHTML(info.label.toLowerCase())}</button></div>`, true);
+<div class="btn-row">${tierId!=='ground'?'<button class="btn small secondary" id="mEditTier">Edit staging</button>':''}<button class="btn small secondary" id="mEdit">Edit ${escapeHTML(info.label.toLowerCase())}</button>${addTierBtnHTML}</div>`, true);
 modalContent.querySelectorAll('.sort-row [data-sort]').forEach(b=>b.addEventListener('click', ()=>{ traySortMode[feat.id]=b.dataset.sort; openStructureDetail(feat, highlightTrayId); }));
 document.getElementById('mAddPot').addEventListener('click', ()=> openAddContainer(feat, tierId));
 const showAllEmptyBtn = document.getElementById('btnShowAllEmpty');
@@ -4366,10 +4709,10 @@ const feat = featureForTray(tray);
 const multiTier = feat && getTiers(feat).length>1;
 const rows = (tray.plantings||[]).map(p=>{
 const c = cropById(p.cropId);
-const potOnDue = c && c.sowToPotOn ? addDays(p.sownDate, c.sowToPotOn) : null;
+const potOnDue = c && c.sowToPotOn && !p.stayInPlace ? addDays(p.sownDate, c.sowToPotOn) : null;
 return `<div class="planting-row"><span class="fam-dot" style="background:${c?cropColor(c):'#8a8a7a'};"></span>
 <span class="pname" style="cursor:pointer;" data-pinfo="${p.id}">${(c && c.name)?escapeHTML(c.name):'Something'}${p.quantity?' &middot; '+p.quantity+' left':''}</span>
-<span class="pdate">${potOnDue?('plant out '+dayLabel(potOnDue)):''}</span></div>`;
+<span class="pdate">${potOnDue?('plant out '+dayLabel(potOnDue)):(p.stayInPlace?'staying here':'')}</span></div>`;
 }).join('') || '<p class="muted">Nothing sown here yet.</p>';
 openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${tray.name?escapeHTML(tray.name):(tray.number!=null?('Tray #'+tray.number):'Tray')}</h3>
 <div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(tray.location)}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}</span></div>
@@ -4394,7 +4737,7 @@ function openTrayPlantingInfo(trayId, plantingId){
 const tray = STATE.trays.find(t=>t.id===trayId); if(!tray) return;
 const p = trayPlantingById(tray, plantingId); if(!p){ openTrayInfo(trayId); return; }
 const crop = cropById(p.cropId);
-const potOnDue = crop && crop.sowToPotOn ? addDays(p.sownDate, crop.sowToPotOn) : null;
+const potOnDue = crop && crop.sowToPotOn && !p.stayInPlace ? addDays(p.sownDate, crop.sowToPotOn) : null;
 const feat = featureForTray(tray);
 const multiTier = feat && getTiers(feat).length>1;
 const hasSiblings = tray.plantings.length>1;
@@ -4404,6 +4747,7 @@ openModal(`<button class="back-link" id="mBack">&larr; ${hasSiblings?'Back to tr
 <div class="planting-row"><span class="pname">Planted</span><input type="date" class="inline-edit" id="mEditDate" value="${p.sownDate}"></div>
 <div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(tray.location)}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}</span></div>
 <div class="planting-row"><span class="pname">Quantity left</span><input type="number" onfocus="this.select()" class="inline-edit" id="mEditQty" value="${p.quantity||1}" min="1"></div>
+${crop && crop.sowToPotOn ? `<div class="toggle-row"><span>Stays here until harvest</span><label class="switch"><input type="checkbox" id="mStayInPlace" ${p.stayInPlace?'checked':''}><span class="slider"></span></label></div>` : ''}
 ${potOnDue?`<div class="planting-row"><span class="pname">Plant out due</span><span class="pdate">${dayLabel(potOnDue)}</span></div>`:''}
 ${tray.createdBy?`<div class="planting-row"><span class="pname">Planted by</span><span class="pdate">${escapeHTML(tray.createdBy)}</span></div>`:''}
 ${tray.sizeLocked?`<p class="tiny-muted">🔒 Locked — size fixed. Still moveable.</p>`:''}
@@ -4427,11 +4771,27 @@ if(name){ const newCrop = await findOrCreateCrop(name); p.cropId = newCrop.id; a
 document.getElementById('mEditDate').addEventListener('change', async ()=>{
 p.sownDate = document.getElementById('mEditDate').value || p.sownDate;
 const linkedTask = STATE.tasks.find(t=>t.linkedTrayId===tray.id && (!t.linkedPlantingId || t.linkedPlantingId===p.id) && !t.done);
-if(linkedTask && crop && crop.sowToPotOn){ linkedTask.dueDate = addDays(p.sownDate, crop.sowToPotOn); await put('tasks', linkedTask); }
+if(linkedTask && crop && crop.sowToPotOn && !p.stayInPlace){ linkedTask.dueDate = addDays(p.sownDate, crop.sowToPotOn); await put('tasks', linkedTask); }
 await put('trays', tray); await afterChange(); openTrayPlantingInfo(trayId, plantingId);
 });
 document.getElementById('mEditQty').addEventListener('change', async ()=>{
 p.quantity = Math.max(1, parseInt(document.getElementById('mEditQty').value)||1);
+await put('trays', tray); await afterChange(); openTrayPlantingInfo(trayId, plantingId);
+});
+const stayEl = document.getElementById('mStayInPlace');
+// Retroactive toggle, for trays already sown before this was set (or a change of mind either
+// way). Checking it removes any still-open plant-out task for this planting so it drops off the
+// task list; unchecking it re-creates one from the crop's own timing, same as ticking it at sow
+// time would have skipped - so the task list always matches what this switch currently says,
+// regardless of when it was flipped.
+if(stayEl) stayEl.addEventListener('change', async ()=>{
+p.stayInPlace = stayEl.checked;
+const linkedTask = STATE.tasks.find(t=>t.linkedTrayId===tray.id && (!t.linkedPlantingId || t.linkedPlantingId===p.id) && !t.done);
+if(p.stayInPlace){
+if(linkedTask) await del('tasks', linkedTask.id);
+} else if(crop && crop.sowToPotOn && !linkedTask){
+await put('tasks', {id:uid(), title:`Plant out the ${crop.name} from the ${tray.location}`, dueDate:addDays(p.sownDate, crop.sowToPotOn), recurrence:'none', done:false, doneDates:[], linkedTrayId:tray.id, linkedPlantingId:p.id});
+}
 await put('trays', tray); await afterChange(); openTrayPlantingInfo(trayId, plantingId);
 });
 wireTreatmentRows(tray,'trays', ()=>openTrayPlantingInfo(trayId, plantingId), crop, p.id);
@@ -4507,11 +4867,14 @@ function openAddContainer(feat, tierId){
 const opts = allContainerSizeOptions().map(p=>`<button class="type-opt" data-w="${p.w}" data-h="${p.h}"><span class="icon">🪴</span>${escapeHTML(p.label)}</button>`).join('')
 + `<button class="type-opt" id="mRepeatLast" ${lastContainerSize?'':'style="display:none;"'}><span class="icon">🔁</span>Same as last</button>`
 + `<button class="type-opt" id="mCustomSize"><span class="icon">📐</span>Custom size</button>`;
-openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>What size tray or pot?</h3><div class="type-grid">${opts}</div>`);
+const manageBtn = (STATE.settings.customContainerSizes||[]).length ? `<button type="button" class="btn small secondary" id="mManageSizes" style="margin-bottom:14px;">Manage custom sizes</button>` : '';
+openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>What size tray or pot?</h3><div class="type-grid">${opts}</div>${manageBtn}`);
 document.getElementById('mBack').addEventListener('click', ()=> openStructureDetail(feat));
 modalContent.querySelectorAll('[data-w]').forEach(b=>b.addEventListener('click', ()=> createEmptyContainer(feat, tierId, parseFloat(b.dataset.w), parseFloat(b.dataset.h))));
 const repeatBtn = document.getElementById('mRepeatLast');
 if(repeatBtn) repeatBtn.addEventListener('click', ()=>{ if(lastContainerSize) createEmptyContainer(feat, tierId, lastContainerSize.w, lastContainerSize.h); });
+const manageEl = document.getElementById('mManageSizes');
+if(manageEl) manageEl.addEventListener('click', ()=> openManageContainerSizes(feat, tierId));
 document.getElementById('mCustomSize').addEventListener('click', ()=>{
 openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Custom size</h3>
 ${dimensionFieldsHTML("mW","mH","Width","Depth", 0.3, 0.2)}
@@ -4523,6 +4886,17 @@ await rememberContainerSize(w, h);
 createEmptyContainer(feat, tierId, w, h);
 });
 });
+}
+function openManageContainerSizes(feat, tierId){
+const list = STATE.settings.customContainerSizes||[];
+const rows = list.map(s=>`<div class="planting-row"><span class="pname">${escapeHTML(s.label)}</span><button class="btn small danger" data-delsize="${escapeAttr(s.label)}">Remove</button></div>`).join('') || '<p class="muted">No custom sizes saved.</p>';
+openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Custom tray/pot sizes</h3>${rows}`, true);
+document.getElementById('mBack').addEventListener('click', ()=> openAddContainer(feat, tierId));
+modalContent.querySelectorAll('[data-delsize]').forEach(b=>b.addEventListener('click', async ()=>{
+STATE.settings.customContainerSizes = (STATE.settings.customContainerSizes||[]).filter(s=>s.label!==b.dataset.delsize);
+await setMeta('customContainerSizes', STATE.settings.customContainerSizes);
+openManageContainerSizes(feat, tierId);
+}));
 }
 async function createEmptyContainer(feat, tierId, w, h){
 lastContainerSize = {w,h};
@@ -4565,13 +4939,15 @@ const adding = !trayIsEmpty(tray);
 // The tray number is asked here, at sowing time, rather than when the empty tray was first added —
 // that's the moment it's actually known, since the physical tray picked up is whichever one's on top
 // of the pile, not chased down by number. A tray that's been sown before keeps its number by default.
-const numberField = adding ? '' : `<div class="form-row"><div><label>Tray number (optional)</label><input type="number" onfocus="this.select()" id="mTrayNum" value="${tray.number!=null?tray.number:''}" placeholder="e.g. 7"></div></div>`;
+const numberField = adding ? '' : `<div><label>Tray number (optional)</label><input type="number" onfocus="this.select()" id="mTrayNum" value="${tray.number!=null?tray.number:''}" placeholder="e.g. 7"></div>`;
 openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${adding?'Sow another crop into':'Sow into'} this tray${tray.number!=null?(' #'+tray.number):''}</h3>
 <div class="form-row"><div><label>What are you sowing</label><input type="text" id="mCropName" list="cropSuggestions" placeholder="e.g. Lettuce" autocomplete="off"></div></div>
 <div id="cropSuggestBox" style="margin:-6px 0 12px;"></div>
-<div class="form-row"><div><label>Quantity</label><input type="number" onfocus="this.select()" id="mQty" value="1" min="1"></div></div>
-${numberField}
-<button type="button" class="btn" id="mSave" style="width:100%; height:46px; margin-top:8px;">Sow It</button>
+<div class="form-row"><div><label>Quantity</label><input type="number" onfocus="this.select()" id="mQty" value="1" min="1"></div>${numberField}</div>
+<div class="btn-row" style="align-items:center; margin-top:8px;">
+<button type="button" class="btn small" id="mSave">Sow It</button>
+<label style="display:flex; align-items:center; gap:6px; font-size:15px; cursor:pointer;"><input type="checkbox" id="mStayInPlace"> Stays here until harvest</label>
+</div>
 ${treatmentChipsHTML()}
 <button type="button" class="btn small secondary" id="mLookup" style="margin-top:14px;">🔎 Look it up online</button><div id="lookupBox"></div>
 <div class="form-row" style="margin-top:14px;"><div><label>Sow date</label><input type="date" id="mDate" value="${todayISO()}"></div></div>
@@ -4586,7 +4962,8 @@ const name = document.getElementById('mCropName').value.trim(); if(!name) return
 const crop = await findOrCreateCrop(name);
 await clearWishlistForCrop(crop.id);
 const date = document.getElementById('mDate').value || todayISO();
-const planting = {id:uid(), cropId:crop.id, sownDate:date, quantity:parseInt(document.getElementById('mQty').value)||1};
+const stayInPlace = document.getElementById('mStayInPlace').checked;
+const planting = {id:uid(), cropId:crop.id, sownDate:date, quantity:parseInt(document.getElementById('mQty').value)||1, stayInPlace};
 tray.plantings = tray.plantings||[]; tray.plantings.push(planting);
 tray.createdBy = tray.createdBy || who();
 if(!adding){
@@ -4599,7 +4976,7 @@ tray.number = n;
 const newTags = getTags();
 if(newTags.length){ tray.treatments = (tray.treatments||[]).concat(newTags.map(t=>({...t, plantingId:planting.id}))); }
 await put('trays', tray);
-if(crop.sowToPotOn){
+if(crop.sowToPotOn && !stayInPlace){
 const due = addDays(date, crop.sowToPotOn);
 await put('tasks', {id:uid(), title:`Plant out the ${crop.name} from the ${tray.location}`, dueDate:due, recurrence:'none', done:false, doneDates:[], linkedTrayId:tray.id, linkedPlantingId:planting.id});
 }
@@ -4614,7 +4991,10 @@ openModal(`${feat?'<button class="back-link" id="mBack">&larr; Back</button>':''
 <div id="cropSuggestBox" style="margin:-6px 0 12px;"></div>
 ${presetLocation ? '' : `<div class="form-row"><div><label>Where</label><select id="mLoc"><option>Greenhouse</option><option>Polytunnel</option><option>Windowsill</option></select></div></div>`}
 <div class="form-row"><div><label>Quantity</label><input type="number" onfocus="this.select()" id="mQty" value="1" min="1"></div><div><label>Tray number (optional)</label><input type="number" onfocus="this.select()" id="mTrayNum" placeholder="e.g. 7"></div></div>
-<button type="button" class="btn" id="mSave" style="width:100%; height:46px; margin-top:8px;">Sow It</button>
+<div class="btn-row" style="align-items:center; margin-top:8px;">
+<button type="button" class="btn small" id="mSave">Sow It</button>
+<label style="display:flex; align-items:center; gap:6px; font-size:15px; cursor:pointer;"><input type="checkbox" id="mStayInPlace"> Stays here until harvest</label>
+</div>
 ${treatmentChipsHTML()}
 <button type="button" class="btn small secondary" id="mLookup" style="margin-top:14px;">🔎 Look it up online</button><div id="lookupBox"></div>
 <div class="form-row" style="margin-top:14px;"><div><label>Sow date</label><input type="date" id="mDate" value="${todayISO()}"></div></div>`, true);
@@ -4628,7 +5008,8 @@ const crop = await findOrCreateCrop(name);
 await clearWishlistForCrop(crop.id);
 const date = document.getElementById('mDate').value || todayISO();
 const location = presetLocation || document.getElementById('mLoc').value;
-const planting = {id:uid(), cropId:crop.id, sownDate:date, quantity:parseInt(document.getElementById('mQty').value)||1};
+const stayInPlace = document.getElementById('mStayInPlace').checked;
+const planting = {id:uid(), cropId:crop.id, sownDate:date, quantity:parseInt(document.getElementById('mQty').value)||1, stayInPlace};
 const typedNum = parseInt(document.getElementById('mTrayNum').value);
 const trayNum = isNaN(typedNum) ? null : typedNum;
 const tray = {id:uid(), location, plantings:[planting], tierId:tierId||undefined, createdBy:who(), number: trayNum};
@@ -4644,7 +5025,7 @@ const occupied = STATE.trays.filter(t=>(t.featureId?t.featureId===targetFeat.id:
 Object.assign(tray, nextFreeSlot(tier.w, tier.h, occupied));
 }
 await put('trays', tray);
-if(crop.sowToPotOn){
+if(crop.sowToPotOn && !stayInPlace){
 const due = addDays(date, crop.sowToPotOn);
 await put('tasks', {id:uid(), title:`Plant out the ${crop.name} from the ${location}`, dueDate:due, recurrence:'none', done:false, doneDates:[], linkedTrayId:tray.id, linkedPlantingId:planting.id});
 }
@@ -4828,14 +5209,37 @@ for(const b of STATE.beds) if((b.plantings||[]).some(p=>p.active && p.cropId===c
 for(const f of STATE.features) if((f.plantings||[]).some(p=>p.active && p.cropId===cropId)) spots.push(f.label);
 return [...new Set(spots)];
 }
+// One group per physical container currently growing this crop - a bed, a raised bed/container,
+// or an individual tray (trays are grouped separately from each other, not lumped under their
+// host greenhouse/polytunnel, since each tray is its own real container). Used to show this
+// crop's actual treatment history broken out by where it's growing, rather than as one flat list.
+function cropTreatmentGroups(cropId){
+const groups = [];
+for(const b of STATE.beds){
+const ids = (b.plantings||[]).filter(p=>p.active && p.cropId===cropId).map(p=>p.id);
+if(ids.length) groups.push({obj:b, storeKind:'beds', plantingIds:ids, label:objectDisplayLabel(b,'beds')});
+}
+for(const f of STATE.features){
+const ids = (f.plantings||[]).filter(p=>p.active && p.cropId===cropId).map(p=>p.id);
+if(ids.length) groups.push({obj:f, storeKind:'features', plantingIds:ids, label:objectDisplayLabel(f,'features')});
+}
+for(const t of STATE.trays){
+const ids = (t.plantings||[]).filter(p=>p.cropId===cropId).map(p=>p.id);
+if(ids.length) groups.push({obj:t, storeKind:'trays', plantingIds:ids, label:objectDisplayLabel(t,'trays')});
+}
+return groups;
+}
 function cropTypeKey(crop){
 const m = matchCrop(crop.name);
 return (m ? m.name : crop.name).toLowerCase();
 }
-const TREATMENT_TYPES = ['Feed','Manure','Fertiliser','Insecticide','Pesticide','Weedkiller','Other'];
+const TREATMENT_TYPES = ['Feed','Manure','Compost','Fertiliser','Insecticide','Pesticide','Weedkiller','Other'];
 function treatmentChipsHTML(){
-return `<label style="margin-top:6px;">Treatments used (optional, tap any that apply)</label>
-<div class="swatch-row" id="sowTagRow">${TREATMENT_TYPES.map(t=>`<button type="button" class="btn small secondary" data-tag="${t}">${t}</button>`).join('')}</div>`;
+// Compost is left out here on purpose - logging it properly needs a source picked, and there's
+// nowhere sensible to ask that mid-sow. It's still fully available afterward via the quick-tap
+// row or "+ Add a treatment" on the bed/container itself, both of which ask for the source.
+return `<label style="margin-top:6px;">Treatments used</label>
+<div class="swatch-row" id="sowTagRow">${TREATMENT_TYPES.filter(t=>t!=='Compost').map(t=>`<button type="button" class="btn small secondary" data-tag="${t}">${t}</button>`).join('')}</div>`;
 }
 function wireTreatmentChips(container){
 let picked = [];
@@ -5012,7 +5416,6 @@ await afterChange();
 }
 function openEditCrop(cropId){
 const c = cropById(cropId); if(!c) return;
-const tags = c.treatmentTags || [];
 const issues = commonIssuesFor(c);
 function targetDateLabel(daysFromToday){
 if(daysFromToday==null || isNaN(daysFromToday)) return '';
@@ -5026,6 +5429,12 @@ const transTarget = targetDateLabel((c.sowToPotOn||0) + (c.transplantToHarvest||
 const directTarget = targetDateLabel(c.directSowToHarvest);
 const colorSwatches = CROP_COLORS.map(col=>`<div class="swatch ${c.color===col?'picked':''}" data-c="${col}" style="background:${col};"></div>`).join('');
 const spots = whereIsCropNowDetailed(cropId);
+// Real treatment history, broken out by container - each one keeps its own quick-tap row so a
+// second (or third) application of the same type, or a different one, is one tap away, and a
+// type already used shows a tick rather than looking untouched.
+const treatmentGroups = cropTreatmentGroups(cropId);
+const groupsHTML = treatmentGroups.map((g,i)=> `<div id="cropTreatGroup${i}" style="margin-top:10px;">${treatmentsSectionHTML(g.obj, g.storeKind, g.plantingIds, g.label)}</div>`).join('')
+|| '<p class="muted" style="margin-top:8px;">Nothing growing yet to log a treatment against.</p>';
 openModal(`<h3>Edit ${escapeHTML(c.name)}</h3>
 ${spots.length?`<label>Growing in</label><div class="btn-row" style="flex-wrap:wrap; margin-bottom:10px;">${spots.map(s=>`<button type="button" class="btn small secondary" data-jump="${s.id}|${s.kind}">${escapeHTML(s.name)}</button>`).join('')}</div>`:''}
 <div class="form-row"><div><label>Name</label><input type="text" id="mName" value="${escapeAttr(c.name)}"></div></div>
@@ -5033,15 +5442,14 @@ ${spots.length?`<label>Growing in</label><div class="btn-row" style="flex-wrap:w
 <div class="timing-row"><input type="number" onfocus="this.select()" id="mSowToPot" value="${c.sowToPotOn??''}" placeholder="—"> days from sowing to planting out${sowToPotTarget?` <span class="timing-target">(${sowToPotTarget})</span>`:''}</div>
 <div class="timing-row"><input type="number" onfocus="this.select()" id="mTransToHarvest" value="${c.transplantToHarvest??''}" placeholder="—"> days from planting out to harvest${(c.sowToPotOn!=null && c.transplantToHarvest!=null)?` <span class="timing-target">(${transTarget})</span>`:''}</div>
 <div class="timing-row"><input type="number" onfocus="this.select()" id="mDirectToHarvest" value="${c.directSowToHarvest??''}" placeholder="—"> days from direct sowing to harvest${directTarget?` <span class="timing-target">(${directTarget})</span>`:''}</div>
-<details class="timings" style="margin-top:14px;" ${tags.length?'open':''}><summary>Treatments used (optional)</summary>
-<div class="swatch-row" id="tagRow" style="flex-wrap:wrap; margin-top:8px;">${TREATMENT_TYPES.map(t=>`<button type="button" class="btn small ${tags.includes(t)?'':'secondary'}" data-tag="${t}">${t}</button>`).join('')}</div></details>
+<div class="row-heading" style="margin-top:14px;">Treatments used</div>
+${groupsHTML}
 ${issues.length?`<label style="margin-top:10px;">Common issues for this crop (tap to add to notes)</label><div class="swatch-row" id="issueChipRow" style="flex-wrap:wrap;">${issues.map(i=>`<button type="button" class="btn small secondary" data-issue="${escapeAttr(i)}">${escapeHTML(i)}</button>`).join('')}</div>`:''}
 ${c.wikiIssues?`<label style="margin-top:10px;">From Wikipedia (${escapeHTML(c.wikiIssues.sectionTitle)})</label><div class="muted" style="font-size:15px; background:var(--paper); padding:8px 10px; border-radius:6px;">${escapeHTML(c.wikiIssues.text)}</div>`:''}
 <div class="form-row" style="margin-top:14px;"><div><label>Notes (optional)</label><textarea id="mNotes" rows="3" placeholder="e.g. product names, timing, care tips">${escapeHTML(c.notes||'')}</textarea></div></div>
 <label style="margin-top:14px;">Colour</label>
 <div class="swatch-row" id="swRow">${colorSwatches}</div>
 <button class="btn big" id="mSave">Save</button>`, true);
-let pickedTags = tags.slice();
 let pickedColor = c.color || colorForCropName(c.name);
 modalContent.querySelectorAll('[data-jump]').forEach(b=>b.addEventListener('click', ()=>{
 const [id, kind] = b.dataset.jump.split('|');
@@ -5052,11 +5460,10 @@ else openContainerDetail(id);
 modalContent.querySelectorAll('.swatch').forEach(s=>s.addEventListener('click', ()=>{
 modalContent.querySelectorAll('.swatch').forEach(x=>x.classList.remove('picked')); s.classList.add('picked'); pickedColor=s.dataset.c;
 }));
-modalContent.querySelectorAll('[data-tag]').forEach(b=>b.addEventListener('click', ()=>{
-const t = b.dataset.tag;
-if(pickedTags.includes(t)){ pickedTags = pickedTags.filter(x=>x!==t); b.classList.add('secondary'); }
-else { pickedTags.push(t); b.classList.remove('secondary'); }
-}));
+treatmentGroups.forEach((g,i)=>{
+const root = document.getElementById('cropTreatGroup'+i);
+if(root) wireTreatmentRows(g.obj, g.storeKind, ()=>openEditCrop(cropId), c, g.plantingIds.length===1?g.plantingIds[0]:undefined, root);
+});
 modalContent.querySelectorAll('[data-issue]').forEach(b=>b.addEventListener('click', ()=>{
 const notesEl = document.getElementById('mNotes');
 const existing = notesEl.value.trim();
@@ -5069,7 +5476,6 @@ c.sowToPotOn = document.getElementById('mSowToPot').value===''?null:parseInt(doc
 c.transplantToHarvest = document.getElementById('mTransToHarvest').value===''?null:parseInt(document.getElementById('mTransToHarvest').value);
 c.directSowToHarvest = document.getElementById('mDirectToHarvest').value===''?null:parseInt(document.getElementById('mDirectToHarvest').value);
 c.notes = document.getElementById('mNotes').value.trim();
-c.treatmentTags = pickedTags;
 await put('crops', c); await afterChange();
 closeModal();
 });
@@ -6419,7 +6825,7 @@ return Array.from(byId.values()).filter(item=>!tombstoned.has(item.id));
 function mergeContainerLikeItem(remoteObj, localObj, tombstoned){
 const newer = (localObj._ts||0) >= (remoteObj._ts||0) ? localObj : remoteObj;
 const merged = {...newer};
-for(const nested of ['plantings','history','treatments']){
+for(const nested of ['plantings','history','treatments','compostBatches']){
 if(remoteObj[nested] || localObj[nested]) merged[nested] = mergeItemListById(remoteObj[nested], localObj[nested], tombstoned);
 }
 return merged;
@@ -6438,7 +6844,8 @@ function mergePayloads(remotePayload, localPayload){
 // Combine both sides' own tombstone records into one unified set before merging anything else,
 // keeping the most recent deletedAt if both sides happen to have tombstoned the same id - this
 // is what lets a genuine deletion made on one device correctly "win" against a remote copy that
-// simply hasn't learned about it yet, rather than a plain union silently bringing it back.
+// simply hasn't learned about it yet, rather than a plain union silently bringing it back. (See
+// recordTombstone's own pruning window for how long a deletion keeps winning for.)
 const tombstoneMap = new Map();
 for(const t of ((remotePayload.meta||{}).tombstones||[])) tombstoneMap.set(t.id, t);
 for(const t of ((localPayload.meta||{}).tombstones||[])){
