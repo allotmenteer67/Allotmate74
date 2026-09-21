@@ -53,6 +53,7 @@ section.panel > h2{font-size:21px; margin-bottom:12px; padding-bottom:8px; borde
 .btn.danger{background:transparent; color:var(--brick); border:1.5px solid var(--brick);}
 .btn:disabled{opacity:0.4; cursor:not-allowed;}
 .btn-row{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;}
+.soil-temp-strip{padding:8px 14px; margin-bottom:8px; border-radius:var(--radius); background:var(--card); border-left:5px solid var(--soil); font-size:15.5px; color:var(--soil);}
 .alert{display:flex; gap:10px; align-items:center; padding:14px; border-radius:var(--radius); margin-bottom:8px; font-size:18px; border-left:5px solid var(--brick); background:#F7E9E4;}
 .alert span{flex:1;}
 .alert-dismiss{background:none; border:none; font-size:21px; opacity:0.8; padding:4px 6px; flex-shrink:0; color:inherit;}
@@ -269,6 +270,7 @@ body > *:not(#printView){display:none !important;}
 <div class="view active" id="view-map">
 <div id="placingBanner"></div>
 <div id="alertsBox"></div>
+<div id="soilTempStrip"></div>
 <section class="panel">
 <div id="mapArea"></div>
 </section>
@@ -2001,7 +2003,7 @@ function correctedDayFor(date){
 return LAST_CORRECTED?.daily?.[date] || null;
 }
 async function fetchWeather(showErrors){
-if(STATE.settings.lat==null || STATE.settings.lon==null){ document.getElementById('alertsBox').innerHTML=''; return; }
+if(STATE.settings.lat==null || STATE.settings.lon==null){ document.getElementById('alertsBox').innerHTML=''; renderSoilTempStrip([]); return; }
 try{
 const url = `https://api.open-meteo.com/v1/forecast?latitude=${STATE.settings.lat}&longitude=${STATE.settings.lon}&daily=temperature_2m_min,temperature_2m_max,precipitation_sum,windspeed_10m_max,weathercode&timezone=auto&forecast_days=7`;
 // Run together rather than one-after-the-other — Cloude's fetch
@@ -2097,6 +2099,23 @@ return cf.minTemp<=thFrost && cf.cloud<FROST_CLOUD_THRESHOLD_CORRECTED && (cf.wi
 function offlineWeatherCacheStillCovers(cache, today){
 return !!(cache && Array.isArray(cache.days) && cache.days.some(d=>d.date>=today));
 }
+// Plain reference line under the weather icon - today, tomorrow and the day after's soil range
+// (surface depth, 0cm - the bit that matters for direct sowing and planting out, not the deeper
+// soil that barely moves day to day). No colour-coding or threshold like the alerts above: this
+// is something to glance at when deciding whether to sow, not a warning.
+function formatSoilRange(soil){
+if(!soil || soil.min==null || soil.max==null) return null;
+return `${Math.round(soil.min)}\u2013${Math.round(soil.max)}\u00B0`;
+}
+function renderSoilTempStrip(days){
+const box = document.getElementById('soilTempStrip');
+if(!box) return;
+const parts = (days||[]).map(d=>{
+const r = formatSoilRange(d.soilTemperature);
+return r ? `${dayLabel(d.date)} ${r}` : null;
+}).filter(Boolean);
+box.innerHTML = parts.length ? `<div class="soil-temp-strip">Soil (surface): ${parts.join(' · ')}</div>` : '';
+}
 // Same alert wording and severity rules as the live path in processWeather below, just fed from
 // the saved snapshot instead of a fresh fetch, and with a "last checked" note added to each
 // message so it's never mistaken for a live reading.
@@ -2104,7 +2123,7 @@ async function renderOfflineWeatherAlerts(){
 const cache = await getMeta(WEATHER_OFFLINE_CACHE_KEY, null);
 const today = todayISO();
 if(!offlineWeatherCacheStillCovers(cache, today)){
-if(!placingMode) document.getElementById('alertsBox').innerHTML = '';
+if(!placingMode){ document.getElementById('alertsBox').innerHTML = ''; renderSoilTempStrip([]); }
 return;
 }
 const thRain=STATE.settings.thRain, thWind=STATE.settings.thWind;
@@ -2135,6 +2154,7 @@ document.querySelectorAll('[data-dismiss]').forEach(b=>b.addEventListener('click
 dismissedAlertKeys.add(b.dataset.dismiss);
 b.closest('.alert').remove();
 }));
+renderSoilTempStrip(cache.days.filter(d=>d.date>=today));
 }
 }
 async function processWeather(data){
@@ -2144,7 +2164,8 @@ const thFrost=STATE.settings.thFrost, thRain=STATE.settings.thRain, thWind=STATE
 const level = STATE.settings.notifLevel || 'advice';
 const wantsTips = level!=='quiet';
 const alerts=[];
-// Today and tomorrow only, for the offline snapshot - see WEATHER_OFFLINE_CACHE_KEY above.
+// Today, tomorrow and the day after, for the offline snapshot and the soil-temp strip - see
+// WEATHER_OFFLINE_CACHE_KEY above.
 const offlineSnapshotDays = [];
 for(let i=0;i<days.length;i++){
 // Cloude's corrected figures, when available for this date — rain
@@ -2159,7 +2180,7 @@ const dayWind = cday?.wind ?? wind[i];
 const correctedFrost = correctedFrostLikelyFor(days[i], thFrost);
 const frostLikely = correctedFrost!==null ? correctedFrost : (tmin[i]<=thFrost && frostConditionsLikely(codes[i], wind[i]));
 const severe = frostLikely || dayRain>=thRain || dayWind>=thWind || [95,96,99].includes(codes[i]);
-if(i<2){
+if(i<3){
 offlineSnapshotDays.push({
 date: days[i],
 rain: Math.round(dayRain*10)/10,
@@ -2196,6 +2217,7 @@ dismissedAlertKeys.add(b.dataset.dismiss);
 b.closest('.alert').remove();
 }));
 }
+if(!placingMode) renderSoilTempStrip(offlineSnapshotDays);
 // Live fetch just succeeded, so this is the freshest possible moment to refresh the offline
 // snapshot - see WEATHER_OFFLINE_CACHE_KEY above.
 await setMeta(WEATHER_OFFLINE_CACHE_KEY, {savedAt: Date.now(), days: offlineSnapshotDays});
@@ -2339,6 +2361,7 @@ el.innerHTML = `<div class="alert placing">
 <button class="btn small secondary" id="btnCancelBedPicker">Cancel</button></div>`;
 document.getElementById('btnCancelBedPicker').addEventListener('click', cancelBedPicker);
 document.getElementById('alertsBox').innerHTML='';
+document.getElementById('soilTempStrip').innerHTML='';
 return;
 }
 if(movingFeature){
@@ -2348,6 +2371,7 @@ el.innerHTML = `<div class="alert placing">
 <button class="btn small secondary" id="btnCancelMoving">Cancel</button></div>`;
 document.getElementById('btnCancelMoving').addEventListener('click', cancelMovingFeature);
 document.getElementById('alertsBox').innerHTML='';
+document.getElementById('soilTempStrip').innerHTML='';
 return;
 }
 if(!placingMode){ el.innerHTML=''; return; }
@@ -2356,6 +2380,7 @@ el.innerHTML = `<div class="alert placing">
 <button class="btn small secondary" id="btnCancelPlacing">Cancel</button></div>`;
 document.getElementById('btnCancelPlacing').addEventListener('click', cancelPlacement);
 document.getElementById('alertsBox').innerHTML='';
+document.getElementById('soilTempStrip').innerHTML='';
 }
 /* ======================= SHELF (tap only) ======================= */
 function renderNotes(){
