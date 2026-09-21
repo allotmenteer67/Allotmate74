@@ -2097,10 +2097,11 @@ return cf.minTemp<=thFrost && cf.cloud<FROST_CLOUD_THRESHOLD_CORRECTED && (cf.wi
 function offlineWeatherCacheStillCovers(cache, today){
 return !!(cache && Array.isArray(cache.days) && cache.days.some(d=>d.date>=today));
 }
-// Plain "min–max°" text for a day's soil figure, reused by the Weather popup below.
+// Plain "max–min°" text for a day's soil figure (same order as the temperature above it),
+// reused by the Weather popup below.
 function formatSoilRange(soil){
 if(!soil || soil.min==null || soil.max==null) return null;
-return `${Math.round(soil.min)}\u2013${Math.round(soil.max)}\u00B0`;
+return `${Math.round(soil.max)}\u2013${Math.round(soil.min)}\u00B0`;
 }
 // Same alert wording and severity rules as the live path in processWeather below, just fed from
 // the saved snapshot instead of a fresh fetch, and with a "last checked" note added to each
