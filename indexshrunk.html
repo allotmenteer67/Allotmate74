@@ -2258,6 +2258,10 @@ cards += `<div class="wcard"><div class="d">${new Date(days[i]+'T00:00:00').toLo
 openModal(`<h3>Weather this week</h3><div class="weather-strip">${cards}</div>`);
 });
 window.addEventListener('online', ()=>{ fetchWeather(); toast('Back online'); });
+// Signal can drop while the app's already open (walking into a dead patch of the allotment), not
+// just at launch - show the offline snapshot the moment that happens rather than leaving whatever
+// was on screen before, which may no longer be accurate.
+window.addEventListener('offline', ()=>{ renderOfflineWeatherAlerts(); });
 /* ======================= PLACING MODE (tap-to-plant-out, with partial amounts) ======================= */
 // tray is the container; planting is the specific crop within it being planted out (a tray
 // can now hold more than one, so plant-out always acts on one planting at a time).
@@ -7523,7 +7527,10 @@ await loadAll();
 await backfillMissingPositions();
 lastSnapshot = snapshotState();
 renderAll();
-if(navigator.onLine) fetchWeather();
+// If we're offline right at launch (exactly your airplane-mode test), fetchWeather() never even
+// gets called - so without this, the offline snapshot would sit there unused and the screen
+// would just stay blank. Show it directly in that case instead.
+if(navigator.onLine) fetchWeather(); else renderOfflineWeatherAlerts();
 setInterval(()=>{ if(navigator.onLine) fetchWeather(); }, 30*60*1000);
 if(navigator.onLine) checkAutoBackup();
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
