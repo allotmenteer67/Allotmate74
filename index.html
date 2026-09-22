@@ -221,7 +221,8 @@
   .crop-box-stack .crop-icon{font-size:17px;}
   .crop-box-stack .lbl{font-size:15px; white-space:normal; text-align:center; word-break:break-word;}
   .crop-icon-wrap{position:relative; display:inline-flex;}
-  .crop-icon-badge{position:absolute; right:-6px; bottom:-4px; min-width:13px; height:13px; padding:0 2px; border-radius:7px; background:var(--soil); color:#fff; font-size:9px; font-weight:700; line-height:13px; text-align:center; pointer-events:none;}
+  .crop-icon-wrap.stacked-num{flex-direction:column; align-items:center; line-height:1;}
+  .crop-icon-num{display:block; margin-top:2px; font-size:11px; font-weight:800; color:var(--soil); line-height:1;}
   .crop-box.empty{border-style:dashed; border-color:var(--line); background:#ffffff90; color:#888; font-weight:400;}
   .crop-box.hl{border-color:var(--brick); box-shadow:0 0 0 4px rgba(162,59,45,0.3); animation:pulseHL 1.3s ease-in-out 3;}
   @keyframes pulseHL{0%,100%{box-shadow:0 0 0 4px rgba(162,59,45,0.3);} 50%{box-shadow:0 0 0 8px rgba(162,59,45,0.12);}}
@@ -838,8 +839,17 @@ function dayLabel(iso){
   if(diff>1 && diff<7 && sameYear) return d.toLocaleDateString('en-GB',{weekday:'long'});
   return sameYear ? d.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) : d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
 }
-function snapMap(v){ return Math.round(v*10)/10; }  // 10cm, for beds/sheds/greenhouses/containers on the main map
-function snapFine(v){ return Math.round(v*10)/10; } // 10cm, for crops/trays within a picture
+function snapMap(v){ return Math.round(v*100)/100; }  // 1cm, for beds/sheds/greenhouses/containers on the main map
+function snapFine(v){ return Math.round(v*100)/100; } // 1cm, for crops/trays within a picture
+// Both were 1-decimal-place (10cm) until this was reported: a size entered at an exact cm value
+// that happens to sit on the 10cm grid's own halfway point - 55cm, 65cm, 35cm... - gets bumped to
+// the next 10cm mark the very first time it passes through ANY drag, resize or move, because
+// Math.round() always rounds a clean .5 up. A tray typed in as precisely 55cm x 65cm would
+// silently become 60cm x 70cm on its first touch, while a same-session "Edit details" check
+// (reading the value as typed, before anything had touched it yet) still correctly showed the
+// original figure - which is what made it look like the two screens disagreed, rather than one
+// genuinely overwriting the other a little later. 1cm precision removes the specific boundary a
+// real-world cm measurement is likely to land on.
 function metresToFeetInches(m){
   const totalInches = Math.round((m||0) / 0.0254);
   const feet = Math.floor(totalInches/12);
@@ -884,7 +894,7 @@ function formatDistance(m){
     if(feet) return `${feet}ft`;
     return `${inches}in`;
   }
-  const rounded = Math.round(m*10)/10;
+  const rounded = Math.round(m*100)/100;
   return `${rounded}m`;
 }
 function dimensionFieldsHTML(widthId, heightId, widthLabel, heightLabel, widthM, heightM){
@@ -895,7 +905,7 @@ function dimensionFieldsHTML(widthId, heightId, widthLabel, heightLabel, widthM,
       <input type="number" onfocus="this.select()" min="0" max="11" id="${id}_in" value="${val?val.inches:''}" placeholder="in" style="width:50%;"></div></div>`;
     return `<div class="form-row">${pair(widthId, w, widthLabel)}${pair(heightId, h, heightLabel)}</div>`;
   }
-  return `<div class="form-row"><div><label>${widthLabel} (m)</label><input type="number" onfocus="this.select()" step="0.1" id="${widthId}" value="${widthM==null?'':widthM}" placeholder="${widthM==null?'auto':''}"></div><div><label>${heightLabel} (m)</label><input type="number" onfocus="this.select()" step="0.1" id="${heightId}" value="${heightM==null?'':heightM}" placeholder="${heightM==null?'auto':''}"></div></div>`;
+  return `<div class="form-row"><div><label>${widthLabel} (m)</label><input type="number" onfocus="this.select()" step="0.01" id="${widthId}" value="${widthM==null?'':widthM}" placeholder="${widthM==null?'auto':''}"></div><div><label>${heightLabel} (m)</label><input type="number" onfocus="this.select()" step="0.01" id="${heightId}" value="${heightM==null?'':heightM}" placeholder="${heightM==null?'auto':''}"></div></div>`;
 }
 function readDimensionField(id){
   if(STATE.settings.units==='imperial'){
@@ -2798,8 +2808,9 @@ function wireCropBox(boxEl, item, ppmLocal, boundsWH, onChange, onTap, shape){
       // The resize floor needs to be a real-world minimum size, not a fixed pixel count — a fixed
       // 30px/22px floor works out to about 0.5m at this canvas's usual scale, but that's incidental
       // to ppmLocal, not an intentional size limit; it silently forbids anything narrower (e.g. a
-      // thin path) at any zoom. 0.1m matches snapFine's own 10cm resolution, the finest the app
-      // tracks anyway, so that's the real lower bound — floored at a few px just so it can't hit 0.
+      // thin path) at any zoom. 0.1m is a deliberate minimum size in its own right (not tied to
+      // snapFine's own rounding grid, which is now 1cm - see snapFine's own comment) - a box this
+      // app will actually let something be smaller than that isn't a realistic bed/tray/path width.
       const MIN_PW_PX = Math.max(6, 0.1*ppmLocal), MIN_PH_PX = Math.max(6, 0.1*ppmLocal);
       const maxW = Math.max(MIN_PW_PX, boundsWH.w*ppmLocal - 4 - left), maxH = Math.max(MIN_PH_PX, boundsWH.h*ppmLocal - 4 - top);
       function blocked(w,h){ return siblings.some(r=>rectOverlap(left,top,w,h,r)) || (shapePx && !rectInsidePolygon(left,top,w,h,shapePx)); }
@@ -2845,28 +2856,40 @@ function iconForLabel(label){
 }
 function cropBoxContentHTML(label, icon, w, h, num){
   const escLabel = escapeHTML(label);
-  // The tray number now rides as a small badge on the icon itself (see the badge markup below)
-  // rather than as trailing "#N" text - it was inflating the label's effective length by a
-  // different, unpredictable amount per tray (a two-digit "#31" versus a one-digit "#2"), which
-  // was a real contributor to two otherwise similar trays landing in different layout branches
-  // below. But a badge needs an icon to sit on, and not every box has one (an empty tray, or a
-  // crop name the app can't confidently match) - for those, the number still needs to be visible
-  // somewhere, so it falls back to the old "#N" suffix rather than being silently dropped.
+  // The tray number sits as its own small line directly under the icon (not a corner badge - see
+  // below, second attempt) rather than as trailing "#N" text on the label itself - the digit
+  // count was inflating the label's effective length by a different, unpredictable amount per
+  // tray (a two-digit "#31" versus a one-digit "#2"), which was a real contributor to two
+  // otherwise similar trays landing in different layout branches. A number needs an icon to sit
+  // under, and not every box has one (an empty tray, or a crop name the app can't confidently
+  // match) - for those, the number still needs to be visible somewhere, so it falls back to the
+  // old "#N" suffix rather than being silently dropped.
   const numTag = num!=null ? ` #${num}` : '';
-  const badge = (icon && num!=null) ? `<span class="crop-icon-badge">${num}</span>` : '';
+  // First attempt used a tiny badge overlapping the icon's own corner - reported as hard to read
+  // on a small screen, which a couple of extra millimetres of digit size was never going to fix.
+  // A proper line of its own underneath, sized like real text rather than a corner decoration, is
+  // the actual fix. numHTML is built fresh per branch below since each has a different amount of
+  // spare height to check against before committing to show it - the icon and the crop name (once
+  // there's room for one) always take priority over the number if a box is genuinely too short
+  // for all of it.
+  const NUM_LINE_PX = 13;
   if(!icon) return {html:`<span class="lbl">${escLabel}${numTag}</span>`, iconUsed:false, centered:false};
   const AVG_CHAR_PX = 6.5, ICON_PX = 16, PAD_PX = 14, GAP_PX = 4, LINE_PX = 12;
   const textPx = label.length*AVG_CHAR_PX;
-  if(w >= ICON_PX+GAP_PX+textPx+PAD_PX && h >= 20){
-    return {html:`<span class="crop-icon-wrap"><span class="crop-icon">${icon}</span>${badge}</span><span class="lbl">${escLabel}</span>`, iconUsed:true, centered:false};
+  if(w >= ICON_PX+GAP_PX+textPx+PAD_PX && h >= 20+(num!=null?NUM_LINE_PX:0)){
+    const numHTML = num!=null ? `<span class="crop-icon-num">${num}</span>` : '';
+    return {html:`<span class="crop-icon-wrap stacked-num"><span class="crop-icon">${icon}</span>${numHTML}</span><span class="lbl">${escLabel}</span>`, iconUsed:true, centered:false};
   }
   const availTextW = w - PAD_PX;
   const linesNeeded = availTextW>=18 ? Math.ceil(textPx/availTextW) : 99;
-  if(availTextW>=18 && linesNeeded<=3 && h >= ICON_PX+4+linesNeeded*LINE_PX+6){
-    return {html:`<div class="crop-box-stack"><span class="crop-icon-wrap"><span class="crop-icon">${icon}</span>${badge}</span><span class="lbl">${escLabel}</span></div>`, iconUsed:true, centered:false};
+  if(availTextW>=18 && linesNeeded<=3 && h >= ICON_PX+4+linesNeeded*LINE_PX+6+(num!=null?NUM_LINE_PX:0)){
+    const numHTML = num!=null ? `<span class="crop-icon-num">${num}</span>` : '';
+    return {html:`<div class="crop-box-stack"><span class="crop-icon-wrap stacked-num"><span class="crop-icon">${icon}</span>${numHTML}</span><span class="lbl">${escLabel}</span></div>`, iconUsed:true, centered:false};
   }
   if(w >= ICON_PX+PAD_PX/2 && h >= ICON_PX+6){
-    return {html:`<span class="crop-icon-wrap"><span class="crop-icon" style="font-size:15px;">${icon}</span>${badge}</span>`, iconUsed:true, centered:true};
+    const fitsNum = num!=null && h >= ICON_PX+6+NUM_LINE_PX;
+    const numHTML = fitsNum ? `<span class="crop-icon-num">${num}</span>` : '';
+    return {html:`<span class="crop-icon-wrap stacked-num"><span class="crop-icon" style="font-size:15px;">${icon}</span>${numHTML}</span>`, iconUsed:true, centered:true};
   }
   return {html:`<span class="lbl">${escLabel}${numTag}</span>`, iconUsed:false, centered:false};
 }
