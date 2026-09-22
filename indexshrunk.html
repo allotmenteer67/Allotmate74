@@ -796,15 +796,37 @@ function snapFine(v){ return Math.round(v*100)/100; } // 1cm, for crops/trays wi
 // original figure - which is what made it look like the two screens disagreed, rather than one
 // genuinely overwriting the other a little later. 1cm precision removes the specific boundary a
 // real-world cm measurement is likely to land on.
-function metresToFeetInches(m){
-const totalInches = Math.round((m||0) / 0.0254);
+// Canonical display for a length in imperial - "16"" under a foot, "3'8"" once it's a foot or
+// more, no zero-inches clutter ("3'" rather than "3'0""). Used for both the read-only distance
+// readout and, formatted back in, as the starting value shown in an editable dimension field.
+function formatFeetInches(totalInches){
 const feet = Math.floor(totalInches/12);
 const inches = totalInches - feet*12;
-return {feet, inches};
+if(feet && inches) return `${feet}'${inches}"`;
+if(feet) return `${feet}'`;
+return `${inches}"`;
 }
-function feetInchesToMetres(feet, inches){
-const totalInches = (parseInt(feet)||0)*12 + (parseInt(inches)||0);
-return Math.round(totalInches*0.0254*100)/100;
+// Accepts whatever someone naturally types for a length - "3'8"", "3' 8", "3ft 8in", "44"", or
+// just a bare number (taken as inches, since that's how a person actually reads out a tray or
+// pot's size - "it's about 16 inches", not "1 foot 4"). Returns the total in inches, or null if
+// nothing usable was typed.
+function parseFeetInches(str){
+const s = (str||'').trim();
+if(!s) return null;
+let feet = 0, inches = 0, matched = false;
+const ftMatch = s.match(/(\d+(?:\.\d+)?)\s*(?:'|ft)/i);
+if(ftMatch){ feet = parseFloat(ftMatch[1]); matched = true; }
+const inMatch = s.match(/(\d+(?:\.\d+)?)\s*(?:"|in)/i);
+if(inMatch){ inches = parseFloat(inMatch[1]); matched = true; }
+if(!matched){
+const twoBare = s.match(/^(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)$/); // "3 8" - feet, space, inches
+if(twoBare){ feet = parseFloat(twoBare[1]); inches = parseFloat(twoBare[2]); matched = true; }
+else {
+const bare = s.match(/^(\d+(?:\.\d+)?)$/); // a plain number on its own - read as inches
+if(bare){ inches = parseFloat(bare[1]); matched = true; }
+}
+}
+return matched ? (feet*12 + inches) : null;
 }
 function bedAreaSqM(bed){
 if(bed.shape && bed.shape.length>=3){
@@ -835,30 +857,35 @@ return `${Math.round(sqm*10)/10}sq m`;
 }
 function formatDistance(m){
 if(STATE.settings.units==='imperial'){
-const {feet, inches} = metresToFeetInches(m);
-if(feet && inches) return `${feet}ft ${inches}in`;
-if(feet) return `${feet}ft`;
-return `${inches}in`;
+return formatFeetInches(Math.round(m/0.0254));
 }
 const rounded = Math.round(m*100)/100;
 return `${rounded}m`;
 }
 function dimensionFieldsHTML(widthId, heightId, widthLabel, heightLabel, widthM, heightM){
 if(STATE.settings.units==='imperial'){
-const w = widthM==null ? null : metresToFeetInches(widthM), h = heightM==null ? null : metresToFeetInches(heightM);
-const pair = (id, val, label)=>`<div><label>${label}</label><div style="display:flex; gap:6px;">
-<input type="number" onfocus="this.select()" min="0" id="${id}_ft" value="${val?val.feet:''}" placeholder="ft" style="width:50%;">
-<input type="number" onfocus="this.select()" min="0" max="11" id="${id}_in" value="${val?val.inches:''}" placeholder="in" style="width:50%;"></div></div>`;
-return `<div class="form-row">${pair(widthId, w, widthLabel)}${pair(heightId, h, heightLabel)}</div>`;
+const fmt = (m) => m==null ? '' : formatFeetInches(Math.round(m/0.0254));
+const pair = (id, val, label)=>`<div><label>${label}</label><input type="text" inputmode="numeric" onfocus="this.select()" id="${id}" value="${escapeAttr(fmt(val))}" placeholder="e.g. 3'8&quot; or 16&quot;"></div>`;
+return `<div class="form-row">${pair(widthId, widthM, widthLabel)}${pair(heightId, heightM, heightLabel)}</div>`;
 }
 return `<div class="form-row"><div><label>${widthLabel} (m)</label><input type="number" onfocus="this.select()" step="0.01" id="${widthId}" value="${widthM==null?'':widthM}" placeholder="${widthM==null?'auto':''}"></div><div><label>${heightLabel} (m)</label><input type="number" onfocus="this.select()" step="0.01" id="${heightId}" value="${heightM==null?'':heightM}" placeholder="${heightM==null?'auto':''}"></div></div>`;
 }
-function readDimensionField(id){
+function readDimensionField(id, originalM){
 if(STATE.settings.units==='imperial'){
-const ftEl = document.getElementById(id+'_ft'), inEl = document.getElementById(id+'_in');
-if(!ftEl) return null;
-if(ftEl.value==='' && inEl.value==='') return null;
-return feetInchesToMetres(ftEl.value, inEl.value);
+const el = document.getElementById(id);
+if(!el || el.value.trim()==='') return null;
+const totalInches = parseFeetInches(el.value);
+if(totalInches==null) return null;
+// A metre almost never divides into a whole number of inches, so converting a stored value to
+// inches for display and back again on save loses a little precision each time - reported as
+// the stored size visibly drifting after opening and saving the same screen in imperial a few
+// times, even with nothing actually changed. If what's shown still matches what the ORIGINAL
+// stored value would itself display as (i.e. genuinely nothing was edited), hand that original
+// back completely untouched rather than reconstructing a new figure from whole inches. Only a
+// typed value that resolves to a different inch count is treated as an actual, intentional
+// change.
+if(originalM!=null && Math.round(originalM/0.0254)===totalInches) return originalM;
+return Math.round(totalInches*0.0254*100)/100;
 }
 const el = document.getElementById(id);
 if(!el || el.value==='') return null;
@@ -2825,6 +2852,19 @@ if(!label) return null;
 const {crop, confident} = matchCropWithConfidence(label);
 return (crop && confident) ? (CROP_ICONS[crop.name] || null) : null;
 }
+// Measures a label's real rendered width instead of guessing from character count - the
+// character-count estimate this replaced was wrong often enough to matter: letters vary a lot in
+// width ("i" versus "M"), and the estimate being even a little low was enough to push a short
+// name like "Mizuna" or "Rocket" into the side-by-side layout below when it didn't actually fit,
+// clipping the text ("Mizu", "Roc") instead of falling back to a layout that would. A real
+// measurement removes that whole category of guesswork - it's accurate at any screen size or
+// pixel density, not just the ones the old fixed estimate happened to hold up at.
+let _labelMeasureCtx = null;
+function measureLabelWidth(text){
+if(!_labelMeasureCtx) _labelMeasureCtx = document.createElement('canvas').getContext('2d');
+_labelMeasureCtx.font = '700 15px Karla, sans-serif'; // matches .crop-box's own font-size/weight and the app's base font-family
+return _labelMeasureCtx.measureText(text).width;
+}
 function cropBoxContentHTML(label, icon, w, h, num){
 const escLabel = escapeHTML(label);
 // The tray number sits as its own small line directly under the icon (not a corner badge - see
@@ -2845,8 +2885,8 @@ const numTag = num!=null ? ` #${num}` : '';
 // for all of it.
 const NUM_LINE_PX = 13;
 if(!icon) return {html:`<span class="lbl">${escLabel}${numTag}</span>`, iconUsed:false, centered:false};
-const AVG_CHAR_PX = 6.5, ICON_PX = 16, PAD_PX = 14, GAP_PX = 4, LINE_PX = 12;
-const textPx = label.length*AVG_CHAR_PX;
+const ICON_PX = 16, PAD_PX = 14, GAP_PX = 4, LINE_PX = 12;
+const textPx = measureLabelWidth(label);
 if(w >= ICON_PX+GAP_PX+textPx+PAD_PX && h >= 20+(num!=null?NUM_LINE_PX:0)){
 const numHTML = num!=null ? `<span class="crop-icon-num">${num}</span>` : '';
 return {html:`<span class="crop-icon-wrap stacked-num"><span class="crop-icon">${icon}</span>${numHTML}</span><span class="lbl">${escLabel}</span>`, iconUsed:true, centered:false};
@@ -3797,7 +3837,7 @@ if(feat.type==='water') { const v = document.getElementById('mCapacity').value; 
 // 0.15 was an arbitrary floor here, tighter than what a thin feature (a path, a fence run)
 // can genuinely need — match the same 0.1m real-world minimum the bed picture canvas now uses,
 // so this screen doesn't itself impose a size limit the rest of the app has moved past.
-{ const cap = capToPlotSize(readDimensionField('mW')||feat.w, readDimensionField('mH')||feat.h);
+{ const cap = capToPlotSize(readDimensionField('mW',feat.w)||feat.w, readDimensionField('mH',feat.h)||feat.h);
 feat.w = Math.max(0.1, snapMap(cap.w));
 feat.h = Math.max(0.1, snapMap(cap.h)); }
 feat.locked = document.getElementById('mLocked').checked;
@@ -3942,7 +3982,7 @@ return;
 }
 feat.label=newLabel; feat.color=picked;
 if(feat.type==='container') feat.round = document.getElementById('mRound').checked;
-const cap = capToPlotSize(readDimensionField('mW')||feat.w, readDimensionField('mH')||feat.h);
+const cap = capToPlotSize(readDimensionField('mW',feat.w)||feat.w, readDimensionField('mH',feat.h)||feat.h);
 feat.w = Math.max(0.15, snapMap(cap.w));
 feat.h = Math.max(0.15, snapMap(cap.h));
 feat.locked = document.getElementById('mLocked').checked;
@@ -4081,7 +4121,7 @@ errEl.style.display = '';
 return;
 }
 bed.name=newName; bed.color=picked;
-const cap = capToPlotSize(readDimensionField('mW')||bed.w, readDimensionField('mH')||bed.h);
+const cap = capToPlotSize(readDimensionField('mW',bed.w)||bed.w, readDimensionField('mH',bed.h)||bed.h);
 const newW = Math.max(0.3, snapMap(cap.w));
 const newH = Math.max(0.3, snapMap(cap.h));
 if(bed.shape && (newW!==bed.w || newH!==bed.h)) bed.shape = scaleLocalShape(bed.shape, bed.w, bed.h, newW, newH);
@@ -4173,7 +4213,7 @@ if(newNum!==tray.number && newNum!=null && STATE.trays.some(t=>t.id!==tray.id &&
 tray.number = newNum;
 const name = document.getElementById('mTrayName').value.trim();
 if(name) tray.name = name; else delete tray.name;
-const w = readDimensionField('mEditW'), h = readDimensionField('mEditH');
+const w = readDimensionField('mEditW', tray.pw), h = readDimensionField('mEditH', tray.ph);
 if(w!=null) tray.pw = w;
 if(h!=null) tray.ph = h;
 if(pickedColor) tray.colorOverride = pickedColor; else delete tray.colorOverride;
@@ -4305,8 +4345,8 @@ p.cropId = newCrop.id;
 if(pickedColor) p.colorOverride = pickedColor; else delete p.colorOverride;
 p.locked = document.getElementById('mLocked').checked;
 p.allowOverlap = document.getElementById('mAllowOverlap').checked;
-const wVal = readDimensionField('mEditW');
-const hVal = readDimensionField('mEditH');
+const wVal = readDimensionField('mEditW', p.pw);
+const hVal = readDimensionField('mEditH', p.ph);
 if(wVal>0) p.pw = wVal;
 if(hVal>0) p.ph = hVal;
 if(p.method==='direct' && newCrop.directSowToHarvest) p.harvestDue = addDays(p.date, newCrop.directSowToHarvest);
@@ -4568,7 +4608,7 @@ return;
 }
 feat.label=newLabel;
 feat.color = pickedColor;
-const cap = capToPlotSize(readDimensionField('mW')||feat.w, readDimensionField('mH')||feat.h);
+const cap = capToPlotSize(readDimensionField('mW',feat.w)||feat.w, readDimensionField('mH',feat.h)||feat.h);
 feat.w = Math.max(0.15, snapMap(cap.w));
 feat.h = Math.max(0.15, snapMap(cap.h));
 feat.locked = document.getElementById('mLocked').checked;
@@ -4835,8 +4875,8 @@ ${dimensionFieldsHTML("mW","mH","Width","Depth", tier.w, tier.h)}
 document.getElementById('mBack').addEventListener('click', ()=>openStructureDetail(feat));
 document.getElementById('mSave').addEventListener('click', async ()=>{
 tier.label = document.getElementById('mLabel').value.trim() || tier.label;
-tier.w = readDimensionField('mW')||tier.w;
-tier.h = readDimensionField('mH')||tier.h;
+tier.w = readDimensionField('mW',tier.w)||tier.w;
+tier.h = readDimensionField('mH',tier.h)||tier.h;
 feat.tiers = tiers;
 await put('features', feat); await afterChange();
 openStructureDetail(feat);
@@ -4890,7 +4930,7 @@ return;
 }
 feat.label = newLabel;
 feat.color = pickedColor;
-{ const cap = capToPlotSize(readDimensionField('mW')||feat.w, readDimensionField('mH')||feat.h);
+{ const cap = capToPlotSize(readDimensionField('mW',feat.w)||feat.w, readDimensionField('mH',feat.h)||feat.h);
 feat.w = Math.max(0.3, snapMap(cap.w));
 feat.h = Math.max(0.3, snapMap(cap.h)); }
 feat.locked = document.getElementById('mLocked').checked;
@@ -6843,8 +6883,8 @@ ${dimensionFieldsHTML("chgW","chgH","New width","New depth", bed.w, bed.h)}
 <button class="btn big" id="chgNext" style="margin-top:10px;">Save proposal</button>`, true);
 document.getElementById('mBack3').addEventListener('click', ()=> openPlanningMapBedDetail(bedId, kind));
 document.getElementById('chgNext').addEventListener('click', async ()=>{
-const w = Math.max(0.2, readDimensionField('chgW')||bed.w);
-const h = Math.max(0.2, readDimensionField('chgH')||bed.h);
+const w = Math.max(0.2, readDimensionField('chgW',bed.w)||bed.w);
+const h = Math.max(0.2, readDimensionField('chgH',bed.h)||bed.h);
 const label = document.getElementById('chgLabel').value.trim();
 const move = document.getElementById('chgMove').checked;
 if(move){
