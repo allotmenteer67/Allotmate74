@@ -2876,26 +2876,31 @@ const escLabel = escapeHTML(label);
 // match) - for those, the number still needs to be visible somewhere, so it falls back to the
 // old "#N" suffix rather than being silently dropped.
 const numTag = num!=null ? ` #${num}` : '';
-// First attempt used a tiny badge overlapping the icon's own corner - reported as hard to read
-// on a small screen, which a couple of extra millimetres of digit size was never going to fix.
-// A proper line of its own underneath, sized like real text rather than a corner decoration, is
-// the actual fix. numHTML is built fresh per branch below since each has a different amount of
-// spare height to check against before committing to show it - the icon and the crop name (once
-// there's room for one) always take priority over the number if a box is genuinely too short
-// for all of it.
 const NUM_LINE_PX = 13;
 if(!icon) return {html:`<span class="lbl">${escLabel}${numTag}</span>`, iconUsed:false, centered:false};
 const ICON_PX = 16, PAD_PX = 14, GAP_PX = 4, LINE_PX = 12;
 const textPx = measureLabelWidth(label);
-if(w >= ICON_PX+GAP_PX+textPx+PAD_PX && h >= 20+(num!=null?NUM_LINE_PX:0)){
-const numHTML = num!=null ? `<span class="crop-icon-num">${num}</span>` : '';
-return {html:`<span class="crop-icon-wrap stacked-num"><span class="crop-icon">${icon}</span>${numHTML}</span><span class="lbl">${escLabel}</span>`, iconUsed:true, centered:false};
-}
+// Tried before the side-by-side row below, not after - the full stack (icon above number above
+// wrapped text, all one column) is the single presentation every box uses when it fits, rather
+// than picking whichever of the two happened to fit first. Trying the row layout first meant a
+// box just wide enough for one line landed there even when it had plenty of height to spare,
+// producing the exact mismatch reported: a two-row icon-and-number block sitting to one side of
+// a single-row label, each a different height, looking genuinely inconsistent rather than just
+// differently laid out.
 const availTextW = w - PAD_PX;
 const linesNeeded = availTextW>=18 ? Math.ceil(textPx/availTextW) : 99;
 if(availTextW>=18 && linesNeeded<=3 && h >= ICON_PX+4+linesNeeded*LINE_PX+6+(num!=null?NUM_LINE_PX:0)){
 const numHTML = num!=null ? `<span class="crop-icon-num">${num}</span>` : '';
 return {html:`<div class="crop-box-stack"><span class="crop-icon-wrap stacked-num"><span class="crop-icon">${icon}</span>${numHTML}</span><span class="lbl">${escLabel}</span></div>`, iconUsed:true, centered:false};
+}
+// Side-by-side row: for a box too short for the full stack but wide enough for icon and text on
+// one line. No number here even when one exists - showing it would mean reintroducing that same
+// two-row-block-next-to-one-row-of-text mismatch this whole reordering exists to avoid, and the
+// crop name is the one thing that should never be sacrificed to make room for it. The number
+// isn't lost - it's still shown in the icon-only fallback below when there's genuinely no room
+// for text at all, and always on the tray's own row in the list underneath this picture.
+if(w >= ICON_PX+GAP_PX+textPx+PAD_PX && h >= 20){
+return {html:`<span class="crop-icon">${icon}</span><span class="lbl">${escLabel}</span>`, iconUsed:true, centered:false};
 }
 if(w >= ICON_PX+PAD_PX/2 && h >= ICON_PX+6){
 const fitsNum = num!=null && h >= ICON_PX+6+NUM_LINE_PX;
