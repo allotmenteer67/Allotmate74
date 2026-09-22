@@ -168,6 +168,13 @@ details.adv{margin-top:6px;} details.adv summary{cursor:pointer; font-weight:700
 .modal{background:var(--card); border-radius:16px 16px 0 0; padding:64px 20px 20px; max-width:480px; width:100%; max-height:88vh; overflow-y:auto; overscroll-behavior:contain; border:1px solid var(--line); animation:slideup 0.18s ease-out;}
 .modal.fullscreen{position:fixed; inset:0; max-width:none; max-height:none; border-radius:0; margin:0; animation:none;}
 @media(min-width:640px){.modal-backdrop{align-items:center;} .modal{border-radius:var(--radius);}}
+/* A phone's own screen is already narrower than 480px, so the cap above rarely even applies
+there - it only really bites on a genuinely large screen (a desktop browser, reported here),
+where it was throwing away real available width and squeezing the tray/crop picture into an
+unnecessarily tight, scroll-only strip. Widened it a second step for a properly large screen,
+rather than raising the 480px figure itself and changing how this looks on every in-between
+size along the way. */
+@media(min-width:900px){.modal{max-width:720px;}}
 @keyframes slideup{from{transform:translateY(20px); opacity:0;} to{transform:translateY(0); opacity:1;}}
 .modal h3{margin-bottom:14px; font-size:23px;}
 .back-link{background:none; border:none; color:var(--leaf); font-weight:700; padding:0 0 12px; font-size:17.5px;}
@@ -192,6 +199,8 @@ details.adv{margin-top:6px;} details.adv summary{cursor:pointer; font-weight:700
 .crop-box-stack{display:flex; flex-direction:column; align-items:center; gap:0; width:100%; line-height:1.15;}
 .crop-box-stack .crop-icon{font-size:17px;}
 .crop-box-stack .lbl{font-size:15px; white-space:normal; text-align:center; word-break:break-word;}
+.crop-icon-wrap{position:relative; display:inline-flex;}
+.crop-icon-badge{position:absolute; right:-6px; bottom:-4px; min-width:13px; height:13px; padding:0 2px; border-radius:7px; background:var(--soil); color:#fff; font-size:9px; font-weight:700; line-height:13px; text-align:center; pointer-events:none;}
 .crop-box.empty{border-style:dashed; border-color:var(--line); background:#ffffff90; color:#888; font-weight:400;}
 .crop-box.hl{border-color:var(--brick); box-shadow:0 0 0 4px rgba(162,59,45,0.3); animation:pulseHL 1.3s ease-in-out 3;}
 @keyframes pulseHL{0%,100%{box-shadow:0 0 0 4px rgba(162,59,45,0.3);} 50%{box-shadow:0 0 0 8px rgba(162,59,45,0.12);}}
@@ -2759,25 +2768,34 @@ if(!label) return null;
 const {crop, confident} = matchCropWithConfidence(label);
 return (crop && confident) ? (CROP_ICONS[crop.name] || null) : null;
 }
-function cropBoxContentHTML(label, icon, w, h){
+function cropBoxContentHTML(label, icon, w, h, num){
 const escLabel = escapeHTML(label);
-if(!icon) return {html:`<span class="lbl">${escLabel}</span>`, iconUsed:false, centered:false};
+// The tray number now rides as a small badge on the icon itself (see the badge markup below)
+// rather than as trailing "#N" text - it was inflating the label's effective length by a
+// different, unpredictable amount per tray (a two-digit "#31" versus a one-digit "#2"), which
+// was a real contributor to two otherwise similar trays landing in different layout branches
+// below. But a badge needs an icon to sit on, and not every box has one (an empty tray, or a
+// crop name the app can't confidently match) - for those, the number still needs to be visible
+// somewhere, so it falls back to the old "#N" suffix rather than being silently dropped.
+const numTag = num!=null ? ` #${num}` : '';
+const badge = (icon && num!=null) ? `<span class="crop-icon-badge">${num}</span>` : '';
+if(!icon) return {html:`<span class="lbl">${escLabel}${numTag}</span>`, iconUsed:false, centered:false};
 const AVG_CHAR_PX = 6.5, ICON_PX = 16, PAD_PX = 14, GAP_PX = 4, LINE_PX = 12;
 const textPx = label.length*AVG_CHAR_PX;
 if(w >= ICON_PX+GAP_PX+textPx+PAD_PX && h >= 20){
-return {html:`<span class="crop-icon">${icon}</span><span class="lbl">${escLabel}</span>`, iconUsed:true, centered:false};
+return {html:`<span class="crop-icon-wrap"><span class="crop-icon">${icon}</span>${badge}</span><span class="lbl">${escLabel}</span>`, iconUsed:true, centered:false};
 }
 const availTextW = w - PAD_PX;
 const linesNeeded = availTextW>=18 ? Math.ceil(textPx/availTextW) : 99;
 if(availTextW>=18 && linesNeeded<=3 && h >= ICON_PX+4+linesNeeded*LINE_PX+6){
-return {html:`<div class="crop-box-stack"><span class="crop-icon">${icon}</span><span class="lbl">${escLabel}</span></div>`, iconUsed:true, centered:false};
+return {html:`<div class="crop-box-stack"><span class="crop-icon-wrap"><span class="crop-icon">${icon}</span>${badge}</span><span class="lbl">${escLabel}</span></div>`, iconUsed:true, centered:false};
 }
 if(w >= ICON_PX+PAD_PX/2 && h >= ICON_PX+6){
-return {html:`<span class="crop-icon" style="font-size:15px;">${icon}</span>`, iconUsed:true, centered:true};
+return {html:`<span class="crop-icon-wrap"><span class="crop-icon" style="font-size:15px;">${icon}</span>${badge}</span>`, iconUsed:true, centered:true};
 }
-return {html:`<span class="lbl">${escLabel}</span>`, iconUsed:false, centered:false};
+return {html:`<span class="lbl">${escLabel}${numTag}</span>`, iconUsed:false, centered:false};
 }
-function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onChange, onTap, highlightId, isEmptyFn, getColor, _isRetry){
+function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onChange, onTap, highlightId, isEmptyFn, getColor, getNumber, _isRetry){
 const el = document.getElementById(containerId);
 if(!el) return;
 const bw = obj.w||2, bh = obj.h||1;
@@ -2792,7 +2810,7 @@ el.style.width = outerW+'px'; el.style.height = outerH+'px';
 if(!_isRetry && wrapEl){
 requestAnimationFrame(()=>{
 if(!document.getElementById(containerId)) return; // screen moved on already
-if(wrapEl.clientWidth !== measuredWidth) renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onChange, onTap, highlightId, isEmptyFn, getColor, true);
+if(wrapEl.clientWidth !== measuredWidth) renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onChange, onTap, highlightId, isEmptyFn, getColor, getNumber, true);
 });
 }
 el.style.background = STATE.settings.groundColor || GROUND_COLORS[0];
@@ -2907,7 +2925,8 @@ const colStyle = col ? `border-color:${col}; background:${col}22; ${it.allowOver
 const showResize = !it.sizeLocked && !it.locked;
 const label = getLabel(it);
 const icon = isEmpty ? null : iconForLabel(label);
-const { html: content, iconUsed, centered } = cropBoxContentHTML(label, icon, w, h);
+const num = getNumber ? getNumber(it) : null;
+const { html: content, iconUsed, centered } = cropBoxContentHTML(label, icon, w, h, num);
 const alignStyle = labelAlign[idx] ? `align-items:${labelAlign[idx]};` : '';
 // The resize handle is a fixed 20x20px icon, which used to always fit because nothing could be
 // resized narrower than ~30px anyway (see the drag-floor fix above). Now a box genuinely can be
@@ -3730,7 +3749,7 @@ p=>{ const c=cropById(p.cropId); return c?c.family:'Other'; },
 async (planting, vals)=>{ Object.assign(planting, vals); await put('features', feat); await afterChange(); if(supa) schedulePush(); },
 (planting)=> openPlantingInfo(featId, planting.id, 'features'),
 highlightId, null,
-p=>{ if(p.colorOverride) return p.colorOverride; const c=cropById(p.cropId); return c?cropColor(c):'#8a8a7a'; }
+p=>{ if(p.colorOverride) return p.colorOverride; const c=cropById(p.cropId); return c?cropColor(c):'#8a8a7a'; }, null
 );
 modalContent.querySelectorAll('[data-harvest]').forEach(b=>b.addEventListener('click', ()=>{
 const p = feat.plantings.find(pp=>pp.id===b.dataset.harvest);
@@ -3874,7 +3893,7 @@ p=>{ const c=cropById(p.cropId); return c?c.family:'Other'; },
 async (planting, vals)=>{ Object.assign(planting, vals); await put('beds', bed); await afterChange(); if(supa) schedulePush(); },
 (planting)=> openPlantingInfo(bedId, planting.id),
 highlightId, null,
-p=>{ if(p.colorOverride) return p.colorOverride; const c=cropById(p.cropId); return c?cropColor(c):'#8a8a7a'; }
+p=>{ if(p.colorOverride) return p.colorOverride; const c=cropById(p.cropId); return c?cropColor(c):'#8a8a7a'; }, null
 );
 modalContent.querySelectorAll('[data-harvest]').forEach(b=>b.addEventListener('click', ()=>{
 const p = bed.plantings.find(pp=>pp.id===b.dataset.harvest);
@@ -4645,13 +4664,14 @@ findTrayGoBtn.addEventListener('click', doFindTray);
 document.getElementById('mFindTrayNum').addEventListener('keydown', (e)=>{ if(e.key==='Enter') doFindTray(); });
 }
 renderPictureCanvas('bedPic', tier, allTrays,
-t=>{ const num = t.number!=null?(' #'+t.number):''; return trayIsEmpty(t) ? ('Empty'+num) : (trayLabelText(t)+num); },
+t=>{ return trayIsEmpty(t) ? 'Empty' : trayLabelText(t); },
 t=>{ if(trayIsEmpty(t)) return 'Other'; const c=cropById(t.plantings[0].cropId); return c?c.family:'Other'; },
 async (tray, vals)=>{ Object.assign(tray, vals); await put('trays', tray); await afterChange(); if(supa) schedulePush(); },
 (tray)=> openTrayOrPlanting(tray.id),
 highlightTrayId,
 (t)=> trayIsEmpty(t),
-t=>{ if(t.colorOverride) return t.colorOverride; if(trayIsEmpty(t)) return '#8a8a7a'; const c=cropById(t.plantings[0].cropId); return c?cropColor(c):'#8a8a7a'; }
+t=>{ if(t.colorOverride) return t.colorOverride; if(trayIsEmpty(t)) return '#8a8a7a'; const c=cropById(t.plantings[0].cropId); return c?cropColor(c):'#8a8a7a'; },
+t=> t.number
 );
 if(tiers.length>1) wireTierDropTargets(feat, tierId);
 if(tiers.length>1) modalContent.querySelectorAll('[data-tier]').forEach(b=>b.addEventListener('click', ()=>{ activeTier[feat.id]=b.dataset.tier; openStructureDetail(feat, highlightTrayId); }));
@@ -4771,7 +4791,7 @@ return `<div class="planting-row"><span class="fam-dot" style="background:${c?cr
 <span class="pdate">${potOnDue?('plant out '+dayLabel(potOnDue)):(p.stayInPlace?'staying here':'')}</span></div>`;
 }).join('') || '<p class="muted">Nothing sown here yet.</p>';
 openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${tray.name?escapeHTML(tray.name):(tray.number!=null?('Tray #'+tray.number):'Tray')}</h3>
-<div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(tray.location)}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}</span></div>
+<div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(feat&&feat.label?feat.label:tray.location)}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}</span></div>
 ${tray.createdBy?`<div class="planting-row"><span class="pname">Set up by</span><span class="pdate">${escapeHTML(tray.createdBy)}</span></div>`:''}
 ${tray.sizeLocked?`<p class="tiny-muted">🔒 Locked — size fixed. Still moveable.</p>`:''}
 <div class="row-heading" style="margin-top:0;">What's growing here</div>
@@ -4801,7 +4821,7 @@ openModal(`<button class="back-link" id="mBack">&larr; ${hasSiblings?'Back to tr
 <div class="planting-row"><span class="pname">Crop</span><input type="text" class="inline-edit" id="mEditCropName" list="cropSuggestions" value="${crop?escapeAttr(crop.name):''}"></div>
 <div id="trayCropSuggestBox" style="margin:-6px 0 8px;"></div>
 <div class="planting-row"><span class="pname">Planted</span><input type="date" class="inline-edit" id="mEditDate" value="${p.sownDate}"></div>
-<div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(tray.location)}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}</span></div>
+<div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(feat&&feat.label?feat.label:tray.location)}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}</span></div>
 <div class="planting-row"><span class="pname">Quantity left</span><input type="number" onfocus="this.select()" class="inline-edit" id="mEditQty" value="${p.quantity||1}" min="1"></div>
 ${crop && crop.sowToPotOn ? `<div class="toggle-row"><span>Stays here until harvest</span><label class="switch"><input type="checkbox" id="mStayInPlace" ${p.stayInPlace?'checked':''}><span class="slider"></span></label></div>` : ''}
 ${potOnDue?`<div class="planting-row"><span class="pname">Plant out due</span><span class="pdate">${dayLabel(potOnDue)}</span></div>`:''}
@@ -5260,7 +5280,16 @@ return spots;
 }
 function whereIsCropNow(cropId){
 const spots = [];
-for(const t of STATE.trays.filter(t=>(t.plantings||[]).some(p=>p.cropId===cropId))) spots.push(t.location);
+// Prefer the structure's own current label over the tray's stored .location string - .location
+// is set once (on import, or when a tray predates featureId) and never touched again by a
+// rename, so a renamed polytunnel ("Tunnel 2") kept showing its old generic name here even
+// though the structure's own screen, and every other list, had long since caught up.
+// whereIsCropNowDetailed (just above) already got this right; this is the same fix, just for
+// the plain string list the Crops tab itself actually reads from.
+for(const t of STATE.trays.filter(t=>(t.plantings||[]).some(p=>p.cropId===cropId))){
+const host = t.featureId ? featureById(t.featureId) : null;
+spots.push(host ? (host.label||t.location) : t.location);
+}
 for(const b of STATE.beds) if((b.plantings||[]).some(p=>p.active && p.cropId===cropId)) spots.push(b.name);
 for(const f of STATE.features) if((f.plantings||[]).some(p=>p.active && p.cropId===cropId)) spots.push(f.label);
 return [...new Set(spots)];
