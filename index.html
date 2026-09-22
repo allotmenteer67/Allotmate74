@@ -1030,6 +1030,27 @@ const CROP_ICONS = {
   'Raspberry':'🫐','Blueberry':'🫐','Blackberry':'🫐','Gooseberry':'🫐','Blackcurrant':'🫐',
   'Basil':'🌿','Parsley':'🌿','Coriander':'🌿','Chives':'🌿','Mint':'🌿','Rosemary':'🌿','Thyme':'🌿','Sage':'🌿','Dill':'🌿','Oregano / Marjoram':'🌿','Fennel (herb)':'🌿','Tarragon':'🌿',
   'Sunflower':'🌻','Dahlia':'🌺','Cosmos':'🌼','Zinnia':'🌼','Marigold':'🌼','Calendula':'🌼','Aster':'🌼','Sweet Pea':'🌸','Nasturtium':'🌸',
+  // Added below - same crops as crops-and-issues.md, but never got an icon assigned when they were
+  // added to the curated database, so they silently fell back to plain text with no leaf icon at
+  // all (never a smaller/inline version - iconForLabel returns null, so no icon shows regardless of
+  // box size). Grouped onto an existing family icon the same way the crops above already are
+  // (Rocket/Pak Choi sharing Lettuce's 🥬, Zinnia/Marigold/Calendula/Aster sharing Cosmos's 🌼) -
+  // never a guess at a "perfect" one-off icon for each, since several of these have no close visual
+  // emoji match anyway (e.g. Rhubarb, Asparagus).
+  'Leek':'🧅','Shallot':'🧅','Spring Onion':'🧅',
+  'Brussels Sprout':'🥦','Cauliflower':'🥦','Kohlrabi':'🥦','Swede':'🥦','Turnip':'🥦',
+  'Courgette':'🥒','Marrow':'🥒',
+  'Asparagus Pea':'🫛',
+  'Celeriac':'🥬','Celery':'🥬','Cress':'🥬',
+  'Fig':'🍑','Plum':'🍑',
+  'Florence Fennel':'🌿','Globe Artichoke':'🌿','Asparagus':'🌱','Rhubarb':'🌱',
+  'Beetroot':'🥕','Parsnip':'🥕','Radish':'🥕',
+  'Elephant Garlic':'🧄','Mizuna':'🥬','Loganberry':'🫐',
+  // Ornamental flowers with no edible-crop family to borrow from - grouped onto Cosmos's 🌼 the same
+  // way Zinnia/Marigold/Calendula/Aster already are, rather than inventing many one-off icons.
+  'Alyssum':'🌼','Aquilegia':'🌼','Cornflower':'🌼','Foxglove':'🌼','Gladiolus':'🌼','Ipomoea':'🌼',
+  'Lobelia':'🌼','Lupin':'🌼','Nicotiana':'🌼','Nigella':'🌼','Pansy':'🌼','Petunia':'🌼','Poppy':'🌼',
+  'Rudbeckia':'🌼','Salvia':'🌼','Snapdragon':'🌼','Sweet William':'🌼','Wallflower':'🌼',
 };
 // Years each issue can realistically remain a risk in the soil. null = genuinely unknown —
 // the warning never auto-expires on its own rather than guessing at a "safe" default.
@@ -2888,6 +2909,19 @@ function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onCha
   if(obj.shape && obj.shape.length>=3){
     const outlineCol = obj.color || '#7E9A6D';
     const pts = obj.shape.map(p=>`${(p.x/bw*pxW).toFixed(1)},${(p.y/bh*pxH).toFixed(1)}`).join(' ');
+    // Kept at sub-pixel precision (one decimal place) rather than rounding each point to a whole
+    // pixel before drawing. Real bed shapes are usually right-angle notches, but some genuinely
+    // aren't (a diagonal corner-drag is allowed), so a blanket "snap everything to the pixel grid"
+    // fix (crispEdges) was tried and reverted - it would have made those real diagonal edges look
+    // stair-stepped instead of smooth. The actual cause of "some edges look thicker than others"
+    // was rounding each point to a whole pixel before rendering: a thin anti-aliased stroke reacts
+    // very unevenly to that pre-rounding - which two pixel rows/columns it ends up straddling is
+    // effectively down to chance per segment, on TOP of the anti-aliasing SVG already does. Letting
+    // the renderer work from the true, un-rounded position (still anti-aliased, still smooth on a
+    // real diagonal) removes that extra, avoidable source of inconsistency. The same rounding was
+    // found and fixed in three other places this same outline gets drawn (the small map-view tile,
+    // the shape-editing canvas, and a dashed "ghost" preview outline) - this was the one place that
+    // already had it right, which is what made the difference obvious by comparison.
     shapeOutlineSvg = `<svg width="${pxW}" height="${pxH}" style="position:absolute; left:0; top:0;" shape-rendering="geometricPrecision"><polygon points="${pts}" fill="none" stroke="${outlineCol}" stroke-width="2" stroke-linejoin="round"></polygon></svg>`;
   }
   if(outlineHolder){
@@ -3137,12 +3171,12 @@ function renderMap(){
       const overdueBadge = hasOverdue ? '<div class="overdue-badge-map" style="position:absolute; top:-8px; left:-8px; width:20px; height:20px; border-radius:50%; background:#E9B44C; border:2px solid #fff; display:flex; align-items:center; justify-content:center; font-size:15px; z-index:2;">⚠️</div>' : '';
       const iconPx = Math.max(11, Math.min(26, Math.min(w,h)*0.4));
       if(o._kind==='bed'){
-        const cropCols=[...new Set((o.plantings||[]).filter(p=>p.active).map(p=>{const cr=cropById(p.cropId); return cr?cropColor(cr):null;}).filter(Boolean))];
+        const cropCols=[...new Set((o.plantings||[]).filter(p=>p.active).map(p=>cropById(p.cropId)).filter(cr=>cr && cr.name!=='Path').map(cr=>cropColor(cr)))];
         const eligible = placingMode ? ' placeable' : '';
         const hasShape = o.shape && o.shape.length>=3;
         const bedCol = o.color || '#7E9A6D';
         const bg = hasShape ? 'background:transparent;' : (o.color ? `background:${o.color}30; border-color:${o.color};` : '');
-        const shapeSVG = hasShape ? `<svg width="${w}" height="${h}" style="position:absolute; left:0; top:0; pointer-events:none;" shape-rendering="geometricPrecision"><polygon points="${o.shape.map(p=>`${Math.round(p.x/o.w*w)},${Math.round(p.y/o.h*h)}`).join(' ')}" fill="${bedCol}40" stroke="${bedCol}" stroke-width="1.25" stroke-linejoin="round"></polygon></svg>` : '';
+        const shapeSVG = hasShape ? `<svg width="${w}" height="${h}" style="position:absolute; left:0; top:0; pointer-events:none;" shape-rendering="geometricPrecision"><polygon points="${o.shape.map(p=>`${(p.x/o.w*w).toFixed(1)},${(p.y/o.h*h).toFixed(1)}`).join(' ')}" fill="${bedCol}40" stroke="${bedCol}" stroke-width="1.25" stroke-linejoin="round"></polygon></svg>` : '';
         html += `<div class="mapObj ${o.raised?'raised':''}${eligible}${hasShape?' shaped':''}" data-kind="bed" data-id="${o.id}" data-locked="${o.locked?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${bg}">
           ${shapeSVG}${lockBadge}${overdueBadge}<div style="overflow:hidden; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center;"><span class="icon" style="font-size:${iconPx}px;">${o.raised?ICON_RAISEDBED:'🌱'}</span><span class="lbl">${escapeHTML(o.name)}</span><span class="fams-dot-row">${cropCols.map(c=>`<span class="fam-dot" style="background:${c};"></span>`).join('')}</span></div></div>`;
       } else {
@@ -3867,8 +3901,14 @@ function openBedDetail(bedId, highlightId){
   const bed = bedById(bedId);
   if(!bed){ goHome(); return; }
   const active = (bed.plantings||[]).filter(p=>p.active);
+  // A path segment is edited by tapping its box in the picture above, same as any other item -
+  // listing it again here too is pure repetition, and for a bed with several path segments (the
+  // exact case reported) it can crowd out the actual crops below a long run of identical "Path"
+  // rows. Fallow stays listed, since unlike a path it's a genuine rotation-relevant planting the
+  // user may want to see and harvest-clear from this list.
+  const listable = active.filter(p=>{ const c=cropById(p.cropId); return !(c && c.name==='Path'); });
   const groups = {};
-  for(const p of active){ const key=p.rowLabel||''; groups[key]=groups[key]||[]; groups[key].push(p); }
+  for(const p of listable){ const key=p.rowLabel||''; groups[key]=groups[key]||[]; groups[key].push(p); }
   let rows='';
   for(const key of Object.keys(groups)){
     if(key) rows += `<div class="row-heading">${escapeHTML(key)}</div>`;
@@ -4116,7 +4156,7 @@ function openBedShapeEditor(objId, kind, onDone){
     el.style.width = pxW+'px'; el.style.height = pxH+'px';
     el.style.background = STATE.settings.groundColor || GROUND_COLORS[0];
     if(el.parentElement && el.parentElement.classList.contains('bed-picture-wrap')) el.parentElement.style.background = STATE.settings.groundColor || GROUND_COLORS[0];
-    const pts = localShape.map(p=>`${Math.round(p.x*ppm+SHAPE_PAD)},${Math.round(p.y*ppm+SHAPE_PAD)}`).join(' ');
+    const pts = localShape.map(p=>`${(p.x*ppm+SHAPE_PAD).toFixed(1)},${(p.y*ppm+SHAPE_PAD).toFixed(1)}`).join(' ');
     let html = `<svg width="${pxW}" height="${pxH}" style="position:absolute; left:0; top:0; pointer-events:none;" shape-rendering="geometricPrecision"><polygon points="${pts}" fill="${bed.color||'#7E9A6D'}55" stroke="${bed.color||'#7E9A6D'}" stroke-width="1.5" stroke-linejoin="round"></polygon></svg>`;
     localShape.forEach((p,idx)=>{ html += `<div class="vertex-handle" data-idx="${idx}" style="left:${p.x*ppm+SHAPE_PAD}px; top:${p.y*ppm+SHAPE_PAD}px;"></div>`; });
     el.innerHTML = html;
@@ -6512,7 +6552,7 @@ function renderPlanningMap(){
     const ghostLabel = c.kind==='change' ? `${escapeHTML(c.label||typeLabel)} (proposed)` : `+ ${escapeHTML(c.label||typeLabel)}`;
     const ghostColor = c.color || 'var(--slate)';
     const hasShape = c.shape && c.shape.length>=3;
-    const shapeSVG = hasShape ? `<svg width="${w}" height="${h}" style="position:absolute; left:0; top:0; pointer-events:none;" shape-rendering="geometricPrecision"><polygon points="${c.shape.map(p=>`${Math.round(p.x/c.w*w)},${Math.round(p.y/c.h*h)}`).join(' ')}" fill="none" stroke="${ghostColor}" stroke-width="2.5" stroke-dasharray="5,3" stroke-linejoin="round"></polygon></svg>` : '';
+    const shapeSVG = hasShape ? `<svg width="${w}" height="${h}" style="position:absolute; left:0; top:0; pointer-events:none;" shape-rendering="geometricPrecision"><polygon points="${c.shape.map(p=>`${(p.x/c.w*w).toFixed(1)},${(p.y/c.h*h).toFixed(1)}`).join(' ')}" fill="none" stroke="${ghostColor}" stroke-width="2.5" stroke-dasharray="5,3" stroke-linejoin="round"></polygon></svg>` : '';
     html += `<div data-ghost="${c.id}" style="position:absolute; left:${left}px; top:${top}px; width:${w}px; height:${h}px; background:${ghostColor}22; border:2.5px dashed ${ghostColor}; border-radius:5px; display:flex; align-items:center; justify-content:center; font-family:-apple-system,sans-serif; font-size:15px; font-weight:700; color:${ghostColor}; text-align:center; padding:4px; overflow:hidden; cursor:pointer; z-index:1;">${ghostLabel}${shapeSVG}</div>`;
   });
   html += '</div></div>';
