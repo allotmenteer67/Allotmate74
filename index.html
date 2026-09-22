@@ -2893,10 +2893,26 @@ function cropBoxContentHTML(label, icon, w, h, num){
   }
   return {html:`<span class="lbl">${escLabel}${numTag}</span>`, iconUsed:false, centered:false};
 }
-function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onChange, onTap, highlightId, isEmptyFn, getColor, getNumber, _isRetry){
+function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onChange, onTap, highlightId, isEmptyFn, getColor, getNumber, allowOverhang, _isRetry){
   const el = document.getElementById(containerId);
   if(!el) return;
-  const bw = obj.w||2, bh = obj.h||1;
+  // trueW/trueH is the object's own real size — what a bed genuinely can't be exceeded by (a crop
+  // can't grow outside its bed), or what a shelf/tier itself actually measures. bw/bh is what the
+  // canvas is actually DRAWN at, in real-world metres — normally the same as trueW/trueH, but for
+  // a shelf/tray/pot (allowOverhang) it grows to fit whatever's really been placed on it, so a
+  // tray genuinely deeper than its shelf is shown at its true size rather than invisibly shrunk or
+  // clipped to fit — see the dashed rectangle drawn below, which marks where the shelf itself
+  // actually ends inside that larger canvas. Deliberately NOT done for a bed/container's own crop
+  // planting - a crop genuinely can't be outside its bed, so that picture keeps clamping everything
+  // to fit exactly as before.
+  const trueW = obj.w||2, trueH = obj.h||1;
+  let bw = trueW, bh = trueH;
+  if(allowOverhang){
+    items.forEach(it=>{
+      if(it.px!=null && it.pw!=null) bw = Math.max(bw, it.px+it.pw);
+      if(it.py!=null && it.ph!=null) bh = Math.max(bh, it.py+it.ph);
+    });
+  }
   const wrapEl = el.parentElement;
   const measuredWidth = wrapEl ? wrapEl.clientWidth : 320;
   const availW = Math.max(200, measuredWidth - 4);
@@ -2908,7 +2924,7 @@ function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onCha
   if(!_isRetry && wrapEl){
     requestAnimationFrame(()=>{
       if(!document.getElementById(containerId)) return; // screen moved on already
-      if(wrapEl.clientWidth !== measuredWidth) renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onChange, onTap, highlightId, isEmptyFn, getColor, getNumber, true);
+      if(wrapEl.clientWidth !== measuredWidth) renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onChange, onTap, highlightId, isEmptyFn, getColor, getNumber, allowOverhang, true);
     });
   }
   el.style.background = STATE.settings.groundColor || GROUND_COLORS[0];
@@ -2974,7 +2990,15 @@ function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onCha
     outlineHolder.style.left = el.offsetLeft+'px';
     outlineHolder.style.width = outerW+'px'; outlineHolder.style.height = outerH+'px'; outlineHolder.innerHTML = shapeOutlineSvg;
   }
-  let html = `<div class="picgrid" style="background-image:linear-gradient(to right, rgba(74,55,40,0.18) 1px, transparent 1px), linear-gradient(to bottom, rgba(74,55,40,0.18) 1px, transparent 1px); background-size:${ppmLocal*0.2}px ${ppmLocal*0.2}px;"></div>${rulerSvg}`;
+  let shelfBoundarySvg = '';
+  if(allowOverhang && (bw>trueW+0.001 || bh>trueH+0.001)){
+    // Marks where the shelf/tier itself actually ends, now that the canvas around it has grown to
+    // fit something placed on it that's bigger than the shelf's own real size (see trueW/trueH
+    // above) — otherwise there'd be nothing here to show that anything is overhanging at all.
+    const bx = trueW*ppmLocal, by = pxH - trueH*ppmLocal;
+    shelfBoundarySvg = `<svg width="${pxW}" height="${pxH}" style="position:absolute; left:0; top:0; pointer-events:none;"><rect x="0" y="${by.toFixed(1)}" width="${bx.toFixed(1)}" height="${(trueH*ppmLocal).toFixed(1)}" fill="none" stroke="#4A3728" stroke-width="2" stroke-dasharray="7,5"></rect></svg>`;
+  }
+  let html = `<div class="picgrid" style="background-image:linear-gradient(to right, rgba(74,55,40,0.18) 1px, transparent 1px), linear-gradient(to bottom, rgba(74,55,40,0.18) 1px, transparent 1px); background-size:${ppmLocal*0.2}px ${ppmLocal*0.2}px;"></div>${rulerSvg}${shelfBoundarySvg}`;
   const effectivePos = [];
   const placedSoFar = items.filter(it=>it.px!=null && it.py!=null && it.pw!=null && it.ph!=null).map(it=>({px:it.px,py:it.py,pw:it.pw,ph:it.ph}));
   items.forEach((it)=>{
@@ -2991,9 +3015,14 @@ function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onCha
     // ppmLocal, so a genuinely small saved size (0.1m) got redrawn larger on every render — by a
     // different amount depending on this canvas's own zoom, since the same 30px means a different
     // real-world size at each scale. Match the drag floor: a real 0.1m minimum, not a pixel one.
-    const w=Math.min(Math.max(0.1*ppmLocal,pw*ppmLocal), pxW-2), h=Math.min(Math.max(0.1*ppmLocal,ph*ppmLocal), pxH-2);
-    const left = Math.max(0, Math.min(left0, pxW-w-2));
-    const top = Math.max(0, Math.min(top0, pxH-h-2));
+    // The upper clamp (capping w/h/left/top to fit inside pxW/pxH) is skipped under allowOverhang —
+    // the canvas has already been grown around the true size of everything on it (see bw/bh above),
+    // so there's nothing left to clamp against without reintroducing the exact clipping this was
+    // built to fix. A bed's own crop planting still clamps exactly as before.
+    const w = allowOverhang ? Math.max(0.1*ppmLocal,pw*ppmLocal) : Math.min(Math.max(0.1*ppmLocal,pw*ppmLocal), pxW-2);
+    const h = allowOverhang ? Math.max(0.1*ppmLocal,ph*ppmLocal) : Math.min(Math.max(0.1*ppmLocal,ph*ppmLocal), pxH-2);
+    const left = allowOverhang ? Math.max(0, left0) : Math.max(0, Math.min(left0, pxW-w-2));
+    const top = allowOverhang ? Math.max(0, top0) : Math.max(0, Math.min(top0, pxH-h-2));
     effectivePos[idx]._boxLeft = left; effectivePos[idx]._boxTop = top; effectivePos[idx]._boxW = w; effectivePos[idx]._boxH = h;
   });
   // Push labels apart whenever two boxes are close enough that their default (vertically-centred)
@@ -3859,7 +3888,7 @@ function openContainerDetail(featId, highlightId){
     async (planting, vals)=>{ Object.assign(planting, vals); await put('features', feat); await afterChange(); if(supa) schedulePush(); },
     (planting)=> openPlantingInfo(featId, planting.id, 'features'),
     highlightId, null,
-    p=>{ if(p.colorOverride) return p.colorOverride; const c=cropById(p.cropId); return c?cropColor(c):'#8a8a7a'; }, null
+    p=>{ if(p.colorOverride) return p.colorOverride; const c=cropById(p.cropId); return c?cropColor(c):'#8a8a7a'; }, null, false
   );
 
   modalContent.querySelectorAll('[data-harvest]').forEach(b=>b.addEventListener('click', ()=>{
@@ -4010,7 +4039,7 @@ function openBedDetail(bedId, highlightId){
     async (planting, vals)=>{ Object.assign(planting, vals); await put('beds', bed); await afterChange(); if(supa) schedulePush(); },
     (planting)=> openPlantingInfo(bedId, planting.id),
     highlightId, null,
-    p=>{ if(p.colorOverride) return p.colorOverride; const c=cropById(p.cropId); return c?cropColor(c):'#8a8a7a'; }, null
+    p=>{ if(p.colorOverride) return p.colorOverride; const c=cropById(p.cropId); return c?cropColor(c):'#8a8a7a'; }, null, false
   );
 
   modalContent.querySelectorAll('[data-harvest]').forEach(b=>b.addEventListener('click', ()=>{
@@ -4796,7 +4825,7 @@ function openStructureDetail(feat, highlightTrayId){
     highlightTrayId,
     (t)=> trayIsEmpty(t),
     t=>{ if(t.colorOverride) return t.colorOverride; if(trayIsEmpty(t)) return '#8a8a7a'; const c=cropById(t.plantings[0].cropId); return c?cropColor(c):'#8a8a7a'; },
-    t=> t.number
+    t=> t.number, true
   );
   if(tiers.length>1) wireTierDropTargets(feat, tierId);
 
