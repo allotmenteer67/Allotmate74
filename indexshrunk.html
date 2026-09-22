@@ -2658,7 +2658,8 @@ guard=0; while(nl-step>=0 && fits(nl-step, nt, nr-(nl-step), nb-nt) && guard++<2
 guard=0; while(nt-step>=0 && fits(nl, nt-step, nr-nl, nb-(nt-step)) && guard++<200) nt -= step;
 return {l:nl, t:nt, w:nr-nl, h:nb-nt};
 }
-function wireCropBox(boxEl, item, ppmLocal, boundsWH, onChange, onTap, shape){
+function wireCropBox(boxEl, item, ppmLocal, boundsWH, onChange, onTap, shape, anchor){
+anchor = anchor || {x:'left', y:'top'};
 const shapePx = (shape && shape.length>=3) ? shape.map(p=>({x:p.x*ppmLocal, y:p.y*ppmLocal})) : null;
 blockTouchScroll(boxEl);
 boxEl.addEventListener('pointerdown',(e)=>{
@@ -2708,7 +2709,14 @@ if(ruler) ruler.classList.remove('show');
 setTimeout(()=>readout.remove(), 1200);
 if(moved){
 const finalLeft=parseFloat(boxEl.style.left), finalTop=parseFloat(boxEl.style.top), finalW=w, finalH=h;
-const px=finalLeft/ppmLocal, py=finalTop/ppmLocal;
+// The box's on-screen position is mirrored for a South/East-anchored tier (see anchor
+// above renderPictureCanvas) so it always visually hugs the wall side, whichever edge
+// that is - but the STORED position must stay in one consistent, anchor-independent
+// coordinate system regardless of which tier you're looking at when you drag, or the
+// same tray would appear to jump to a different spot the next time it's viewed from a
+// tier with a different wall orientation. Un-mirror back to that stored system here.
+const px = anchor.x==='right' ? (boundsWH.w - finalLeft/ppmLocal - finalW/ppmLocal) : finalLeft/ppmLocal;
+const py = anchor.y==='bottom' ? (boundsWH.h - finalTop/ppmLocal - finalH/ppmLocal) : finalTop/ppmLocal;
 const pw=finalW/ppmLocal, ph=finalH/ppmLocal;
 onChange(item, {px:snapFine(px), py:snapFine(py), pw:snapFine(pw), ph:snapFine(ph)});
 } else { onTap(item); }
@@ -2766,7 +2774,11 @@ if(grid) grid.classList.remove('show');
 if(ruler) ruler.classList.remove('show');
 setTimeout(()=>readout.remove(), 1200);
 const finalLeft=left, finalTop=top, finalW=parseFloat(boxEl.style.width), finalH=parseFloat(boxEl.style.height);
-const px=finalLeft/ppmLocal, py=finalTop/ppmLocal;
+// Same un-mirror as the move handler above - the resize handle only ever changes the
+// box's on-screen width/height/corner, but what gets saved still needs to be in the one
+// consistent, anchor-independent coordinate system.
+const px = anchor.x==='right' ? (boundsWH.w - finalLeft/ppmLocal - finalW/ppmLocal) : finalLeft/ppmLocal;
+const py = anchor.y==='bottom' ? (boundsWH.h - finalTop/ppmLocal - finalH/ppmLocal) : finalTop/ppmLocal;
 const pw=finalW/ppmLocal, ph=finalH/ppmLocal;
 onChange(item, {px:snapFine(px), py:snapFine(py), pw:snapFine(pw), ph:snapFine(ph)});
 }
@@ -2832,12 +2844,29 @@ if(!el) return;
 // to fit exactly as before.
 const trueW = obj.w||2, trueH = obj.h||1;
 let bw = trueW, bh = trueH;
+// A small real-world margin, not just the overhanging tray's exact extent — otherwise an
+// oversized tray's own far edge sits flush against the picture's outer border with no breathing
+// room at all, which was reported as looking cramped/too tight.
+const OVERHANG_MARGIN = 0.05;
 if(allowOverhang){
 items.forEach(it=>{
-if(it.px!=null && it.pw!=null) bw = Math.max(bw, it.px+it.pw);
-if(it.py!=null && it.ph!=null) bh = Math.max(bh, it.py+it.ph);
+if(it.px!=null && it.pw!=null) bw = Math.max(bw, it.px+it.pw+OVERHANG_MARGIN);
+if(it.py!=null && it.ph!=null) bh = Math.max(bh, it.py+it.ph+OVERHANG_MARGIN);
 });
 }
+// Which edge of the picture the shelf's own real, physical wall-side sits flush against - a
+// tray can only ever overhang INTO the structure's interior (the aisle side), never back
+// through the wall it's standing against, so that wall-side edge is what has to stay fixed
+// while the picture grows around whatever's actually on the shelf. North/West need no change
+// at all: px/py are naturally measured from the picture's own top-left already, which already
+// happens to be the right way round for a shelf against the north or west wall. South/East
+// mirror that axis instead, so the wall-side edge (now the bottom or right edge) stays exactly
+// where it visually belongs regardless of how far the opposite, interior-facing edge grows.
+function anchorForTierLabel(label){
+const l = (label||'').toLowerCase();
+return { x: l.includes('east') ? 'right' : 'left', y: l.includes('south') ? 'bottom' : 'top' };
+}
+const anchor = allowOverhang ? anchorForTierLabel(obj.label) : {x:'left', y:'top'};
 const wrapEl = el.parentElement;
 const measuredWidth = wrapEl ? wrapEl.clientWidth : 320;
 const availW = Math.max(200, measuredWidth - 4);
@@ -2914,15 +2943,28 @@ if(outlineHolder){
 outlineHolder.style.left = el.offsetLeft+'px';
 outlineHolder.style.width = outerW+'px'; outlineHolder.style.height = outerH+'px'; outlineHolder.innerHTML = shapeOutlineSvg;
 }
-let shelfBoundarySvg = '';
+let shelfBoundarySvg = '', overhangTintSvg = '';
 if(allowOverhang && (bw>trueW+0.001 || bh>trueH+0.001)){
 // Marks where the shelf/tier itself actually ends, now that the canvas around it has grown to
 // fit something placed on it that's bigger than the shelf's own real size (see trueW/trueH
 // above) — otherwise there'd be nothing here to show that anything is overhanging at all.
-const bx = trueW*ppmLocal, by = pxH - trueH*ppmLocal;
-shelfBoundarySvg = `<svg width="${pxW}" height="${pxH}" style="position:absolute; left:0; top:0; pointer-events:none;"><rect x="0" y="${by.toFixed(1)}" width="${bx.toFixed(1)}" height="${(trueH*ppmLocal).toFixed(1)}" fill="none" stroke="#4A3728" stroke-width="2" stroke-dasharray="7,5"></rect></svg>`;
+// Flush against whichever edge is the wall side for this tier (see anchor above) - a plain
+// 0/pxH-trueH*ppmLocal here would draw it bottom-flush regardless of that, which only happens
+// to be right for a south-facing tier.
+const rectW = trueW*ppmLocal, rectH = trueH*ppmLocal;
+const bx = anchor.x==='right' ? (bw*ppmLocal - rectW) : 0;
+const by = anchor.y==='bottom' ? (bh*ppmLocal - rectH) : 0;
+shelfBoundarySvg = `<svg width="${pxW}" height="${pxH}" style="position:absolute; left:0; top:0; pointer-events:none;"><rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${rectW.toFixed(1)}" height="${rectH.toFixed(1)}" fill="none" stroke="#4A3728" stroke-width="2" stroke-dasharray="7,5"></rect></svg>`;
+// A dashed line alone is easy to miss, especially on a small phone screen — a genuinely
+// different colour for "this is picture space, not real shelf" reads at a glance instead.
+// The real shelf footprint (inside the dashed line) is left at the normal ground colour; only
+// the area outside it — a full-canvas rectangle with the shelf's own footprint cut out of it,
+// "the hole", via an evenodd fill — gets the muted tint. When nothing's overhanging this
+// block never runs at all, so a normal tier looks exactly as it always did.
+const bxEnd = bx+rectW, byEnd = by+rectH;
+overhangTintSvg = `<svg width="${pxW}" height="${pxH}" style="position:absolute; left:0; top:0; pointer-events:none;"><path d="M0,0 H${pxW} V${pxH} H0 Z M${bx.toFixed(1)},${by.toFixed(1)} H${bxEnd.toFixed(1)} V${byEnd.toFixed(1)} H${bx.toFixed(1)} Z" fill="#4A3728" fill-opacity="0.09" fill-rule="evenodd"></path></svg>`;
 }
-let html = `<div class="picgrid" style="background-image:linear-gradient(to right, rgba(74,55,40,0.18) 1px, transparent 1px), linear-gradient(to bottom, rgba(74,55,40,0.18) 1px, transparent 1px); background-size:${ppmLocal*0.2}px ${ppmLocal*0.2}px;"></div>${rulerSvg}${shelfBoundarySvg}`;
+let html = `<div class="picgrid" style="background-image:linear-gradient(to right, rgba(74,55,40,0.18) 1px, transparent 1px), linear-gradient(to bottom, rgba(74,55,40,0.18) 1px, transparent 1px); background-size:${ppmLocal*0.2}px ${ppmLocal*0.2}px;"></div>${rulerSvg}${overhangTintSvg}${shelfBoundarySvg}`;
 const effectivePos = [];
 const placedSoFar = items.filter(it=>it.px!=null && it.py!=null && it.pw!=null && it.ph!=null).map(it=>({px:it.px,py:it.py,pw:it.pw,ph:it.ph}));
 items.forEach((it)=>{
@@ -2933,7 +2975,11 @@ placedSoFar.push(slot);
 });
 items.forEach((it,idx)=>{
 let {px,py,pw,ph} = effectivePos[idx];
-const left0=px*ppmLocal, top0=py*ppmLocal;
+// Mirrored across whichever axis has a South/East anchor, so the item's screen position keeps
+// its wall-side edge fixed and only its interior-facing edge moves when it overhangs — see
+// the anchor comment near the top of this function for the full reasoning.
+const left0 = anchor.x==='right' ? (bw-px-pw)*ppmLocal : px*ppmLocal;
+const top0 = anchor.y==='bottom' ? (bh-py-ph)*ppmLocal : py*ppmLocal;
 // Same fixed-pixel-floor mistake as the resize drag had, just at render time instead of drag
 // time: converting a saved size back to pixels was still flooring at 30/22px regardless of
 // ppmLocal, so a genuinely small saved size (0.1m) got redrawn larger on every render — by a
@@ -2993,7 +3039,7 @@ ${showResize?`<div class="resize-handle-sm" style="width:${handleSize}px; height
 el.innerHTML = html;
 el.querySelectorAll('.crop-box').forEach(boxEl=>{
 const idx = parseInt(boxEl.dataset.idx);
-wireCropBox(boxEl, items[idx], ppmLocal, {w:bw,h:bh}, onChange, onTap, obj.shape);
+wireCropBox(boxEl, items[idx], ppmLocal, {w:bw,h:bh}, onChange, onTap, obj.shape, anchor);
 });
 }
 /* ======================= MAP ======================= */
