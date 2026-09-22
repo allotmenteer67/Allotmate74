@@ -345,7 +345,8 @@ body > *:not(#printView){display:none !important;}
 <p class="muted" style="margin-bottom:10px;">Crops, plot ideas, tools to buy — jot it down before you forget. A crop name gets automatic sowing reminders; anything else is just a note, with an optional date if you want one.</p>
 <div class="form-row"><div><input type="text" id="wishName" list="cropSuggestions" placeholder="e.g. Cauliflower, new wheelbarrow, the ones Dave grows" autocomplete="off"></div></div>
 <div id="wishSuggestBox" style="margin:-6px 0 12px;"></div>
-<div class="form-row"><div><label>Note (optional)</label><input type="text" id="wishNote" placeholder="e.g. try the purple variety"></div></div>
+<button class="btn big" id="btnAddWish" style="margin-top:6px;">+ Add to wishlist</button>
+<div class="form-row" style="margin-top:14px;"><div><label>Note (optional)</label><input type="text" id="wishNote" placeholder="e.g. try the purple variety"></div></div>
 <div id="wishSowChoiceRow" style="display:none; margin-bottom:10px;">
 <label>How will you sow this?</label>
 <div class="btn-row" id="wishSowChoiceButtons">
@@ -354,7 +355,6 @@ body > *:not(#printView){display:none !important;}
 </div>
 </div>
 <div class="form-row" id="wishDateRow"><div><label id="wishDateLabel">Remind me around (optional)</label><input type="date" id="wishDate"></div></div>
-<button class="btn big" id="btnAddWish" style="margin-top:6px;">+ Add to wishlist</button>
 </div>
 <div class="tray-card">
 <div class="row-heading" style="margin-top:0;">Your wishlist</div>
@@ -1367,18 +1367,50 @@ if(!query){ el.innerHTML=''; return; }
 if(!navigator.onLine){ el.innerHTML = '<p class="muted">Offline right now — try again with a signal.</p>'; return; }
 el.innerHTML = '<p class="muted">Looking it up...</p>';
 try{
-const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`);
+const resolvedTitle = await resolveWikiTitle(query);
+if(!resolvedTitle){ el.innerHTML = '<p class="muted">Nothing found online for that.</p>'; return; }
+const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(resolvedTitle)}`);
 if(!res.ok){ el.innerHTML = '<p class="muted">Nothing found online for that.</p>'; return; }
 const data = await res.json();
 const extract = data.extract||'';
 el.innerHTML = `<div class="muted lookup-box" style="font-size:15px; background:var(--paper); padding:8px 10px; border-radius:6px;"><strong>${escapeHTML(data.title||query)}:</strong> ${escapeHTML(extract)}</div>`;
 }catch(e){ el.innerHTML = '<p class="muted">Could not reach the internet for that.</p>'; }
 }
+// Wikipedia's plain summary-by-title endpoint only matches an exact page title - but what's typed
+// here is usually a variety name ("Tomato Alicante", "Potato Maris Piper"), not a real Wikipedia
+// article title, which is exactly why most varieties came back "nothing found" even though the
+// base crop clearly has its own page. Resolves the closest real title first via Wikipedia's own
+// search, trying the full typed phrase, then progressively shorter versions with the last word
+// dropped each time - a variety's own name is almost always the part a general encyclopaedia won't
+// have a page for, while the crop name itself (the first word or two) usually will.
+async function resolveWikiTitle(query){
+const words = query.trim().split(/\s+/);
+for(let n = words.length; n >= 1; n--){
+const attempt = words.slice(0, n).join(' ');
+// action=query&list=search (full-text relevance search) rather than action=opensearch (a
+// strict title-PREFIX match) - opensearch missed real, exact matches whenever the crop name
+// as stored here doesn't share Wikipedia's own exact spacing or hyphenation ("Sweetcorn", one
+// word here, versus Wikipedia's own "Sweet corn", two words - opensearch never bridges that
+// gap since "Sweet corn" doesn't begin with the literal text "Sweetcorn", even though it's
+// obviously the right page). Full-text search matches on relevance rather than a literal
+// prefix, so it isn't thrown by minor spacing/hyphenation differences like that.
+try{
+const res = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(attempt)}&srlimit=1&format=json&origin=*`);
+if(!res.ok) continue;
+const data = await res.json();
+const title = data && data.query && data.query.search && data.query.search[0] && data.query.search[0].title;
+if(title) return title;
+}catch(e){ /* try the next, shorter attempt */ }
+}
+return null;
+}
 const WIKI_PEST_SECTION_NAMES = ['pests and diseases','diseases and pests','pests, diseases and disorders','pests & diseases','diseases','pests'];
 async function fetchWikiPestsSection(query){
 if(!navigator.onLine) return null;
 try{
-const sumRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`);
+const resolvedTitle = await resolveWikiTitle(query);
+if(!resolvedTitle) return null;
+const sumRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(resolvedTitle)}`);
 if(!sumRes.ok) return null;
 const sumData = await sumRes.json();
 const title = sumData.title;
@@ -5489,7 +5521,8 @@ const existingSowDate = item.underCoverTaskId ? (STATE.tasks.find(t=>t.id===item
 openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit wishlist idea</h3>
 <div class="form-row"><div><input type="text" id="wEditName" list="cropSuggestions" value="${escapeAttr(item.name)}" autocomplete="off"></div></div>
 <div id="wEditSuggestBox" style="margin:-6px 0 12px;"></div>
-<div class="form-row"><div><label>Note (optional)</label><input type="text" id="wEditNote" value="${escapeAttr(item.note||'')}"></div></div>
+<button class="btn big" id="wEditSave" style="margin-top:6px;">Save</button>
+<div class="form-row" style="margin-top:14px;"><div><label>Note (optional)</label><input type="text" id="wEditNote" value="${escapeAttr(item.note||'')}"></div></div>
 <div id="wEditSowChoiceRow" style="display:${hasBoth?'':'none'}; margin-bottom:10px;">
 <label>How will you sow this?</label>
 <div class="btn-row" id="wEditSowChoiceButtons">
@@ -5497,8 +5530,7 @@ openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit wis
 <button type="button" class="btn small secondary ${editSowChoice==='directSow'?'picked':''}" data-sowchoice="directSow">🌍 Direct sow</button>
 </div>
 </div>
-<div class="form-row"><div><label id="wEditDateLabel">${editSowChoice==='underCover'?'Start under cover around':editSowChoice==='directSow'?'Direct sow around':'Remind me around (optional)'}</label><input type="date" id="wEditDate" value="${existingSowDate||existingDate}"></div></div>
-<button class="btn big" id="wEditSave" style="margin-top:6px;">Save</button>`, true);
+<div class="form-row"><div><label id="wEditDateLabel">${editSowChoice==='underCover'?'Start under cover around':editSowChoice==='directSow'?'Direct sow around':'Remind me around (optional)'}</label><input type="date" id="wEditDate" value="${existingSowDate||existingDate}"></div></div>`, true);
 document.getElementById('mBack').addEventListener('click', closeModal);
 wireCropAutocomplete(document.getElementById('wEditName'), document.getElementById('wEditSuggestBox'));
 document.querySelectorAll('#wEditSowChoiceButtons [data-sowchoice]').forEach(b=>b.addEventListener('click', ()=>{
@@ -5672,9 +5704,9 @@ let historyCropTerm = '';
 let historyBedTerm = '';
 function gatherRemovedHistory(){
 const removed = [];
-for(const bed of STATE.beds) for(const h of (bed.history||[])) removed.push({id:'rm-'+bed.id+'-'+h.clearedDate+'-'+h.cropName, cropName:h.cropName, family:h.family, locationLabel:bed.name, harvestDate:h.clearedDate, reason:h.reason, removed:true, approx:h.approx});
-for(const feat of STATE.features) for(const h of (feat.history||[])) removed.push({id:'rm-'+feat.id+'-'+h.clearedDate+'-'+h.cropName, cropName:h.cropName, family:h.family, locationLabel:feat.label, harvestDate:h.clearedDate, reason:h.reason, removed:true, approx:h.approx});
-for(const h of (STATE.settings.unplacedHistory||[])) removed.push({id:'up-'+h.id, unplacedId:h.id, cropName:h.cropName, family:h.family, locationLabel:'Not sure which bed', harvestDate:h.clearedDate, reason:h.reason, removed:true, approx:true, unplaced:true, by:h.by});
+for(const bed of STATE.beds) for(const h of (bed.history||[])) removed.push({id:'rm-'+bed.id+'-'+h.clearedDate+'-'+h.cropName, cropName:h.cropName, family:h.family, locationLabel:bed.name, harvestDate:h.clearedDate, reason:h.reason, removed:true, approx:h.approx, sourceKind:'beds', sourceId:bed.id});
+for(const feat of STATE.features) for(const h of (feat.history||[])) removed.push({id:'rm-'+feat.id+'-'+h.clearedDate+'-'+h.cropName, cropName:h.cropName, family:h.family, locationLabel:feat.label, harvestDate:h.clearedDate, reason:h.reason, removed:true, approx:h.approx, sourceKind:'features', sourceId:feat.id});
+for(const h of (STATE.settings.unplacedHistory||[])) removed.push({id:'up-'+h.id, unplacedId:h.id, cropName:h.cropName, family:h.family, locationLabel:'Not sure which bed', harvestDate:h.clearedDate, reason:h.reason, removed:true, approx:true, unplaced:true, by:h.by, sourceKind:'unplaced'});
 return removed;
 }
 function renderHistory(){
@@ -5994,7 +6026,16 @@ ${h.notes?`<div class="planting-row"><span class="pname">Notes</span><span class
 ${h.weatherSummary?`<div class="planting-row"><span class="pname">Weather while growing</span><span class="pdate">avg ${h.weatherSummary.meanTempMax}&deg;/${h.weatherSummary.meanTempMin}&deg;, ${h.weatherSummary.totalRain}mm over ${h.weatherSummary.days} days</span></div>`:''}
 ${(h.treatments&&h.treatments.length)?`<div class="row-heading">Treatments used</div>${h.treatments.map(t=>`<div class="muted" style="font-size:15px;">${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}</div>`).join('')}`:''}
 ${others.length?`<div class="row-heading">Other times growing ${escapeHTML(h.cropName)}</div>${others.slice(0,6).map(o=>`<div class="planting-row"><span class="pname">${dayLabel(o.harvestDate)}</span><span class="pdate">${o.rating}/10${o.weatherSummary?' &middot; avg '+o.weatherSummary.meanTempMax+'&deg;':''}</span></div>`).join('')}`:''}
+<button class="btn danger" id="mDelHarvest" style="margin-top:24px;">Delete this record</button>
 `);
+document.getElementById('mDelHarvest').addEventListener('click', async ()=>{
+if(!(await confirmDialog(`Delete this ${escapeHTML(h.cropName)} record? This can't be undone.`, undefined, 'Delete', true))) return;
+await del('harvests', h.id);
+await afterChange();
+closeModal();
+renderHistory();
+toast('Deleted');
+});
 }
 function getCropIssuesFor(name){
 const {crop, confident} = matchCropWithConfidence(name);
@@ -6452,8 +6493,29 @@ openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${escape
 <div class="planting-row"><span class="pname">Removed</span><span class="pdate">${h.approx?'~':''}${dayLabel(h.harvestDate)}</span></div>
 <div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(h.locationLabel||'')}</span></div>
 ${h.family?`<div class="planting-row"><span class="pname">Family</span><span class="pdate">${escapeHTML(h.family)}</span></div>`:''}
-${h.reason?`<div class="planting-row"><span class="pname">Notes</span><span class="pdate">${escapeHTML(h.reason)}</span></div>`:'<p class="tiny-muted">No notes were added for this one.</p>'}`, true);
+${h.reason?`<div class="planting-row"><span class="pname">Notes</span><span class="pdate">${escapeHTML(h.reason)}</span></div>`:'<p class="tiny-muted">No notes were added for this one.</p>'}
+<button class="btn danger" id="mDelRemoved" style="margin-top:24px;">Delete this record</button>`, true);
 document.getElementById('mBack').addEventListener('click', ()=>{ closeModal(); renderHistory(); });
+document.getElementById('mDelRemoved').addEventListener('click', async ()=>{
+if(!(await confirmDialog(`Delete this ${escapeHTML(h.cropName)} record? This can't be undone.`, undefined, 'Delete', true))) return;
+if(h.sourceKind==='unplaced'){
+STATE.settings.unplacedHistory = (STATE.settings.unplacedHistory||[]).filter(x=>x.id!==h.unplacedId);
+await setMeta('unplacedHistory', STATE.settings.unplacedHistory);
+} else {
+const target = plantableById(h.sourceKind, h.sourceId);
+if(target){
+// Matched on clearedDate + cropName, same as the synthetic id gatherRemovedHistory builds
+// this entry from - these bed/feature history entries have never carried their own id, so
+// there's nothing more specific to match against.
+target.history = (target.history||[]).filter(x => !(x.clearedDate===h.harvestDate && x.cropName===h.cropName));
+await savePlantable(h.sourceKind, target);
+}
+}
+await afterChange();
+closeModal();
+renderHistory();
+toast('Deleted');
+});
 }
 function openProblemDetail(bedId, bedKind, issue, date){
 const years = SOIL_ISSUE_PERSISTENCE_YEARS[issue];
