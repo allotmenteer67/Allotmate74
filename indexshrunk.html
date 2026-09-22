@@ -193,8 +193,10 @@ size along the way. */
 .pic-ruler{position:absolute; inset:0; pointer-events:none; opacity:0; transition:opacity 0.12s;}
 .pic-ruler.show{opacity:1;}
 .picgrid.show{opacity:1;}
-.crop-box{position:absolute; border:2px solid var(--leaf); background:#ffffffd9; border-radius:6px; display:flex; align-items:center; gap:4px; padding:2px 7px; font-size:15px; font-weight:700; overflow:hidden; touch-action:none; cursor:grab; white-space:nowrap;}
-.crop-box.icon-centered{justify-content:center;}
+.crop-box{position:absolute; border:2px solid var(--leaf); background:#ffffffd9; border-radius:6px; display:flex; align-items:flex-start; gap:4px; padding:6px 7px 2px; font-size:15px; font-weight:700; overflow:hidden; touch-action:none; cursor:grab; white-space:nowrap;}
+.crop-box.icon-centered{justify-content:center; align-items:center;}
+.crop-box.anchor-y-bottom{align-items:flex-end; padding:2px 7px 6px;}
+.crop-box.anchor-x-right{justify-content:flex-end;}
 .crop-icon{font-size:16px; line-height:1; flex-shrink:0;}
 .crop-box-stack{display:flex; flex-direction:column; align-items:center; gap:0; width:100%; line-height:1.15;}
 .crop-box-stack .crop-icon{font-size:17px;}
@@ -3032,7 +3034,7 @@ const alignStyle = labelAlign[idx] ? `align-items:${labelAlign[idx]};` : '';
 // an unreachable sliver, making the handle impossible to grab precisely where it matters most.
 // Scale the icon to the box's own size once the box is the smaller of the two.
 const handleSize = Math.max(10, Math.min(20, w, h));
-html += `<div class="crop-box${hl}${isEmpty?' empty':''}${centered?' icon-centered':''}" data-idx="${idx}" data-allowoverlap="${it.allowOverlap?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${colStyle} ${alignStyle}">
+html += `<div class="crop-box${hl}${isEmpty?' empty':''}${centered?' icon-centered':''}${(!centered&&anchor.y==='bottom')?' anchor-y-bottom':''}${(!centered&&anchor.x==='right')?' anchor-x-right':''}" data-idx="${idx}" data-allowoverlap="${it.allowOverlap?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${colStyle} ${alignStyle}">
 ${(!isEmpty && !iconUsed)?`<span class="fam-dot" style="background:${col};"></span>`:''}${content}${it.locked?' 🔒':''}
 ${showResize?`<div class="resize-handle-sm" style="width:${handleSize}px; height:${handleSize}px; ${col?`background:${col};`:''}"></div>`:''}</div>`;
 });
