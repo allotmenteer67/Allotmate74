@@ -3762,7 +3762,10 @@ function compostFieldsHTML(obj){
     <button type="button" class="btn small danger" data-dellog="${e.id}" style="margin:-6px 0 8px;">Remove entry</button>`).join('') || '<p class="muted">Nothing logged yet.</p>';
   const pastBatches = (obj.compostBatches||[]).filter(b=>b.id!==batch.id && b.endDate).sort((a,b)=> (b.endDate||'').localeCompare(a.endDate||''));
   const pastHTML = pastBatches.length ? `<div class="row-heading">Past batches</div>${pastBatches.map(b=>`<div class="planting-row" style="cursor:pointer;" data-viewbatch="${b.id}"><span class="pname">${escapeHTML(compostBatchLabel(b))}</span></div>`).join('')}` : '';
-  return `<div class="form-row"><div><label>Manure started (optional)</label><input type="date" id="mCreatedDate" value="${batch.startDate||''}"></div></div>
+  return `<div class="form-row">
+      <div><label>Compost started</label><p class="tiny-muted" style="margin:2px 0 6px;">optional</p><input type="date" id="mCreatedDate" value="${batch.startDate||''}"></div>
+      <div><label>Use after</label><p class="tiny-muted" style="margin:2px 0 6px;">optional</p><input type="month" id="mUseAfter" value="${batch.useAfter||''}"></div>
+    </div>
     <div class="row-heading">What's gone in</div>
     ${logRows}
     <div class="form-row" style="margin-top:6px;"><div><label>Date</label><input type="date" id="mLogDate" value="${todayISO()}"></div><div><label>Added</label><input type="text" id="mLogNote" placeholder="e.g. Horse manure"></div></div>
@@ -3770,6 +3773,7 @@ function compostFieldsHTML(obj){
       <button type="button" class="btn small secondary" id="mLogAdd">+ Add to log</button>
       <button type="button" class="btn small secondary" id="mNewBatch">Start a new batch</button>
     </div>
+    <div class="form-row"><div><label>Reason for delay (optional)</label><input type="text" id="mUseAfterReason" placeholder="e.g. lots of woodchip, slow to break down" value="${escapeAttr(batch.useAfterReason||'')}"></div></div>
     ${pastHTML}`;
 }
 // Everything compostFieldsHTML renders that needs wiring up - the date, the log's add/remove,
@@ -3781,6 +3785,16 @@ function wireCompostFields(obj, storeKind, onDone){
   const dateEl = document.getElementById('mCreatedDate');
   if(dateEl) dateEl.addEventListener('change', async ()=>{
     batch.startDate = dateEl.value || null;
+    await put(storeKind, obj); await afterChange();
+  });
+  const useAfterEl = document.getElementById('mUseAfter');
+  if(useAfterEl) useAfterEl.addEventListener('change', async ()=>{
+    batch.useAfter = useAfterEl.value || null;
+    await put(storeKind, obj); await afterChange();
+  });
+  const useAfterReasonEl = document.getElementById('mUseAfterReason');
+  if(useAfterReasonEl) useAfterReasonEl.addEventListener('change', async ()=>{
+    batch.useAfterReason = useAfterReasonEl.value.trim() || null;
     await put(storeKind, obj); await afterChange();
   });
   const addBtn = document.getElementById('mLogAdd');
