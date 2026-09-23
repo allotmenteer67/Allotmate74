@@ -3323,8 +3323,13 @@ function wireMapZoomReset(wrapEl){
 // entirely until zooming in gives the box enough room to actually carry it — no separate setting,
 // it just naturally reappears as you zoom in.
 const COMPOST_HATCH_MIN_PX = 40;
+// A single fixed hatch colour can't stay visible against every custom bed colour someone might
+// pick (a rust-red hatch disappears on a bed the user has coloured a similar dusty red). So the
+// hatch is two-tone instead — one diagonal dark, the other light, crossing at 90° — so at least
+// one of the two always shows up against whatever the box itself is coloured, without needing to
+// know what that colour is.
 function compostHatchLayers(){
-  return 'repeating-linear-gradient(45deg, transparent, transparent 6px, #8B5A2B26 6px, #8B5A2B26 7px), repeating-linear-gradient(-45deg, transparent, transparent 6px, #8B5A2B26 6px, #8B5A2B26 7px), ';
+  return 'repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(0,0,0,0.4) 6px, rgba(0,0,0,0.4) 8px), repeating-linear-gradient(-45deg, transparent, transparent 6px, rgba(255,255,255,0.55) 6px, rgba(255,255,255,0.55) 8px), ';
 }
 // Builds the same background+border-color inline CSS the map already used, just with the hatch
 // layered in when it applies. Returns '' (unchanged, CSS class default stands) when there's
@@ -3431,7 +3436,7 @@ function renderMap(){
         const bedCol = o.color || '#7E9A6D';
         const showHatch = !!(o.raised && o.composting) && Math.min(w,h) >= COMPOST_HATCH_MIN_PX;
         const bg = hasShape ? 'background:transparent;' : mapObjBackgroundCSS(showHatch, o.color, '#F1E6D6', '#8B5A2B');
-        const hatchPatternDefs = (hasShape && showHatch) ? `<defs><pattern id="hatch-${o.id}" width="9" height="9" patternUnits="userSpaceOnUse"><rect width="9" height="9" fill="transparent"></rect><path d="M0,0L9,9M9,0L0,9" stroke="#8B5A2B" stroke-width="1" stroke-opacity="0.22"></path></pattern></defs>` : '';
+        const hatchPatternDefs = (hasShape && showHatch) ? `<defs><pattern id="hatch-${o.id}" width="9" height="9" patternUnits="userSpaceOnUse"><rect width="9" height="9" fill="transparent"></rect><path d="M0,0L9,9" stroke="#000" stroke-width="1.5" stroke-opacity="0.4"></path><path d="M9,0L0,9" stroke="#fff" stroke-width="1.5" stroke-opacity="0.55"></path></pattern></defs>` : '';
         const shapeSVG = hasShape ? `<svg width="${w}" height="${h}" style="position:absolute; left:0; top:0; pointer-events:none;" shape-rendering="geometricPrecision">${hatchPatternDefs}<polygon points="${o.shape.map(p=>`${(p.x/o.w*w).toFixed(1)},${(p.y/o.h*h).toFixed(1)}`).join(' ')}" fill="${bedCol}40" stroke="${bedCol}" stroke-width="1.25" stroke-linejoin="round"></polygon>${showHatch?`<polygon points="${o.shape.map(p=>`${(p.x/o.w*w).toFixed(1)},${(p.y/o.h*h).toFixed(1)}`).join(' ')}" fill="url(#hatch-${o.id})" stroke="none"></polygon>`:''}</svg>` : '';
         html += `<div class="mapObj ${o.raised?'raised':''}${eligible}${hasShape?' shaped':''}" data-kind="bed" data-id="${o.id}" data-locked="${o.locked?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${bg}">
           ${shapeSVG}${lockBadge}${overdueBadge}<div style="overflow:hidden; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center;"><span class="icon" style="font-size:${iconPx}px;">${o.raised?ICON_RAISEDBED:'🌱'}</span><span class="lbl">${escapeHTML(o.name)}</span><span class="fams-dot-row">${cropCols.map(c=>`<span class="fam-dot" style="background:${c};"></span>`).join('')}</span></div></div>`;
