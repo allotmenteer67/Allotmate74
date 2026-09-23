@@ -289,6 +289,7 @@
   <h1 id="plotName" contenteditable="true" spellcheck="false">My Plot</h1>
   <button class="icon-btn" id="btnUndo" title="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7 4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-1"/></svg><span class="icon-btn-lbl">Undo</span></button>
   <button class="icon-btn" id="btnRedo" title="Redo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7l5 5-5 5"/><path d="M20 12H9a5 5 0 0 0 0 10h1"/></svg><span class="icon-btn-lbl">Redo</span></button>
+  <button class="icon-btn" id="btnSearch" title="Search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span class="icon-btn-lbl">Search</span></button>
 </div>
 
 <nav class="tabs" id="tabs">
@@ -950,109 +951,109 @@ function readDimensionField(id, originalM){
 
 /* ======================= CROP MATCHING ======================= */
 const KNOWN_CROPS = [
-  {name:'Fallow', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['fallow'], varieties:[], underCoverMonth:null, directSowMonth:null},
-  {name:'Path', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['path'], varieties:[], underCoverMonth:null, directSowMonth:null},
-  {name:'Tomato', family:'Solanaceae', sowToPotOn:42, transplantToHarvest:65, directSowToHarvest:null, tender:true, words:['tomato'], varieties:["Gardener's Delight",'Moneymaker','Sungold','Alicante','San Marzano','Ailsa Craig','Super Marmande','Endurance','Solito'], underCoverMonth:2, directSowMonth:5},
-  {name:'Chilli', family:'Solanaceae', sowToPotOn:56, transplantToHarvest:75, directSowToHarvest:null, tender:true, words:['chilli','chili'], varieties:['Scotch Bonnet','Jalapeno','Cayenne','Padron'], underCoverMonth:1, directSowMonth:5},
-  {name:'Sweet Pepper', family:'Solanaceae', sowToPotOn:56, transplantToHarvest:75, directSowToHarvest:null, tender:true, words:['sweet pepper','bell pepper','pepper','capsicum'], varieties:['California Wonder','Gypsy','Redstart'], underCoverMonth:1, directSowMonth:5},
-  {name:'Aubergine', family:'Solanaceae', sowToPotOn:56, transplantToHarvest:75, directSowToHarvest:null, tender:true, words:['aubergine','eggplant'], varieties:['Black Beauty','Moneymaker','Bonica'], underCoverMonth:2, directSowMonth:5},
-  {name:'Courgette', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:50, directSowToHarvest:55, tender:true, words:['courgette','zucchini'], varieties:['Black Beauty','Defender'], underCoverMonth:4, directSowMonth:5},
-  {name:'Cucumber', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:55, directSowToHarvest:60, tender:true, words:['cucumber'], varieties:['Marketmore','Telegraph'], underCoverMonth:4, directSowMonth:5},
-  {name:'Squash', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:100, directSowToHarvest:105, tender:true, words:['squash'], varieties:['Butternut','Crown Prince','Spaghetti'], underCoverMonth:4, directSowMonth:5},
-  {name:'Pumpkin', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:115, directSowToHarvest:120, tender:true, words:['pumpkin'], varieties:['Jack of All Trades','Atlantic Giant'], underCoverMonth:4, directSowMonth:5},
-  {name:'Melon', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:90, directSowToHarvest:null, tender:true, words:['melon','cantaloupe'], varieties:['Outdoor Wonder'], underCoverMonth:4, directSowMonth:5},
-  {name:'Sweetcorn', family:'Other', sowToPotOn:21, transplantToHarvest:75, directSowToHarvest:80, tender:true, words:['sweetcorn','maize','corn'], varieties:['Swift','Lark'], underCoverMonth:4, directSowMonth:5},
-  {name:'Runner Bean', family:'Legumes', sowToPotOn:21, transplantToHarvest:70, directSowToHarvest:75, tender:true, words:['runner bean','runner beans'], varieties:['Scarlet Emperor','Painted Lady'], underCoverMonth:4, directSowMonth:5},
-  {name:'French Bean', family:'Legumes', sowToPotOn:21, transplantToHarvest:60, directSowToHarvest:65, tender:true, words:['french bean','bean','beans'], varieties:['Blue Lake','Montano','Harrison'], underCoverMonth:4, directSowMonth:5},
-  {name:'Pea', family:'Legumes', sowToPotOn:14, transplantToHarvest:60, directSowToHarvest:65, tender:false, words:['pea','peas','mangetout'], varieties:['Kelvedon Wonder','Hurst Green Shaft','Mangetout'], underCoverMonth:2, directSowMonth:3},
-  {name:'Broad Bean', family:'Legumes', sowToPotOn:21, transplantToHarvest:90, directSowToHarvest:100, tender:false, words:['broad bean','broad beans'], varieties:['Aquadulce','The Sutton','Long Pod'], underCoverMonth:2, directSowMonth:3},
-  {name:'Cabbage', family:'Brassicas', sowToPotOn:28, transplantToHarvest:80, directSowToHarvest:null, tender:false, words:['cabbage'], varieties:['January King','Red Drumhead','Savoy','Sweetheart','Summer Jewel'], underCoverMonth:3, directSowMonth:4},
-  {name:'Broccoli / Calabrese', family:'Brassicas', sowToPotOn:28, transplantToHarvest:65, directSowToHarvest:null, tender:false, words:['broccoli','calabrese'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Purple Sprouting Broccoli', family:'Brassicas', sowToPotOn:63, transplantToHarvest:215, directSowToHarvest:245, tender:false, words:['purple sprouting broccoli','purple sprouting','sprouting broccoli','psb'], varieties:['Early','Rudolph','Red Arrow','Purple Rain'], underCoverMonth:4, directSowMonth:4},
-  {name:'Cauliflower', family:'Brassicas', sowToPotOn:35, transplantToHarvest:85, directSowToHarvest:null, tender:false, words:['cauliflower'], varieties:['All Year Round','Freedom'], underCoverMonth:2, directSowMonth:4},
-  {name:'Kale', family:'Brassicas', sowToPotOn:28, transplantToHarvest:60, directSowToHarvest:65, tender:false, words:['kale'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Brussels Sprout', family:'Brassicas', sowToPotOn:28, transplantToHarvest:150, directSowToHarvest:null, tender:false, words:['brussels sprout','sprouts'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Swede', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:130, tender:false, words:['swede'], varieties:[], underCoverMonth:4, directSowMonth:5},
-  {name:'Turnip', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:55, tender:false, words:['turnip'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Kohlrabi', family:'Brassicas', sowToPotOn:21, transplantToHarvest:60, directSowToHarvest:65, tender:false, words:['kohlrabi'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Leek', family:'Alliums', sowToPotOn:70, transplantToHarvest:120, directSowToHarvest:null, tender:false, words:['leek'], varieties:['Musselburgh','Tornado',"Chef's White"], underCoverMonth:2, directSowMonth:4},
-  {name:'Onion', family:'Alliums', sowToPotOn:56, transplantToHarvest:110, directSowToHarvest:null, tender:false, words:['onion'], varieties:['Stuttgarter','Sturon','Red Baron','Elista','Walla Walla','Senshyu'], underCoverMonth:1, directSowMonth:3},
-  {name:'Garlic', family:'Alliums', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:240, tender:false, words:['garlic'], varieties:['Solent Wight','Germidour'], underCoverMonth:10, directSowMonth:10},
-  {name:'Elephant Garlic', family:'Alliums', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:270, tender:false, words:['elephant garlic'], varieties:[], underCoverMonth:10, directSowMonth:10},
-  {name:'Lettuce', family:'Other', sowToPotOn:21, transplantToHarvest:45, directSowToHarvest:50, tender:true, words:['lettuce','salad leaves'], varieties:['Little Gem','Lollo Rosso',"Webbs Wonderful",'Bright and Spicy','Mesclun Mixed'], underCoverMonth:2, directSowMonth:3},
-  {name:'Beetroot', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:60, tender:true, words:['beetroot','beet'], varieties:['Boltardy','Chioggia',"Burpee's Golden"], underCoverMonth:3, directSowMonth:4},
-  {name:'Carrot', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:75, tender:false, words:['carrot'], varieties:['Nantes','Chantenay','Autumn King'], underCoverMonth:3, directSowMonth:3},
-  {name:'Parsnip', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:130, tender:false, words:['parsnip'], varieties:['Tender and True','Gladiator'], underCoverMonth:3, directSowMonth:3},
-  {name:'Potato', family:'Solanaceae', sowToPotOn:null, transplantToHarvest:110, directSowToHarvest:null, tender:true, words:['potato','maris piper','king edward','charlotte','desiree','rooster','jersey royal'], varieties:['Maris Piper','King Edward','Charlotte','Desiree','Rooster','Jersey Royal','Vivaldi','Pink Fir Apple'], underCoverMonth:2, directSowMonth:3},
-  {name:'Spinach', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:40, tender:false, words:['spinach'], varieties:[], underCoverMonth:2, directSowMonth:3},
-  {name:'Chard', family:'Other', sowToPotOn:21, transplantToHarvest:55, directSowToHarvest:60, tender:false, words:['chard'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Radish', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:28, tender:false, words:['radish'], varieties:[], underCoverMonth:2, directSowMonth:3},
-  {name:'Strawberry', family:'Other', sowToPotOn:null, transplantToHarvest:60, directSowToHarvest:null, tender:true, words:['strawberry','strawberries'], varieties:['Cambridge Favourite','Elsanta'], underCoverMonth:3, directSowMonth:3},
-  {name:'Rhubarb', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, words:['rhubarb'], varieties:[], underCoverMonth:2, directSowMonth:3},
-  {name:'Celery', family:'Other', sowToPotOn:70, transplantToHarvest:120, directSowToHarvest:null, tender:true, words:['celery'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Celeriac', family:'Other', sowToPotOn:70, transplantToHarvest:150, directSowToHarvest:null, tender:true, words:['celeriac'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Sweet Potato', family:'Other', sowToPotOn:null, transplantToHarvest:110, directSowToHarvest:null, tender:true, words:['sweet potato','sweetpotato'], varieties:[], underCoverMonth:4, directSowMonth:5},
-  {name:'Asparagus', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, words:['asparagus'], varieties:[], underCoverMonth:2, directSowMonth:3},
-  {name:'Globe Artichoke', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, words:['globe artichoke','artichoke'], varieties:[], underCoverMonth:2, directSowMonth:4},
-  {name:'Raspberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, words:['raspberry','raspberries'], varieties:['Glen Ample','Autumn Bliss'], underCoverMonth:11, directSowMonth:11},
-  {name:'Blackberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, words:['blackberry','blackberries'], varieties:[], underCoverMonth:11, directSowMonth:11},
-  {name:'Loganberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, words:['loganberry','loganberries'], varieties:[], underCoverMonth:11, directSowMonth:11},
-  {name:'Blueberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, words:['blueberry','blueberries'], varieties:[], underCoverMonth:11, directSowMonth:11},
-  {name:'Gooseberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, words:['gooseberry','gooseberries'], varieties:['Invicta'], underCoverMonth:11, directSowMonth:11},
-  {name:'Blackcurrant', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, words:['blackcurrant','black currant','redcurrant','red currant'], varieties:['Ben Sarek'], underCoverMonth:11, directSowMonth:11},
-  {name:'Apple', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['apple'], varieties:['Bramley',"Cox's Orange Pippin",'Gala','Braeburn'], underCoverMonth:11, directSowMonth:11},
-  {name:'Pear', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['pear'], varieties:['Conference','Comice'], underCoverMonth:11, directSowMonth:11},
-  {name:'Plum', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['plum','damson','gage'], varieties:['Victoria'], underCoverMonth:11, directSowMonth:11},
-  {name:'Cherry', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['cherry'], varieties:[], underCoverMonth:11, directSowMonth:11},
-  {name:'Fig', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, words:['fig'], underCoverMonth:3, directSowMonth:4},
-  {name:'Basil', family:null, sowToPotOn:42, transplantToHarvest:null, directSowToHarvest:null, tender:true, words:['basil'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Parsley', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['parsley'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Coriander', family:null, sowToPotOn:42, transplantToHarvest:null, directSowToHarvest:null, tender:true, words:['coriander','cilantro'], varieties:[], underCoverMonth:4, directSowMonth:4},
-  {name:'Chives', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['chive'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Mint', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['mint'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Rosemary', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['rosemary'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Thyme', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['thyme'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Sage', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['sage'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Dill', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['dill'], varieties:[], underCoverMonth:4, directSowMonth:4},
-  {name:'Oregano / Marjoram', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['oregano','marjoram'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Fennel (herb)', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['fennel'], varieties:[], underCoverMonth:4, directSowMonth:4},
-  {name:'Tarragon', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['tarragon'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Sunflower', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, words:['sunflower'], varieties:[], underCoverMonth:4, directSowMonth:5},
-  {name:'Sweet Pea', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['sweet pea'], varieties:[], underCoverMonth:2, directSowMonth:4},
-  {name:'Cosmos', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, words:['cosmos'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Zinnia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, words:['zinnia'], varieties:[], underCoverMonth:4, directSowMonth:5},
-  {name:'Marigold', family:null, sowToPotOn:35, transplantToHarvest:null, directSowToHarvest:null, tender:true, words:['marigold','tagetes'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Calendula', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['calendula','pot marigold'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Dahlia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, words:['dahlia'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Nasturtium', family:null, sowToPotOn:21, transplantToHarvest:null, directSowToHarvest:null, tender:true, words:['nasturtium'], varieties:[], underCoverMonth:4, directSowMonth:5},
-  {name:'Snapdragon', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['snapdragon','antirrhinum'], varieties:[], underCoverMonth:2, directSowMonth:4},
-  {name:'Gladiolus', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, words:['gladiolus','gladioli'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Cornflower', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['cornflower'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Sweet William', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['sweet william'], varieties:[], underCoverMonth:5, directSowMonth:5},
-  {name:'Nigella', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['nigella','love-in-a-mist'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Poppy', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['poppy'], varieties:[], underCoverMonth:3, directSowMonth:3},
-  {name:'Spring Onion', family:'Alliums', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, words:['spring onion','salad onion','scallion'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Shallot', family:'Alliums', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, words:['shallot'], varieties:[], underCoverMonth:2, directSowMonth:3},
-  {name:'Rocket', family:'Brassicas', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, words:['rocket','arugula'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Mizuna', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:40, tender:false, words:['mizuna'], varieties:[], underCoverMonth:2, directSowMonth:3},
-  {name:'Marrow', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, words:['marrow'], varieties:[], underCoverMonth:4, directSowMonth:5},
-  {name:'Florence Fennel', family:'Other', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, words:['florence fennel','bulb fennel'], varieties:[], underCoverMonth:4, directSowMonth:5},
-  {name:'Asparagus Pea', family:'Legumes', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, words:['asparagus pea'], varieties:[], underCoverMonth:4, directSowMonth:5},
-  {name:'Pak Choi', family:'Brassicas', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, words:['pak choi','bok choi','pak choy'], varieties:[], underCoverMonth:4, directSowMonth:5},
-  {name:'Cress', family:'Other', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, words:['cress'], varieties:[], underCoverMonth:3, directSowMonth:3},
-  {name:'Alyssum', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['alyssum'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Aquilegia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['aquilegia','columbine'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Aster', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['aster'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Foxglove', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['foxglove'], varieties:[], underCoverMonth:5, directSowMonth:6},
-  {name:'Ipomoea', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['ipomoea','morning glory'], varieties:[], underCoverMonth:4, directSowMonth:5},
-  {name:'Lobelia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['lobelia'], varieties:[], underCoverMonth:2, directSowMonth:5},
-  {name:'Lupin', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['lupin','lupine'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Nicotiana', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['nicotiana','tobacco plant'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Pansy', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['pansy'], varieties:[], underCoverMonth:2, directSowMonth:8},
-  {name:'Petunia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['petunia'], varieties:[], underCoverMonth:2, directSowMonth:5},
-  {name:'Rudbeckia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['rudbeckia','coneflower'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Salvia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['salvia'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Wallflower', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, words:['wallflower'], varieties:[], underCoverMonth:5, directSowMonth:6},
+  {name:'Fallow', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:false, words:['fallow'], varieties:[], underCoverMonth:null, directSowMonth:null},
+  {name:'Path', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:false, words:['path'], varieties:[], underCoverMonth:null, directSowMonth:null},
+  {name:'Tomato', family:'Solanaceae', sowToPotOn:42, transplantToHarvest:65, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['tomato'], varieties:["Gardener's Delight",'Moneymaker','Sungold','Alicante','San Marzano','Ailsa Craig','Super Marmande','Endurance','Solito'], underCoverMonth:2, directSowMonth:5},
+  {name:'Chilli', family:'Solanaceae', sowToPotOn:56, transplantToHarvest:75, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['chilli','chili'], varieties:['Scotch Bonnet','Jalapeno','Cayenne','Padron'], underCoverMonth:1, directSowMonth:5},
+  {name:'Sweet Pepper', family:'Solanaceae', sowToPotOn:56, transplantToHarvest:75, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['sweet pepper','bell pepper','pepper','capsicum'], varieties:['California Wonder','Gypsy','Redstart'], underCoverMonth:1, directSowMonth:5},
+  {name:'Aubergine', family:'Solanaceae', sowToPotOn:56, transplantToHarvest:75, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['aubergine','eggplant'], varieties:['Black Beauty','Moneymaker','Bonica'], underCoverMonth:2, directSowMonth:5},
+  {name:'Courgette', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:50, directSowToHarvest:55, tender:true, repeatHarvest:true, words:['courgette','zucchini'], varieties:['Black Beauty','Defender'], underCoverMonth:4, directSowMonth:5},
+  {name:'Cucumber', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:55, directSowToHarvest:60, tender:true, repeatHarvest:true, words:['cucumber'], varieties:['Marketmore','Telegraph'], underCoverMonth:4, directSowMonth:5},
+  {name:'Squash', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:100, directSowToHarvest:105, tender:true, repeatHarvest:true, words:['squash'], varieties:['Butternut','Crown Prince','Spaghetti'], underCoverMonth:4, directSowMonth:5},
+  {name:'Pumpkin', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:115, directSowToHarvest:120, tender:true, repeatHarvest:true, words:['pumpkin'], varieties:['Jack of All Trades','Atlantic Giant'], underCoverMonth:4, directSowMonth:5},
+  {name:'Melon', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:90, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['melon','cantaloupe'], varieties:['Outdoor Wonder'], underCoverMonth:4, directSowMonth:5},
+  {name:'Sweetcorn', family:'Other', sowToPotOn:21, transplantToHarvest:75, directSowToHarvest:80, tender:true, repeatHarvest:true, words:['sweetcorn','maize','corn'], varieties:['Swift','Lark'], underCoverMonth:4, directSowMonth:5},
+  {name:'Runner Bean', family:'Legumes', sowToPotOn:21, transplantToHarvest:70, directSowToHarvest:75, tender:true, repeatHarvest:true, words:['runner bean','runner beans'], varieties:['Scarlet Emperor','Painted Lady'], underCoverMonth:4, directSowMonth:5},
+  {name:'French Bean', family:'Legumes', sowToPotOn:21, transplantToHarvest:60, directSowToHarvest:65, tender:true, repeatHarvest:true, words:['french bean','bean','beans'], varieties:['Blue Lake','Montano','Harrison'], underCoverMonth:4, directSowMonth:5},
+  {name:'Pea', family:'Legumes', sowToPotOn:14, transplantToHarvest:60, directSowToHarvest:65, tender:false, repeatHarvest:true, words:['pea','peas','mangetout'], varieties:['Kelvedon Wonder','Hurst Green Shaft','Mangetout'], underCoverMonth:2, directSowMonth:3},
+  {name:'Broad Bean', family:'Legumes', sowToPotOn:21, transplantToHarvest:90, directSowToHarvest:100, tender:false, repeatHarvest:true, words:['broad bean','broad beans'], varieties:['Aquadulce','The Sutton','Long Pod'], underCoverMonth:2, directSowMonth:3},
+  {name:'Cabbage', family:'Brassicas', sowToPotOn:28, transplantToHarvest:80, directSowToHarvest:null, tender:false, repeatHarvest:false, words:['cabbage'], varieties:['January King','Red Drumhead','Savoy','Sweetheart','Summer Jewel'], underCoverMonth:3, directSowMonth:4},
+  {name:'Broccoli / Calabrese', family:'Brassicas', sowToPotOn:28, transplantToHarvest:65, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['broccoli','calabrese'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Purple Sprouting Broccoli', family:'Brassicas', sowToPotOn:63, transplantToHarvest:215, directSowToHarvest:245, tender:false, repeatHarvest:true, words:['purple sprouting broccoli','purple sprouting','sprouting broccoli','psb'], varieties:['Early','Rudolph','Red Arrow','Purple Rain'], underCoverMonth:4, directSowMonth:4},
+  {name:'Cauliflower', family:'Brassicas', sowToPotOn:35, transplantToHarvest:85, directSowToHarvest:null, tender:false, repeatHarvest:false, words:['cauliflower'], varieties:['All Year Round','Freedom'], underCoverMonth:2, directSowMonth:4},
+  {name:'Kale', family:'Brassicas', sowToPotOn:28, transplantToHarvest:60, directSowToHarvest:65, tender:false, repeatHarvest:true, words:['kale'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Brussels Sprout', family:'Brassicas', sowToPotOn:28, transplantToHarvest:150, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['brussels sprout','sprouts'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Swede', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:130, tender:false, repeatHarvest:false, words:['swede'], varieties:[], underCoverMonth:4, directSowMonth:5},
+  {name:'Turnip', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:55, tender:false, repeatHarvest:false, words:['turnip'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Kohlrabi', family:'Brassicas', sowToPotOn:21, transplantToHarvest:60, directSowToHarvest:65, tender:false, repeatHarvest:false, words:['kohlrabi'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Leek', family:'Alliums', sowToPotOn:70, transplantToHarvest:120, directSowToHarvest:null, tender:false, repeatHarvest:false, words:['leek'], varieties:['Musselburgh','Tornado',"Chef's White"], underCoverMonth:2, directSowMonth:4},
+  {name:'Onion', family:'Alliums', sowToPotOn:56, transplantToHarvest:110, directSowToHarvest:null, tender:false, repeatHarvest:false, words:['onion'], varieties:['Stuttgarter','Sturon','Red Baron','Elista','Walla Walla','Senshyu'], underCoverMonth:1, directSowMonth:3},
+  {name:'Garlic', family:'Alliums', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:240, tender:false, repeatHarvest:false, words:['garlic'], varieties:['Solent Wight','Germidour'], underCoverMonth:10, directSowMonth:10},
+  {name:'Elephant Garlic', family:'Alliums', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:270, tender:false, repeatHarvest:false, words:['elephant garlic'], varieties:[], underCoverMonth:10, directSowMonth:10},
+  {name:'Lettuce', family:'Other', sowToPotOn:21, transplantToHarvest:45, directSowToHarvest:50, tender:true, repeatHarvest:true, words:['lettuce','salad leaves'], varieties:['Little Gem','Lollo Rosso',"Webbs Wonderful",'Bright and Spicy','Mesclun Mixed'], underCoverMonth:2, directSowMonth:3},
+  {name:'Beetroot', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:60, tender:true, repeatHarvest:false, words:['beetroot','beet'], varieties:['Boltardy','Chioggia',"Burpee's Golden"], underCoverMonth:3, directSowMonth:4},
+  {name:'Carrot', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:75, tender:false, repeatHarvest:false, words:['carrot'], varieties:['Nantes','Chantenay','Autumn King'], underCoverMonth:3, directSowMonth:3},
+  {name:'Parsnip', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:130, tender:false, repeatHarvest:false, words:['parsnip'], varieties:['Tender and True','Gladiator'], underCoverMonth:3, directSowMonth:3},
+  {name:'Potato', family:'Solanaceae', sowToPotOn:null, transplantToHarvest:110, directSowToHarvest:null, tender:true, repeatHarvest:false, words:['potato','maris piper','king edward','charlotte','desiree','rooster','jersey royal'], varieties:['Maris Piper','King Edward','Charlotte','Desiree','Rooster','Jersey Royal','Vivaldi','Pink Fir Apple'], underCoverMonth:2, directSowMonth:3},
+  {name:'Spinach', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:40, tender:false, repeatHarvest:true, words:['spinach'], varieties:[], underCoverMonth:2, directSowMonth:3},
+  {name:'Chard', family:'Other', sowToPotOn:21, transplantToHarvest:55, directSowToHarvest:60, tender:false, repeatHarvest:true, words:['chard'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Radish', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:28, tender:false, repeatHarvest:false, words:['radish'], varieties:[], underCoverMonth:2, directSowMonth:3},
+  {name:'Strawberry', family:'Other', sowToPotOn:null, transplantToHarvest:60, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['strawberry','strawberries'], varieties:['Cambridge Favourite','Elsanta'], underCoverMonth:3, directSowMonth:3},
+  {name:'Rhubarb', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['rhubarb'], varieties:[], underCoverMonth:2, directSowMonth:3},
+  {name:'Celery', family:'Other', sowToPotOn:70, transplantToHarvest:120, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['celery'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Celeriac', family:'Other', sowToPotOn:70, transplantToHarvest:150, directSowToHarvest:null, tender:true, repeatHarvest:false, words:['celeriac'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Sweet Potato', family:'Other', sowToPotOn:null, transplantToHarvest:110, directSowToHarvest:null, tender:true, repeatHarvest:false, words:['sweet potato','sweetpotato'], varieties:[], underCoverMonth:4, directSowMonth:5},
+  {name:'Asparagus', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['asparagus'], varieties:[], underCoverMonth:2, directSowMonth:3},
+  {name:'Globe Artichoke', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['globe artichoke','artichoke'], varieties:[], underCoverMonth:2, directSowMonth:4},
+  {name:'Raspberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['raspberry','raspberries'], varieties:['Glen Ample','Autumn Bliss'], underCoverMonth:11, directSowMonth:11},
+  {name:'Blackberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['blackberry','blackberries'], varieties:[], underCoverMonth:11, directSowMonth:11},
+  {name:'Loganberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['loganberry','loganberries'], varieties:[], underCoverMonth:11, directSowMonth:11},
+  {name:'Blueberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['blueberry','blueberries'], varieties:[], underCoverMonth:11, directSowMonth:11},
+  {name:'Gooseberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['gooseberry','gooseberries'], varieties:['Invicta'], underCoverMonth:11, directSowMonth:11},
+  {name:'Blackcurrant', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['blackcurrant','black currant','redcurrant','red currant'], varieties:['Ben Sarek'], underCoverMonth:11, directSowMonth:11},
+  {name:'Apple', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['apple'], varieties:['Bramley',"Cox's Orange Pippin",'Gala','Braeburn'], underCoverMonth:11, directSowMonth:11},
+  {name:'Pear', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['pear'], varieties:['Conference','Comice'], underCoverMonth:11, directSowMonth:11},
+  {name:'Plum', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['plum','damson','gage'], varieties:['Victoria'], underCoverMonth:11, directSowMonth:11},
+  {name:'Cherry', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['cherry'], varieties:[], underCoverMonth:11, directSowMonth:11},
+  {name:'Fig', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['fig'], underCoverMonth:3, directSowMonth:4},
+  {name:'Basil', family:null, sowToPotOn:42, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['basil'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Parsley', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['parsley'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Coriander', family:null, sowToPotOn:42, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['coriander','cilantro'], varieties:[], underCoverMonth:4, directSowMonth:4},
+  {name:'Chives', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['chive'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Mint', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['mint'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Rosemary', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['rosemary'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Thyme', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['thyme'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Sage', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['sage'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Dill', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['dill'], varieties:[], underCoverMonth:4, directSowMonth:4},
+  {name:'Oregano / Marjoram', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['oregano','marjoram'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Fennel (herb)', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['fennel'], varieties:[], underCoverMonth:4, directSowMonth:4},
+  {name:'Tarragon', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['tarragon'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Sunflower', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:false, words:['sunflower'], varieties:[], underCoverMonth:4, directSowMonth:5},
+  {name:'Sweet Pea', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['sweet pea'], varieties:[], underCoverMonth:2, directSowMonth:4},
+  {name:'Cosmos', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['cosmos'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Zinnia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['zinnia'], varieties:[], underCoverMonth:4, directSowMonth:5},
+  {name:'Marigold', family:null, sowToPotOn:35, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['marigold','tagetes'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Calendula', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['calendula','pot marigold'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Dahlia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['dahlia'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Nasturtium', family:null, sowToPotOn:21, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['nasturtium'], varieties:[], underCoverMonth:4, directSowMonth:5},
+  {name:'Snapdragon', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['snapdragon','antirrhinum'], varieties:[], underCoverMonth:2, directSowMonth:4},
+  {name:'Gladiolus', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:false, words:['gladiolus','gladioli'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Cornflower', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['cornflower'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Sweet William', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['sweet william'], varieties:[], underCoverMonth:5, directSowMonth:5},
+  {name:'Nigella', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:false, words:['nigella','love-in-a-mist'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Poppy', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['poppy'], varieties:[], underCoverMonth:3, directSowMonth:3},
+  {name:'Spring Onion', family:'Alliums', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:false, words:['spring onion','salad onion','scallion'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Shallot', family:'Alliums', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:false, words:['shallot'], varieties:[], underCoverMonth:2, directSowMonth:3},
+  {name:'Rocket', family:'Brassicas', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:true, words:['rocket','arugula'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Mizuna', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:40, tender:false, repeatHarvest:true, words:['mizuna'], varieties:[], underCoverMonth:2, directSowMonth:3},
+  {name:'Marrow', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:true, words:['marrow'], varieties:[], underCoverMonth:4, directSowMonth:5},
+  {name:'Florence Fennel', family:'Other', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:false, words:['florence fennel','bulb fennel'], varieties:[], underCoverMonth:4, directSowMonth:5},
+  {name:'Asparagus Pea', family:'Legumes', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:true, words:['asparagus pea'], varieties:[], underCoverMonth:4, directSowMonth:5},
+  {name:'Pak Choi', family:'Brassicas', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:false, words:['pak choi','bok choi','pak choy'], varieties:[], underCoverMonth:4, directSowMonth:5},
+  {name:'Cress', family:'Other', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:true, words:['cress'], varieties:[], underCoverMonth:3, directSowMonth:3},
+  {name:'Alyssum', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['alyssum'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Aquilegia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['aquilegia','columbine'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Aster', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['aster'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Foxglove', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['foxglove'], varieties:[], underCoverMonth:5, directSowMonth:6},
+  {name:'Ipomoea', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['ipomoea','morning glory'], varieties:[], underCoverMonth:4, directSowMonth:5},
+  {name:'Lobelia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['lobelia'], varieties:[], underCoverMonth:2, directSowMonth:5},
+  {name:'Lupin', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['lupin','lupine'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Nicotiana', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['nicotiana','tobacco plant'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Pansy', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['pansy'], varieties:[], underCoverMonth:2, directSowMonth:8},
+  {name:'Petunia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['petunia'], varieties:[], underCoverMonth:2, directSowMonth:5},
+  {name:'Rudbeckia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['rudbeckia','coneflower'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Salvia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['salvia'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  {name:'Wallflower', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['wallflower'], varieties:[], underCoverMonth:5, directSowMonth:6},
 ];
 function levenshtein(a,b){
   const m=a.length,n=b.length; if(!m) return n; if(!n) return m;
@@ -1418,10 +1419,21 @@ async function findOrCreateCrop(typedRaw){
   const existing = findExistingCrop(typed);
   if(existing) return existing;
   const m = matchCrop(typed);
-  const rec = {id:uid(), name:typed, family:m?m.family:'Other', sowToPotOn:m?m.sowToPotOn:null, transplantToHarvest:m?m.transplantToHarvest:null, directSowToHarvest:m?m.directSowToHarvest:null, tender: m?m.tender:null, addedBy:who(), color:colorForCropName(typed)};
+  const rec = {id:uid(), name:typed, family:m?m.family:'Other', sowToPotOn:m?m.sowToPotOn:null, transplantToHarvest:m?m.transplantToHarvest:null, directSowToHarvest:m?m.directSowToHarvest:null, tender: m?m.tender:null, repeatHarvest: (m && m.repeatHarvest!=null) ? m.repeatHarvest : null, addedBy:who(), color:colorForCropName(typed)};
   await put('crops', rec); STATE.crops.push(rec);
   if(!m) checkCropOnlineInBackground(rec);
   return rec;
+}
+// Whether a crop keeps producing over weeks (tomato, courgette) rather than being harvested
+// once and done (cabbage, carrot). A specific planting can override the crop's usual answer
+// (set at sowing time); otherwise it falls back to whatever's on the crop record itself, which
+// may in turn have come from the built-in list, from an earlier planting's answer, or from the
+// quick question asked the first time this crop is ever harvested. Returns true/false once
+// known, or null if nobody's ever said either way yet.
+function getRepeatHarvest(crop, planting){
+  if(planting && planting.repeatHarvest!=null) return planting.repeatHarvest;
+  if(crop && crop.repeatHarvest!=null) return crop.repeatHarvest;
+  return null;
 }
 function learnTiming(crop, field, actualDays){
   if(!crop || !field || !actualDays || actualDays<=0 || actualDays>500) return;
@@ -1877,6 +1889,7 @@ async function performRedo(){
 }
 document.getElementById('btnUndo').addEventListener('click', performUndo);
 document.getElementById('btnRedo').addEventListener('click', performRedo);
+document.getElementById('btnSearch').addEventListener('click', openGlobalSearch);
 
 /* ======================= TASKS ======================= */
 function expandTaskOccurrences(daysAhead){
@@ -4581,6 +4594,7 @@ function openDirectSow(bedId, presetName, kind){
     <div id="inlineRotationCheck" style="margin-bottom:10px;"></div>
     <div id="inlineCommonIssues" style="margin-bottom:10px;"></div>`}
     <div class="form-row"><div>${isNonGrowing?'':'<label>Quantity</label><input type="number" onfocus="this.select()" id="mQty" value="1" min="1">'}</div><div><label style="visibility:hidden;">Sow</label><button type="button" class="btn" id="mSave" style="width:100%; height:46px;">${saveLabel}</button></div></div>
+    ${isNonGrowing ? '' : repeatHarvestFieldHTML()}
     ${isNonGrowing ? '' : treatmentChipsHTML()}
     ${isNonGrowing ? '' : `<button type="button" class="btn small secondary" id="mLookup" style="margin-top:14px;">🔎 Look it up online</button><div id="lookupBox"></div>`}
     ${presetName==='Fallow' ? `<div class="form-row"><div><label>Notes (optional)</label><input type="text" id="mNotes" placeholder="e.g. covered with cardboard, or left bare"></div></div>` : ''}
@@ -4639,6 +4653,7 @@ function openDirectSow(bedId, presetName, kind){
     }
     await clearWishlistForCrop(crop.id);
     const planting = {id:uid(), cropId:crop.id, date, quantity:qty, method:'direct', active:true, by:who()};
+    if(!isNonGrowing){ const rh = readRepeatHarvestField(); if(rh!=null) planting.repeatHarvest = rh; }
     if(presetName==='Fallow'){ const notesVal = document.getElementById('mNotes').value.trim(); if(notesVal) planting.notes = notesVal; }
     Object.assign(planting, nextFreeSlot(bed.w, bed.h, [...(bed.plantings||[]).filter(p=>p.active), ...hostedContainersAsOccupied(bed)], Math.min(bed.w/2,1.5), Math.min(bed.h/3,0.6), bed.shape));
     if(crop.directSowToHarvest){
@@ -5307,6 +5322,7 @@ function openSowIntoContainer(trayId){
       <button type="button" class="btn small" id="mSave">Sow It</button>
       <label style="display:flex; align-items:center; gap:6px; font-size:15px; cursor:pointer;"><input type="checkbox" id="mStayInPlace"> Stays here until harvest</label>
     </div>
+    ${repeatHarvestFieldHTML()}
     ${treatmentChipsHTML()}
     <button type="button" class="btn small secondary" id="mLookup" style="margin-top:14px;">🔎 Look it up online</button><div id="lookupBox"></div>
     <div class="form-row" style="margin-top:14px;"><div><label>Sow date</label><input type="date" id="mDate" value="${todayISO()}"></div></div>
@@ -5323,6 +5339,7 @@ function openSowIntoContainer(trayId){
     const date = document.getElementById('mDate').value || todayISO();
     const stayInPlace = document.getElementById('mStayInPlace').checked;
     const planting = {id:uid(), cropId:crop.id, sownDate:date, quantity:parseInt(document.getElementById('mQty').value)||1, stayInPlace};
+    { const rh = readRepeatHarvestField(); if(rh!=null) planting.repeatHarvest = rh; }
     tray.plantings = tray.plantings||[]; tray.plantings.push(planting);
     tray.createdBy = tray.createdBy || who();
     if(!adding){
@@ -5354,6 +5371,7 @@ function openSowTray(presetLocation, feat, tierId){
       <button type="button" class="btn small" id="mSave">Sow It</button>
       <label style="display:flex; align-items:center; gap:6px; font-size:15px; cursor:pointer;"><input type="checkbox" id="mStayInPlace"> Stays here until harvest</label>
     </div>
+    ${repeatHarvestFieldHTML()}
     ${treatmentChipsHTML()}
     <button type="button" class="btn small secondary" id="mLookup" style="margin-top:14px;">🔎 Look it up online</button><div id="lookupBox"></div>
     <div class="form-row" style="margin-top:14px;"><div><label>Sow date</label><input type="date" id="mDate" value="${todayISO()}"></div></div>`, true);
@@ -5369,6 +5387,7 @@ function openSowTray(presetLocation, feat, tierId){
     const location = presetLocation || document.getElementById('mLoc').value;
     const stayInPlace = document.getElementById('mStayInPlace').checked;
     const planting = {id:uid(), cropId:crop.id, sownDate:date, quantity:parseInt(document.getElementById('mQty').value)||1, stayInPlace};
+    { const rh = readRepeatHarvestField(); if(rh!=null) planting.repeatHarvest = rh; }
     const typedNum = parseInt(document.getElementById('mTrayNum').value);
     const trayNum = isNaN(typedNum) ? null : typedNum;
     const tray = {id:uid(), location, plantings:[planting], tierId:tierId||undefined, createdBy:who(), number: trayNum};
@@ -5396,7 +5415,14 @@ function openSowTray(presetLocation, feat, tierId){
 /* ---- Harvest ---- */
 function startHarvestFlow(ctx){
   const qty = ctx.kind==='planting' ? (ctx.planting.quantity||1) : (ctx.kind==='tray' ? (ctx.planting.quantity||1) : 1);
-  if(ctx.kind==='tree' || qty<=1){ openHarvestModal(ctx); return; }
+  const rh = ctx.kind==='tree' ? true : getRepeatHarvest(ctx.crop, ctx.planting);
+  // A repeat-harvest crop (tomato, courgette...) doesn't lose a "plant instance" every time you
+  // pick some of it, so there's nothing for the all/some split to mean here — straight to the
+  // harvest screen regardless of how many plants are growing. Crops we don't yet know the answer
+  // for (rh===null) still go through the old flow; openHarvestModal asks the question itself
+  // before showing the rating bar, and ignores whatever partial count came out of this screen if
+  // the answer turns out to be "repeat".
+  if(ctx.kind==='tree' || rh===true || qty<=1){ openHarvestModal(ctx); return; }
   openModal(`<h3>Harvesting ${escapeHTML(ctx.crop?ctx.crop.name:'this')}</h3>
     <p class="muted">There are ${qty} left right now.</p>
     <div class="btn-row">
@@ -5453,15 +5479,40 @@ function gradeColor(pos, total){
 function openHarvestModal(ctx){
   const crop = ctx.crop;
   const backTo = harvestBackDestination(ctx);
+  const rh = ctx.kind==='tree' ? true : getRepeatHarvest(crop, ctx.planting);
+  // First time this crop's ever been harvested (rh is still unknown, and it's not the sort of
+  // thing — a tree — where the answer's obvious) — ask once, remember it on the crop record, and
+  // re-open straight into the normal harvest screen now that it's known. Nobody has to remember
+  // to set this at sowing time for it to work.
+  if(rh===null){
+    openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>🧺 Harvest ${escapeHTML(crop?crop.name:'this')}</h3>
+      <p class="muted">Quick one-off question — this gets remembered for every ${escapeHTML(crop?crop.name:'this')} from now on, so it won't ask again.</p>
+      <label>Does the same plant keep producing over the coming weeks, or is this it?</label>
+      <div class="btn-row">
+        <button class="btn big" id="mRHYes">Keeps producing — tomato, courgette…</button>
+        <button class="btn big secondary" id="mRHNo">This is it — cabbage, carrot…</button>
+      </div>`);
+    document.getElementById('mBack').addEventListener('click', backTo);
+    const answer = async (val)=>{
+      if(crop){ crop.repeatHarvest = val; await put('crops', crop); }
+      openHarvestModal(ctx);
+    };
+    document.getElementById('mRHYes').addEventListener('click', ()=>answer(true));
+    document.getElementById('mRHNo').addEventListener('click', ()=>answer(false));
+    return;
+  }
   const bedTreatments = ctx.kind==='planting' ? (ctx.bed.treatments||[]).filter(t=>!t.plantingId || t.plantingId===ctx.planting.id) : (ctx.kind==='tree' ? (ctx.feature.treatments||[]) : (ctx.kind==='tray' ? (ctx.tray.treatments||[]).filter(t=>!t.plantingId || t.plantingId===ctx.planting.id) : []));
   const wx = getTodayWeatherSnapshot();
+  const showFinish = rh===true && ctx.kind!=='tree';
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>🧺 Harvest ${ctx.partialCount?`${ctx.partialCount} of the `:''}${escapeHTML(crop?crop.name:'this')}</h3>
     ${ctx.partialCount?`<p class="muted">The rest stays in place for next time.</p>`:''}
     <label>To rate the crop, tap the bar below</label>
     <div class="rating-readout" id="ratingReadout">&nbsp;</div>
     <div class="rating-bar-row"><span class="rating-end">0%</span><div class="rating-bar" id="ratingBar">${[1,2,3,4,5,6,7,8,9,10].map(n=>`<button class="rate-seg" data-r="${n}" data-gc="${gradeColor(n,10)}"></button>`).join('')}</div><span class="rating-end">100%</span></div>
+    <div class="form-row" style="margin-top:14px;"><div><label>Amount picked (optional)</label><input type="text" inputmode="decimal" id="mAmountVal" placeholder="e.g. 6, or 1.2"></div><div><label>Unit</label><select id="mAmountUnit"><option value="items">items</option><option value="g">g</option><option value="kg">kg</option><option value="oz">oz</option><option value="lb">lb</option></select></div></div>
     <div class="form-row" style="margin-top:14px;"><div><label>Notes (optional)</label><textarea id="mNotes" rows="2" placeholder="e.g. small but tasty"></textarea></div></div>
-    <button class="btn big" id="mSave" disabled>Save Harvest</button>`);
+    <button class="btn big" id="mSave" disabled>Save Harvest</button>
+    ${showFinish?`<button class="btn big secondary" id="mFinish" disabled style="margin-top:8px;">🏁 This is the last of it</button><p class="tiny-muted" style="margin-top:6px;">Clears it from the bed and keeps a record, same as removing it by hand — use this once the plant itself is properly done, not just for an ordinary pick.</p>`:''}`);
   document.getElementById('mBack').addEventListener('click', backTo);
   let chosen=null;
   modalContent.querySelectorAll('.rate-seg').forEach(b=>b.addEventListener('click', ()=>{
@@ -5473,9 +5524,13 @@ function openHarvestModal(ctx){
     });
     document.getElementById('ratingReadout').textContent = (chosen*10)+'%';
     document.getElementById('mSave').disabled=false;
+    const finishBtn = document.getElementById('mFinish'); if(finishBtn) finishBtn.disabled=false;
   }));
-  document.getElementById('mSave').addEventListener('click', async ()=>{
+  async function doSave(isLastOfIt){
     const notes = document.getElementById('mNotes').value.trim();
+    const amtRaw = document.getElementById('mAmountVal').value.trim();
+    const amtUnit = document.getElementById('mAmountUnit').value;
+    const amount = amtRaw ? {value:parseFloat(amtRaw), unit:amtUnit} : undefined;
     let plantedDate=null, method=null, area=null;
     if(ctx.kind==='tray'){
       plantedDate = ctx.planting.sownDate;
@@ -5492,11 +5547,16 @@ function openHarvestModal(ctx){
     const rec = { id:uid(), cropId:crop?crop.id:null, cropName:crop?crop.name:'Unknown', family:crop?crop.family:'Other',
       source:ctx.kind, locationLabel: ctx.kind==='tray'?ctx.tray.location:(ctx.kind==='tree'?(ctx.feature.label||'Tree'):ctx.bed.name),
       treeId: ctx.kind==='tree'?ctx.feature.id:undefined,
-      plantedDate, method, area, weatherSummary, dueDateDiff, partial:isPartial,
+      plantedDate, method, area, weatherSummary, dueDateDiff, partial:isPartial, amount,
       harvestDate: todayISO(), rating:chosen, notes, treatments:bedTreatments, weather:wx, by:who() };
     await put('harvests', rec);
     if(ctx.kind==='tray'){
-      if(isPartial){
+      if(rh===true && !isLastOfIt){
+        // Ongoing pick from a repeat-harvest crop — the tray keeps growing exactly as it was;
+        // only the reminder that first pointed you here gets closed off, so it stops nagging.
+        const relatedTask = STATE.tasks.find(t=>t.linkedTrayId===ctx.tray.id && (!t.linkedPlantingId || t.linkedPlantingId===ctx.planting.id) && !t.done);
+        if(relatedTask){ relatedTask.done=true; await put('tasks', relatedTask); }
+      } else if(isPartial && !isLastOfIt){
         ctx.planting.quantity = Math.max(0, (ctx.planting.quantity||1) - ctx.partialCount);
         await put('trays', ctx.tray);
       } else {
@@ -5512,7 +5572,12 @@ function openHarvestModal(ctx){
         }
       }
     } else if(ctx.kind==='planting'){
-      if(isPartial){
+      if(rh===true && !isLastOfIt){
+        // Same idea for a bed/container planting — still active, still on the map, just the
+        // "go harvest this" reminder is done with.
+        const relatedTask = STATE.tasks.find(t=>t.linkedPlantingId===ctx.planting.id && !t.done);
+        if(relatedTask){ relatedTask.done=true; await put('tasks', relatedTask); }
+      } else if(isPartial && !isLastOfIt){
         ctx.planting.quantity = Math.max(0, (ctx.planting.quantity||1) - ctx.partialCount);
         await savePlantable(ctx.plantableKind||'beds', ctx.bed);
       } else {
@@ -5530,10 +5595,14 @@ function openHarvestModal(ctx){
       }
     }
     await afterChange();
-    toast('Harvest saved 🧺');
+    toast(isLastOfIt ? 'Harvest saved — cleared 🧺' : 'Harvest saved 🧺');
     backTo();
-  });
+  }
+  document.getElementById('mSave').addEventListener('click', ()=>doSave(false));
+  const finishBtn = document.getElementById('mFinish');
+  if(finishBtn) finishBtn.addEventListener('click', ()=>doSave(true));
 }
+
 
 /* ======================= GREENHOUSE TAB ======================= */
 /* ======================= CROPS ======================= */
@@ -5604,6 +5673,22 @@ function cropTypeKey(crop){
   return (m ? m.name : crop.name).toLowerCase();
 }
 const TREATMENT_TYPES = ['Feed','Manure','Compost','Fertiliser','Insecticide','Pesticide','Weedkiller','Other'];
+// Optional at sowing time — most people won't touch it, and that's fine, since the crop's own
+// setting (built-in, or learned from an earlier planting or the first-harvest question) is used
+// whenever this is left on "the usual answer". Only worth changing here for a genuine one-off,
+// e.g. planting a hearting lettuce when the crop's usually grown cut-and-come-again.
+function repeatHarvestFieldHTML(){
+  return `<div class="form-row" style="margin-top:6px;"><div><label>Keeps producing over time?</label><select id="mRepeatHarvest">
+    <option value="">Use the crop's usual answer</option>
+    <option value="yes">Yes — pick from it repeatedly (tomato, courgette…)</option>
+    <option value="no">No — one harvest and it's done (cabbage, carrot…)</option>
+  </select></div></div>`;
+}
+function readRepeatHarvestField(){
+  const el = document.getElementById('mRepeatHarvest');
+  if(!el || el.value==='') return undefined;
+  return el.value==='yes';
+}
 function treatmentChipsHTML(){
   // Compost is left out here on purpose - logging it properly needs a source picked, and there's
   // nowhere sensible to ask that mid-sow. It's still fully available afterward via the quick-tap
@@ -5863,6 +5948,118 @@ function gatherRemovedHistory(){
   for(const h of (STATE.settings.unplacedHistory||[])) removed.push({id:'up-'+h.id, unplacedId:h.id, cropName:h.cropName, family:h.family, locationLabel:'Not sure which bed', harvestDate:h.clearedDate, reason:h.reason, removed:true, approx:true, unplaced:true, by:h.by, sourceKind:'unplaced'});
   return removed;
 }
+/* ======================= GLOBAL SEARCH =======================
+   A plain full-text search across everything the app holds — not just crop/bed names, but the
+   free-text fields too (harvest notes, a treatment's product name, the reason a crop was
+   removed, wishlist notes, plain notes). All local, all in-memory arrays already — nothing here
+   ever needs a network request. Results come back grouped into the same rough categories as the
+   rest of the app (Planted, History, Problems, Location, Notes, Wishlist, Tasks) so a search for
+   something like "bindweed" surfaces a stray line in a harvest note just as reliably as it would
+   a crop name. */
+function searchTextMatch(str, term){ return !!str && String(str).toLowerCase().includes(term); }
+function runGlobalSearch(term){
+  const t = term.trim().toLowerCase();
+  const buckets = {planted:[], history:[], problems:[], location:[], notes:[], wishlist:[], tasks:[]};
+  if(!t) return buckets;
+  // Planted — anything currently active: bed/container plantings, and trays.
+  for(const bed of STATE.beds){
+    for(const p of (bed.plantings||[])){
+      if(!p.active) continue;
+      const crop = cropById(p.cropId);
+      const name = crop?crop.name:'';
+      if(searchTextMatch(name,t) || searchTextMatch(p.notes,t)){
+        buckets.planted.push({title:name||'Planting', subtitle:`${bed.name} \u00B7 planted ${dayLabel(p.date)}`, onClick:()=>openPlantingInfo(bed.id, p.id, 'beds')});
+      }
+    }
+  }
+  for(const feat of STATE.features){
+    for(const p of (feat.plantings||[])){
+      if(!p.active) continue;
+      const crop = cropById(p.cropId);
+      const name = crop?crop.name:'';
+      if(searchTextMatch(name,t) || searchTextMatch(p.notes,t)){
+        buckets.planted.push({title:name||'Planting', subtitle:`${feat.label} \u00B7 planted ${dayLabel(p.date)}`, onClick:()=>openPlantingInfo(feat.id, p.id, 'features')});
+      }
+    }
+  }
+  for(const tray of STATE.trays){
+    for(const p of (tray.plantings||[])){
+      const crop = cropById(p.cropId);
+      const name = crop?crop.name:'';
+      if(searchTextMatch(name,t)){
+        buckets.planted.push({title:name||'Planting', subtitle:`${tray.location}${tray.number!=null?' #'+tray.number:''} \u00B7 sown ${dayLabel(p.sownDate)}`, onClick:()=>openTrayPlantingInfo(tray.id, p.id)});
+      }
+    }
+  }
+  // History — actual harvest records, and crops removed/cleared without one.
+  for(const h of STATE.harvests){
+    if(searchTextMatch(h.cropName,t) || searchTextMatch(h.notes,t) || searchTextMatch(h.locationLabel,t)){
+      buckets.history.push({title:h.cropName, subtitle:`${h.locationLabel||''}${h.notes?' \u2014 '+h.notes:''} \u00B7 ${dayLabel(h.harvestDate)}`, onClick:()=>openHistoryDetail(h.id)});
+    }
+  }
+  for(const h of gatherRemovedHistory()){
+    if(searchTextMatch(h.cropName,t) || searchTextMatch(h.reason,t) || searchTextMatch(h.locationLabel,t)){
+      buckets.history.push({title:h.cropName, subtitle:`${h.locationLabel||''}${h.reason?' \u2014 '+h.reason:''} \u00B7 ${dayLabel(h.harvestDate)}`, onClick:()=>openRemovedHistoryDetail(h.id)});
+    }
+  }
+  // Problems — treatments logged against beds, containers and trays (product names, notes, reason).
+  function scanTreatments(list, navigate){
+    for(const tr of (list||[])){
+      if(searchTextMatch(tr.type,t) || searchTextMatch(tr.notes,t) || searchTextMatch(tr.reason,t)){
+        buckets.problems.push({title:tr.type||'Treatment', subtitle:`${tr.notes||tr.reason||''}${tr.date?' \u00B7 '+dayLabel(tr.date):''}`, onClick:navigate});
+      }
+    }
+  }
+  for(const bed of STATE.beds) scanTreatments(bed.treatments, ()=>openBedDetail(bed.id));
+  for(const feat of STATE.features) scanTreatments(feat.treatments, ()=>openContainerDetail(feat.id));
+  for(const tray of STATE.trays) scanTreatments(tray.treatments, ()=>openTrayInfo(tray.id));
+  // Location — bed/container names themselves.
+  for(const bed of STATE.beds) if(searchTextMatch(bed.name,t)) buckets.location.push({title:bed.name, subtitle:'Bed', onClick:()=>openBedDetail(bed.id)});
+  for(const feat of STATE.features) if(searchTextMatch(feat.label,t)) buckets.location.push({title:feat.label, subtitle:(FEATURE_TYPES[feat.type]&&FEATURE_TYPES[feat.type].label)||'Container', onClick:()=>openContainerDetail(feat.id)});
+  // Notes — plain notes, plus a crop's own notes field.
+  for(const n of STATE.notes) if(searchTextMatch(n.text,t)) buckets.notes.push({title:n.text.length>70?n.text.slice(0,70)+'\u2026':n.text, subtitle:'Note', onClick:()=>openEditNote(n.id)});
+  for(const c of STATE.crops) if(searchTextMatch(c.notes,t)) buckets.notes.push({title:c.name, subtitle:c.notes.length>70?c.notes.slice(0,70)+'\u2026':c.notes, onClick:()=>openEditCrop(c.id)});
+  // Wishlist
+  for(const w of STATE.wishlist) if(searchTextMatch(w.name,t) || searchTextMatch(w.note,t)) buckets.wishlist.push({title:w.name, subtitle:w.note||'', onClick:()=>openEditWishlistItem(w.id)});
+  // Tasks — bonus, since it's cheap and the title's often the only place a name lives.
+  for(const task of STATE.tasks) if(searchTextMatch(task.title,t)) buckets.tasks.push({title:task.title, subtitle:task.done?'Done':(task.dueDate?dayLabel(task.dueDate):''), onClick:()=>goToTab('jobs')});
+  return buckets;
+}
+const SEARCH_BUCKET_LABELS = {planted:'Planted', history:'History', problems:'Problems', location:'Location', notes:'Notes', wishlist:'Wishlist', tasks:'Tasks'};
+const SEARCH_BUCKET_ORDER = ['planted','history','problems','location','notes','wishlist','tasks'];
+function openGlobalSearch(){
+  openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>\uD83D\uDD0E Search everything</h3>
+    <p class="tiny-muted">Matches anywhere \u2014 crop and bed names, but also harvest notes, treatment products, removal reasons, wishlist notes and plain notes.</p>
+    <div class="form-row"><div><input type="text" id="gsInput" placeholder="e.g. bindweed, tomato, blight" autocomplete="off"></div></div>
+    <div id="gsResults" style="margin-top:10px;"></div>`, true);
+  document.getElementById('mBack').addEventListener('click', closeModal);
+  const input = document.getElementById('gsInput');
+  const resultsEl = document.getElementById('gsResults');
+  let lastBuckets = null;
+  function render(){
+    const term = input.value;
+    const trimmed = term.trim();
+    if(trimmed.length<2){ resultsEl.innerHTML = trimmed.length===1 ? '<p class="tiny-muted">Keep typing\u2026</p>' : ''; lastBuckets = null; return; }
+    const buckets = runGlobalSearch(trimmed);
+    lastBuckets = buckets;
+    let total = 0, html = '';
+    SEARCH_BUCKET_ORDER.forEach(key=>{
+      const items = buckets[key];
+      if(!items || !items.length) return;
+      total += items.length;
+      html += `<div class="row-heading">${SEARCH_BUCKET_LABELS[key]} (${items.length})</div>`;
+      html += items.map((it,i)=>`<div class="planting-row tappable" data-b="${key}" data-i="${i}"><span class="pname">${escapeHTML(it.title||'')}</span><span class="pdate">${escapeHTML(it.subtitle||'')}</span></div>`).join('');
+    });
+    resultsEl.innerHTML = total ? html : `<p class="empty-note">Nothing matching "${escapeHTML(trimmed)}".</p>`;
+    resultsEl.querySelectorAll('[data-b]').forEach(el=>{
+      const items = lastBuckets[el.dataset.b];
+      const it = items[parseInt(el.dataset.i)];
+      el.addEventListener('click', ()=>{ closeModal(); it.onClick(); });
+    });
+  }
+  input.addEventListener('input', render);
+  setTimeout(()=>input.focus(), 60);
+}
 function renderHistory(){
   const wrap = document.getElementById('historyList');
   if(!wrap) return;
@@ -6017,11 +6214,12 @@ function renderHistoryCropLookup(wrap){
     const wxLine = wx ? `<div>\u2600\uFE0F Avg ${wx.meanTempMax}\u00B0/${wx.meanTempMin}\u00B0, ${wx.totalRain}mm rain over ${wx.days} days</div>` : '';
     const treatLine = h.removed ? '' : ((h.treatments&&h.treatments.length) ? `<div>\uD83E\uDDEA ${h.treatments.map(t=>escapeHTML(t.type)).join(', ')}</div>` : '<div>\uD83E\uDDEA Nothing logged</div>');
     const dueLine = (h.dueDateDiff!=null) ? `<div>\uD83D\uDCC5 ${h.dueDateDiff===0?'harvested on the due date':(h.dueDateDiff<0?`${Math.abs(h.dueDateDiff)} day${Math.abs(h.dueDateDiff)===1?'':'s'} early`:`${h.dueDateDiff} day${h.dueDateDiff===1?'':'s'} late`)}</div>` : '';
+    const amountLine = h.amount ? `<div>\u2696\uFE0F ${h.amount.value}${h.amount.unit==='items'?' items':' '+h.amount.unit}</div>` : '';
     const reasonLine = (h.removed && h.reason) ? `<div>${escapeHTML(h.reason)}</div>` : '';
     return `<div class="harvest-card" ${h.removed?`data-rh="${h.id}"`:`data-h="${h.id}"`}>
       <div class="harvest-top"><span class="harvest-name">${escapeHTML(h.cropName)}${h.partial?' <span class="tiny-muted">(partial)</span>':''}</span>${ratingHTML}</div>
       <div class="harvest-meta">${escapeHTML(h.locationLabel||'')} \u00B7 ${h.removed?'removed':'harvested'} ${dayLabel(h.harvestDate)}</div>
-      <div class="harvest-detail">${dueLine}${wxLine}${treatLine}${reasonLine}</div>
+      <div class="harvest-detail">${amountLine}${dueLine}${wxLine}${treatLine}${reasonLine}</div>
     </div>`;
   }).join('');
   wrap.innerHTML = summaryHTML + varietyCompareHTML + cardsHTML + `<button class="btn secondary" id="btnAddHistorical" style="width:100%; margin-top:10px;">+ Add another from before</button>`;
@@ -6176,6 +6374,7 @@ function openHistoryDetail(hid){
     <div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(h.locationLabel||'')}</span></div>
     ${h.area?`<div class="planting-row"><span class="pname">Area</span><span class="pdate">${h.area}m&sup2;</span></div>`:''}
     <div class="planting-row"><span class="pname">Rating</span><span class="pdate">${h.rating}/10</span></div>
+    ${h.amount?`<div class="planting-row"><span class="pname">Amount</span><span class="pdate">${h.amount.value}${h.amount.unit==='items'?' items':' '+escapeHTML(h.amount.unit)}</span></div>`:''}
     ${h.notes?`<div class="planting-row"><span class="pname">Notes</span><span class="pdate">${escapeHTML(h.notes)}</span></div>`:''}
     ${h.weatherSummary?`<div class="planting-row"><span class="pname">Weather while growing</span><span class="pdate">avg ${h.weatherSummary.meanTempMax}&deg;/${h.weatherSummary.meanTempMin}&deg;, ${h.weatherSummary.totalRain}mm over ${h.weatherSummary.days} days</span></div>`:''}
     ${(h.treatments&&h.treatments.length)?`<div class="row-heading">Treatments used</div>${h.treatments.map(t=>`<div class="muted" style="font-size:15px;">${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}</div>`).join('')}`:''}
