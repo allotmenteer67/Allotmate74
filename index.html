@@ -5537,6 +5537,10 @@ function openHarvestModal(ctx){
       const roughCount = Math.max(1, Math.min(ctx.qtyAvailable, Math.round((chosenCountPercent/10)*ctx.qtyAvailable)));
       document.getElementById('countReadout').textContent = `${chosenCountPercent*10}% — about ${roughCount} of ${ctx.qtyAvailable}`;
       document.getElementById('mCount').value = '';
+      // Same courtesy as the exact-number field: whichever way you say how many, that becomes
+      // the starting point for Amount picked too, rather than leaving behind whatever an earlier
+      // choice (exact number or a different percentage) had put there.
+      document.getElementById('mAmountVal').value = roughCount;
       refreshSaveEnabled();
     }));
     document.getElementById('mCount').addEventListener('input', ()=>{
