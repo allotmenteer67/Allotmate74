@@ -261,6 +261,8 @@
   .rating-end{font-size:15px; font-weight:700; color:var(--soil); opacity:0.9;}
   .rate-seg{flex:1; border:none; background:transparent; cursor:pointer; padding:0;}
   .rate-seg.filled{background:var(--leaf);}
+  .rate-seg-count{flex:1; border:none; background:transparent; cursor:pointer; padding:0;}
+  .rate-seg-count.filled{background:var(--leaf);}
   .rating-readout{text-align:center; font-family:'Zilla Slab',serif; font-size:25px; font-weight:700; color:var(--soil); margin:8px 0 10px;}
 
   .toast{position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px); background:var(--soil); color:#fff; padding:12px 18px; border-radius:24px; font-size:17.5px; opacity:0; pointer-events:none; transition:0.2s; z-index:100;}
@@ -5443,36 +5445,10 @@ function startHarvestFlow(ctx){
       <button class="btn big secondary" id="mSome">Just some of it</button>
     </div>`);
   document.getElementById('mAll').addEventListener('click', ()=> openHarvestModal(ctx));
-  document.getElementById('mSome').addEventListener('click', ()=>{
-    openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>How many are you taking?</h3>
-      <p class="muted">Roughly how much — tap the bar below. Or if there's only a few, enter the exact number instead.</p>
-      <div class="rating-readout" id="percentReadout">Tap for a rough amount</div>
-      <div class="rating-bar" id="percentBar">${[1,2,3,4,5,6,7,8,9,10].map(n=>`<button class="rate-seg" data-r="${n}"></button>`).join('')}</div>
-      <div class="form-row" style="margin-top:14px;"><div><label>Or an exact number (optional)</label><input type="number" onfocus="this.select()" id="mCount" min="1" max="${qty}"></div></div>
-      <button class="btn big" id="mNext">Continue</button>`);
-    document.getElementById('mBack').addEventListener('click', ()=> startHarvestFlow(ctx));
-    let chosenPercent = null;
-    modalContent.querySelectorAll('.rate-seg').forEach(b=>b.addEventListener('click', ()=>{
-      chosenPercent=parseInt(b.dataset.r);
-      modalContent.querySelectorAll('.rate-seg').forEach(x=>x.classList.toggle('filled', parseInt(x.dataset.r)<=chosenPercent));
-      const roughCount = Math.max(1, Math.min(qty, Math.round((chosenPercent/10)*qty)));
-      document.getElementById('percentReadout').textContent = `${chosenPercent*10}% — about ${roughCount} of ${qty}`;
-      document.getElementById('mCount').value = '';
-    }));
-    document.getElementById('mCount').addEventListener('input', ()=>{
-      chosenPercent = null;
-      modalContent.querySelectorAll('.rate-seg').forEach(x=>x.classList.remove('filled'));
-      document.getElementById('percentReadout').textContent = 'Tap for a rough amount';
-    });
-    document.getElementById('mNext').addEventListener('click', ()=>{
-      const typed = document.getElementById('mCount').value;
-      let count = null;
-      if(typed) count = Math.max(1, Math.min(qty, parseInt(typed)));
-      else if(chosenPercent) count = Math.max(1, Math.min(qty, Math.round((chosenPercent/10)*qty)));
-      else return;
-      openHarvestModal({...ctx, partialCount: count>=qty ? null : count});
-    });
-  });
+  // "Just some of it" used to lead to its own screen (rough percentage or an exact number, then a
+  // Continue tap) before landing on the rating screen. That's now all one screen — see needsCount
+  // in openHarvestModal — cutting out a whole step on every partial harvest.
+  document.getElementById('mSome').addEventListener('click', ()=> openHarvestModal({...ctx, needsCount:true, qtyAvailable:qty}));
 }
 function harvestBackDestination(ctx){
   if(ctx.kind==='tray'){
@@ -5488,6 +5464,19 @@ function gradeColor(pos, total){
   const t=(pos-1)/(total-1);
   const r=Math.round(c1[0]+(c2[0]-c1[0])*t), g=Math.round(c1[1]+(c2[1]-c1[1])*t), b=Math.round(c1[2]+(c2[2]-c1[2])*t);
   return `rgb(${r},${g},${b})`;
+}
+// Amount picked and weight picked are independent — either, both, or neither. When both are
+// logged on the same harvest, a per-item average comes along for free, which is the actual point:
+// it's what lets weight-per-plant be compared across a season, not just a single harvest's total.
+function formatAmount(amount){
+  if(!amount) return '';
+  const parts = [];
+  if(amount.items!=null) parts.push(`${amount.items} item${amount.items===1?'':'s'}`);
+  if(amount.weight) parts.push(`${amount.weight.value}${amount.weight.unit}`);
+  if(amount.items && amount.weight && amount.items>0){
+    parts.push(`~${(amount.weight.value/amount.items).toFixed(2)}${amount.weight.unit} each`);
+  }
+  return parts.join(' \u00B7 ');
 }
 function openHarvestModal(ctx){
   const crop = ctx.crop;
@@ -5517,17 +5506,46 @@ function openHarvestModal(ctx){
   const bedTreatments = ctx.kind==='planting' ? (ctx.bed.treatments||[]).filter(t=>!t.plantingId || t.plantingId===ctx.planting.id) : (ctx.kind==='tree' ? (ctx.feature.treatments||[]) : (ctx.kind==='tray' ? (ctx.tray.treatments||[]).filter(t=>!t.plantingId || t.plantingId===ctx.planting.id) : []));
   const wx = getTodayWeatherSnapshot();
   const showFinish = rh===true && ctx.kind!=='tree';
-  openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>🧺 Harvest ${ctx.partialCount?`${ctx.partialCount} of the `:''}${escapeHTML(crop?crop.name:'this')}</h3>
-    ${ctx.partialCount?`<p class="muted">The rest stays in place for next time.</p>`:''}
-    <label>To rate the crop, tap the bar below</label>
+  const weightUnit = STATE.settings.units==='imperial' ? 'lb' : 'kg';
+  openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>🧺 Harvest ${escapeHTML(crop?crop.name:'this')}</h3>
+    ${ctx.needsCount?`<label>How many are you taking?</label>
+    <p class="muted">${ctx.qtyAvailable} left right now. Roughly how much — tap the bar below. Or enter the exact number if there's just a few.</p>
+    <div class="rating-readout" id="countReadout">Tap for a rough amount</div>
+    <div class="rating-bar" id="countBar">${[1,2,3,4,5,6,7,8,9,10].map(n=>`<button class="rate-seg-count" data-r="${n}"></button>`).join('')}</div>
+    <div class="form-row" style="margin-top:10px;"><div><label>Or an exact number</label><input type="number" onfocus="this.select()" id="mCount" min="1" max="${ctx.qtyAvailable}"></div></div>`:''}
+    <label style="margin-top:${ctx.needsCount?'18px':'0'}; display:block;">Rating</label>
     <div class="rating-readout" id="ratingReadout">&nbsp;</div>
     <div class="rating-bar-row"><span class="rating-end">0%</span><div class="rating-bar" id="ratingBar">${[1,2,3,4,5,6,7,8,9,10].map(n=>`<button class="rate-seg" data-r="${n}" data-gc="${gradeColor(n,10)}"></button>`).join('')}</div><span class="rating-end">100%</span></div>
-    <div class="form-row" style="margin-top:14px;"><div><label>Amount picked (optional)</label><input type="text" inputmode="decimal" id="mAmountVal" placeholder="e.g. 6, or 1.2"></div><div><label>Unit</label><select id="mAmountUnit"><option value="items">items</option><option value="weight">${STATE.settings.units==='imperial'?'lb':'kg'}</option></select></div></div>
+    <div class="form-row" style="margin-top:14px;"><div><label>Amount picked (optional)</label><input type="text" inputmode="decimal" id="mAmountVal" placeholder="e.g. 6"></div><div><label>Weight picked (${weightUnit}, optional)</label><input type="text" inputmode="decimal" id="mWeightVal" placeholder="e.g. 1.2"></div></div>
     <div class="form-row" style="margin-top:14px;"><div><label>Notes (optional)</label><textarea id="mNotes" rows="2" placeholder="e.g. small but tasty"></textarea></div></div>
     <button class="btn big" id="mSave" disabled>Save Harvest</button>
     ${showFinish?`<button class="btn big secondary" id="mFinish" disabled style="margin-top:8px;">🏁 This is the last of it</button><p class="tiny-muted" style="margin-top:6px;">Clears it from the bed and keeps a record, same as removing it by hand — use this once the plant itself is properly done, not just for an ordinary pick.</p>`:''}`);
   document.getElementById('mBack').addEventListener('click', backTo);
   let chosen=null;
+  let chosenCountPercent=null;
+  function refreshSaveEnabled(){
+    const ratingOk = chosen!=null;
+    const countOk = !ctx.needsCount || !!(document.getElementById('mCount').value || chosenCountPercent!=null);
+    const ok = ratingOk && countOk;
+    document.getElementById('mSave').disabled = !ok;
+    const finishBtn = document.getElementById('mFinish'); if(finishBtn) finishBtn.disabled = !ok;
+  }
+  if(ctx.needsCount){
+    modalContent.querySelectorAll('.rate-seg-count').forEach(b=>b.addEventListener('click', ()=>{
+      chosenCountPercent=parseInt(b.dataset.r);
+      modalContent.querySelectorAll('.rate-seg-count').forEach(x=>x.classList.toggle('filled', parseInt(x.dataset.r)<=chosenCountPercent));
+      const roughCount = Math.max(1, Math.min(ctx.qtyAvailable, Math.round((chosenCountPercent/10)*ctx.qtyAvailable)));
+      document.getElementById('countReadout').textContent = `${chosenCountPercent*10}% — about ${roughCount} of ${ctx.qtyAvailable}`;
+      document.getElementById('mCount').value = '';
+      refreshSaveEnabled();
+    }));
+    document.getElementById('mCount').addEventListener('input', ()=>{
+      chosenCountPercent = null;
+      modalContent.querySelectorAll('.rate-seg-count').forEach(x=>x.classList.remove('filled'));
+      document.getElementById('countReadout').textContent = 'Tap for a rough amount';
+      refreshSaveEnabled();
+    });
+  }
   modalContent.querySelectorAll('.rate-seg').forEach(b=>b.addEventListener('click', ()=>{
     chosen=parseInt(b.dataset.r);
     modalContent.querySelectorAll('.rate-seg').forEach(x=>{
@@ -5536,15 +5554,24 @@ function openHarvestModal(ctx){
       x.style.background = fill ? x.dataset.gc : '';
     });
     document.getElementById('ratingReadout').textContent = (chosen*10)+'%';
-    document.getElementById('mSave').disabled=false;
-    const finishBtn = document.getElementById('mFinish'); if(finishBtn) finishBtn.disabled=false;
+    refreshSaveEnabled();
   }));
   async function doSave(isLastOfIt){
     const notes = document.getElementById('mNotes').value.trim();
-    const amtRaw = document.getElementById('mAmountVal').value.trim();
-    const amtUnitSel = document.getElementById('mAmountUnit').value;
-    const amtUnit = amtUnitSel==='weight' ? (STATE.settings.units==='imperial'?'lb':'kg') : amtUnitSel;
-    const amount = amtRaw ? {value:parseFloat(amtRaw), unit:amtUnit} : undefined;
+    const itemsRaw = document.getElementById('mAmountVal').value.trim();
+    const weightRaw = document.getElementById('mWeightVal').value.trim();
+    const amountItems = itemsRaw ? parseFloat(itemsRaw) : undefined;
+    const amountWeight = weightRaw ? {value:parseFloat(weightRaw), unit:weightUnit} : undefined;
+    const amount = (amountItems!=null || amountWeight) ? {items:amountItems, weight:amountWeight} : undefined;
+    let partialCount = ctx.partialCount;
+    if(ctx.needsCount){
+      const typedCount = document.getElementById('mCount').value;
+      const qtyAvail = ctx.qtyAvailable;
+      let count = null;
+      if(typedCount) count = Math.max(1, Math.min(qtyAvail, parseInt(typedCount)));
+      else if(chosenCountPercent) count = Math.max(1, Math.min(qtyAvail, Math.round((chosenCountPercent/10)*qtyAvail)));
+      partialCount = (count>=qtyAvail) ? null : count;
+    }
     let plantedDate=null, method=null, area=null;
     if(ctx.kind==='tray'){
       plantedDate = ctx.planting.sownDate;
@@ -5557,7 +5584,7 @@ function openHarvestModal(ctx){
     }
     const weatherSummary = await fetchGrowingWeatherSummary(plantedDate, todayISO());
     const dueDateDiff = (ctx.kind==='planting' && ctx.planting.harvestDue) ? daysBetween(ctx.planting.harvestDue, todayISO()) : undefined;
-    const isPartial = !!ctx.partialCount;
+    const isPartial = !!partialCount;
     const rec = { id:uid(), cropId:crop?crop.id:null, cropName:crop?crop.name:'Unknown', family:crop?crop.family:'Other',
       source:ctx.kind, locationLabel: ctx.kind==='tray'?ctx.tray.location:(ctx.kind==='tree'?(ctx.feature.label||'Tree'):ctx.bed.name),
       treeId: ctx.kind==='tree'?ctx.feature.id:undefined,
@@ -5571,7 +5598,7 @@ function openHarvestModal(ctx){
         const relatedTask = STATE.tasks.find(t=>t.linkedTrayId===ctx.tray.id && (!t.linkedPlantingId || t.linkedPlantingId===ctx.planting.id) && !t.done);
         if(relatedTask){ relatedTask.done=true; await put('tasks', relatedTask); }
       } else if(isPartial && !isLastOfIt){
-        ctx.planting.quantity = Math.max(0, (ctx.planting.quantity||1) - ctx.partialCount);
+        ctx.planting.quantity = Math.max(0, (ctx.planting.quantity||1) - partialCount);
         await put('trays', ctx.tray);
       } else {
         const relatedTask = STATE.tasks.find(t=>t.linkedTrayId===ctx.tray.id && (!t.linkedPlantingId || t.linkedPlantingId===ctx.planting.id) && !t.done);
@@ -5592,7 +5619,7 @@ function openHarvestModal(ctx){
         const relatedTask = STATE.tasks.find(t=>t.linkedPlantingId===ctx.planting.id && !t.done);
         if(relatedTask){ relatedTask.done=true; await put('tasks', relatedTask); }
       } else if(isPartial && !isLastOfIt){
-        ctx.planting.quantity = Math.max(0, (ctx.planting.quantity||1) - ctx.partialCount);
+        ctx.planting.quantity = Math.max(0, (ctx.planting.quantity||1) - partialCount);
         await savePlantable(ctx.plantableKind||'beds', ctx.bed);
       } else {
         ctx.planting.active=false;
@@ -6228,7 +6255,7 @@ function renderHistoryCropLookup(wrap){
     const wxLine = wx ? `<div>\u2600\uFE0F Avg ${wx.meanTempMax}\u00B0/${wx.meanTempMin}\u00B0, ${wx.totalRain}mm rain over ${wx.days} days</div>` : '';
     const treatLine = h.removed ? '' : ((h.treatments&&h.treatments.length) ? `<div>\uD83E\uDDEA ${h.treatments.map(t=>escapeHTML(t.type)).join(', ')}</div>` : '<div>\uD83E\uDDEA Nothing logged</div>');
     const dueLine = (h.dueDateDiff!=null) ? `<div>\uD83D\uDCC5 ${h.dueDateDiff===0?'harvested on the due date':(h.dueDateDiff<0?`${Math.abs(h.dueDateDiff)} day${Math.abs(h.dueDateDiff)===1?'':'s'} early`:`${h.dueDateDiff} day${h.dueDateDiff===1?'':'s'} late`)}</div>` : '';
-    const amountLine = h.amount ? `<div>\u2696\uFE0F ${h.amount.value}${h.amount.unit==='items'?' items':' '+h.amount.unit}</div>` : '';
+    const amountLine = h.amount ? `<div>\u2696\uFE0F ${formatAmount(h.amount)}</div>` : '';
     const reasonLine = (h.removed && h.reason) ? `<div>${escapeHTML(h.reason)}</div>` : '';
     return `<div class="harvest-card" ${h.removed?`data-rh="${h.id}"`:`data-h="${h.id}"`}>
       <div class="harvest-top"><span class="harvest-name">${escapeHTML(h.cropName)}${h.partial?' <span class="tiny-muted">(partial)</span>':''}</span>${ratingHTML}</div>
@@ -6388,7 +6415,7 @@ function openHistoryDetail(hid){
     <div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(h.locationLabel||'')}</span></div>
     ${h.area?`<div class="planting-row"><span class="pname">Area</span><span class="pdate">${h.area}m&sup2;</span></div>`:''}
     <div class="planting-row"><span class="pname">Rating</span><span class="pdate">${h.rating}/10</span></div>
-    ${h.amount?`<div class="planting-row"><span class="pname">Amount</span><span class="pdate">${h.amount.value}${h.amount.unit==='items'?' items':' '+escapeHTML(h.amount.unit)}</span></div>`:''}
+    ${h.amount?`<div class="planting-row"><span class="pname">Amount</span><span class="pdate">${escapeHTML(formatAmount(h.amount))}</span></div>`:''}
     ${h.notes?`<div class="planting-row"><span class="pname">Notes</span><span class="pdate">${escapeHTML(h.notes)}</span></div>`:''}
     ${h.weatherSummary?`<div class="planting-row"><span class="pname">Weather while growing</span><span class="pdate">avg ${h.weatherSummary.meanTempMax}&deg;/${h.weatherSummary.meanTempMin}&deg;, ${h.weatherSummary.totalRain}mm over ${h.weatherSummary.days} days</span></div>`:''}
     ${(h.treatments&&h.treatments.length)?`<div class="row-heading">Treatments used</div>${h.treatments.map(t=>`<div class="muted" style="font-size:15px;">${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}</div>`).join('')}`:''}
