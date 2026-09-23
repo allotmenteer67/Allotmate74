@@ -1376,6 +1376,16 @@ return rec;
 function getRepeatHarvest(crop, planting){
 if(planting && planting.repeatHarvest!=null) return planting.repeatHarvest;
 if(crop && crop.repeatHarvest!=null) return crop.repeatHarvest;
+// The crop record itself doesn't have an answer yet — which includes any crop record saved
+// before this feature existed, not just genuinely new ones. Before asking, check whether this
+// is confidently a known built-in crop under a variety name or similar ("Beetroot Boltardy"
+// confidently matches "Beetroot") and use its answer, the same way findOrCreateCrop already
+// seeds family/timings for a brand new record. Only a crop with no confident built-in match at
+// all — a genuinely custom one — should actually prompt.
+if(crop && crop.name){
+const built = matchCrop(crop.name);
+if(built && built.repeatHarvest!=null) return built.repeatHarvest;
+}
 return null;
 }
 function learnTiming(crop, field, actualDays){
@@ -3090,18 +3100,21 @@ const left = allowOverhang ? Math.max(0, left0) : Math.max(0, Math.min(left0, px
 const top = allowOverhang ? Math.max(0, top0) : Math.max(0, Math.min(top0, pxH-h-2));
 effectivePos[idx]._boxLeft = left; effectivePos[idx]._boxTop = top; effectivePos[idx]._boxW = w; effectivePos[idx]._boxH = h;
 });
-// Push labels apart whenever two boxes are close enough that their default (vertically-centred)
-// labels could land near each other — not just when they heavily overlap. A pair simply stacked
-// snug against one another (little or no true overlap) is exactly as confusing as a big overlap,
-// since either way it's unclear which label belongs to which coloured area.
+// Push labels apart only when two boxes genuinely overlap in area — e.g. an overhanging tray
+// drawn on top of another — so a label anchored at the same edge on both could land in the same
+// visual spot. Two boxes that are merely near each other on both axes independently (the common
+// case: ordinary neighbours in the same row, which always have full vertical overlap and a small
+// horizontal gap) are NOT actually ambiguous — each label stays safely inside its own box — but
+// used to trip this same check and get an inline top/bottom override that silently replaced the
+// tier's correct wall-side anchor, which is what caused the same crop to render top-anchored in
+// one box and bottom-anchored in the next for no visible reason.
 const labelAlign = items.map(()=>null);
-const LABEL_GAP = 16; // px — roughly a line of text, so "touching" and "just barely apart" both count
 for(let i=0;i<items.length;i++){
 for(let j=i+1;j<items.length;j++){
 const a = effectivePos[i], b = effectivePos[j];
-const xGap = Math.max(a._boxLeft, b._boxLeft) - Math.min(a._boxLeft+a._boxW, b._boxLeft+b._boxW);
-const yGap = Math.max(a._boxTop, b._boxTop) - Math.min(a._boxTop+a._boxH, b._boxTop+b._boxH);
-if(xGap > LABEL_GAP || yGap > LABEL_GAP) continue; // genuinely far apart — no ambiguity, leave both centred
+const overlapsX = a._boxLeft < b._boxLeft+b._boxW && b._boxLeft < a._boxLeft+a._boxW;
+const overlapsY = a._boxTop < b._boxTop+b._boxH && b._boxTop < a._boxTop+a._boxH;
+if(!(overlapsX && overlapsY)) continue; // no real overlap — leave both on the tier's own anchor
 // Which one actually sits above the other, by their real positions — not just array order —
 // so each label gets pushed to the end of its OWN box that's farthest from the other box.
 const aCenterY = a._boxTop + a._boxH/2, bCenterY = b._boxTop + b._boxH/2;
