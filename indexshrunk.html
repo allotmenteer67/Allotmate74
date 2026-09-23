@@ -1709,6 +1709,11 @@ let scrollY_before_modal = 0;
 const ICON_UNDO_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7 4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-1"/></svg>';
 const ICON_REDO_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7l5 5-5 5"/><path d="M20 12H9a5 5 0 0 0 0 10h1"/></svg>';
 function openModal(html, fullscreen){
+// Cancel any pending sow-success reopen (flashButtonSuccess) that hasn't fired yet.
+// If this openModal call IS that reopen firing, pendingFlashTimeout has already been
+// cleared to null by its own callback before calling through here, so this is a no-op
+// in that case — it only cancels a stale reopen when something else has navigated first.
+if(pendingFlashTimeout){ clearTimeout(pendingFlashTimeout); pendingFlashTimeout = null; }
 const wasClosed = !backdrop.classList.contains('open');
 modalContent.innerHTML = `<div class="modal-topbar">
 <button class="icon-btn" id="mUndoBtn" title="Undo" ${undoStack.length===0?'disabled':''}>${ICON_UNDO_SVG}<span class="icon-btn-lbl">Undo</span></button>
@@ -1726,6 +1731,7 @@ document.getElementById('mUndoBtn').addEventListener('click', async ()=>{ await 
 document.getElementById('mRedoBtn').addEventListener('click', async ()=>{ await performRedo(); closeModal(); });
 }
 function closeModal(){
+if(pendingFlashTimeout){ clearTimeout(pendingFlashTimeout); pendingFlashTimeout = null; }
 backdrop.classList.remove('open'); modalContent.innerHTML='';
 document.body.style.position=''; document.body.style.top=''; document.body.style.left=''; document.body.style.right='';
 window.scrollTo(0, scrollY_before_modal);
@@ -1767,13 +1773,16 @@ el.classList.remove('show');
 onAction();
 });
 }
+let pendingFlashTimeout = null;
 function flashButtonSuccess(btn, message, then){
 if(!btn){ if(then) then(); return; }
 const originalText = btn.textContent, originalBg = btn.style.background, originalBorder = btn.style.borderColor;
 btn.textContent = '✓ '+message;
 btn.style.background = 'var(--leaf)'; btn.style.borderColor = 'var(--leaf)'; btn.style.color = '#fff';
 btn.disabled = true;
-setTimeout(()=>{
+clearTimeout(pendingFlashTimeout);
+pendingFlashTimeout = setTimeout(()=>{
+pendingFlashTimeout = null;
 btn.textContent = originalText; btn.style.background = originalBg; btn.style.borderColor = originalBorder; btn.style.color='';
 btn.disabled = false;
 if(then) then();
