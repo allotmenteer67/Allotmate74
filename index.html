@@ -5516,7 +5516,7 @@ function openHarvestModal(ctx){
     <label style="margin-top:${ctx.needsCount?'18px':'0'}; display:block;">Rating</label>
     <div class="rating-readout" id="ratingReadout">&nbsp;</div>
     <div class="rating-bar-row"><span class="rating-end">0%</span><div class="rating-bar" id="ratingBar">${[1,2,3,4,5,6,7,8,9,10].map(n=>`<button class="rate-seg" data-r="${n}" data-gc="${gradeColor(n,10)}"></button>`).join('')}</div><span class="rating-end">100%</span></div>
-    <div class="form-row" style="margin-top:14px;"><div><label>Amount picked (optional)</label><input type="text" inputmode="decimal" id="mAmountVal" placeholder="e.g. 6"></div><div><label>Weight picked (${weightUnit}, optional)</label><input type="text" inputmode="decimal" id="mWeightVal" placeholder="e.g. 1.2"></div></div>
+    <div class="form-row" style="margin-top:14px;"><div><label>Amount picked (optional)</label><input type="text" inputmode="decimal" id="mAmountVal" placeholder="e.g. 6"></div><div><label>Weight picked (optional)</label><input type="text" inputmode="decimal" id="mWeightVal" placeholder="e.g. 1.2"></div></div>
     <div class="form-row" style="margin-top:14px;"><div><label>Notes (optional)</label><textarea id="mNotes" rows="2" placeholder="e.g. small but tasty"></textarea></div></div>
     <button class="btn big" id="mSave" disabled>Save Harvest</button>
     ${showFinish?`<button class="btn big secondary" id="mFinish" disabled style="margin-top:8px;">🏁 This is the last of it</button><p class="tiny-muted" style="margin-top:6px;">Clears it from the bed and keeps a record, same as removing it by hand — use this once the plant itself is properly done, not just for an ordinary pick.</p>`:''}`);
@@ -5543,6 +5543,10 @@ function openHarvestModal(ctx){
       chosenCountPercent = null;
       modalContent.querySelectorAll('.rate-seg-count').forEach(x=>x.classList.remove('filled'));
       document.getElementById('countReadout').textContent = 'Tap for a rough amount';
+      // An exact count of plants taken is, for most single-harvest crops, exactly the amount
+      // picked too — no reason to type the same number twice. Still freely editable afterward
+      // (e.g. one of the three turned out to be slug-damaged and not worth counting).
+      document.getElementById('mAmountVal').value = document.getElementById('mCount').value;
       refreshSaveEnabled();
     });
   }
