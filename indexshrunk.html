@@ -5418,7 +5418,7 @@ ${ctx.partialCount?`<p class="muted">The rest stays in place for next time.</p>`
 <label>To rate the crop, tap the bar below</label>
 <div class="rating-readout" id="ratingReadout">&nbsp;</div>
 <div class="rating-bar-row"><span class="rating-end">0%</span><div class="rating-bar" id="ratingBar">${[1,2,3,4,5,6,7,8,9,10].map(n=>`<button class="rate-seg" data-r="${n}" data-gc="${gradeColor(n,10)}"></button>`).join('')}</div><span class="rating-end">100%</span></div>
-<div class="form-row" style="margin-top:14px;"><div><label>Amount picked (optional)</label><input type="text" inputmode="decimal" id="mAmountVal" placeholder="e.g. 6, or 1.2"></div><div><label>Unit</label><select id="mAmountUnit"><option value="items">items</option><option value="g">g</option><option value="kg">kg</option><option value="oz">oz</option><option value="lb">lb</option></select></div></div>
+<div class="form-row" style="margin-top:14px;"><div><label>Amount picked (optional)</label><input type="text" inputmode="decimal" id="mAmountVal" placeholder="e.g. 6, or 1.2"></div><div><label>Unit</label><select id="mAmountUnit"><option value="items">items</option><option value="weight">${STATE.settings.units==='imperial'?'lb':'kg'}</option></select></div></div>
 <div class="form-row" style="margin-top:14px;"><div><label>Notes (optional)</label><textarea id="mNotes" rows="2" placeholder="e.g. small but tasty"></textarea></div></div>
 <button class="btn big" id="mSave" disabled>Save Harvest</button>
 ${showFinish?`<button class="btn big secondary" id="mFinish" disabled style="margin-top:8px;">🏁 This is the last of it</button><p class="tiny-muted" style="margin-top:6px;">Clears it from the bed and keeps a record, same as removing it by hand — use this once the plant itself is properly done, not just for an ordinary pick.</p>`:''}`);
@@ -5438,7 +5438,8 @@ const finishBtn = document.getElementById('mFinish'); if(finishBtn) finishBtn.di
 async function doSave(isLastOfIt){
 const notes = document.getElementById('mNotes').value.trim();
 const amtRaw = document.getElementById('mAmountVal').value.trim();
-const amtUnit = document.getElementById('mAmountUnit').value;
+const amtUnitSel = document.getElementById('mAmountUnit').value;
+const amtUnit = amtUnitSel==='weight' ? (STATE.settings.units==='imperial'?'lb':'kg') : amtUnitSel;
 const amount = amtRaw ? {value:parseFloat(amtRaw), unit:amtUnit} : undefined;
 let plantedDate=null, method=null, area=null;
 if(ctx.kind==='tray'){
