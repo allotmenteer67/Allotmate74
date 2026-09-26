@@ -265,7 +265,6 @@ body > *:not(#printView){display:none !important;}
 <h1 id="plotName" contenteditable="true" spellcheck="false">My Plot</h1>
 <button class="icon-btn" id="btnUndo" title="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7 4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-1"/></svg><span class="icon-btn-lbl">Undo</span></button>
 <button class="icon-btn" id="btnRedo" title="Redo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7l5 5-5 5"/><path d="M20 12H9a5 5 0 0 0 0 10h1"/></svg><span class="icon-btn-lbl">Redo</span></button>
-<button class="icon-btn" id="btnSearch" title="Search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span class="icon-btn-lbl">Search</span></button>
 </div>
 <nav class="tabs" id="tabs">
 <button data-view="map" class="active">My Plot</button>
@@ -276,6 +275,7 @@ body > *:not(#printView){display:none !important;}
 <button data-view="planning">Planning ahead</button>
 <button class="wx-btn" id="wxBtn"><span id="wxIcon">Weather</span></button>
 <button data-view="notes">Notes</button>
+<button id="btnSearch" title="Search">Search</button>
 <button data-view="setup">Setup</button>
 <button data-view="help" class="help-tab-btn">Help</button>
 </nav>
@@ -334,9 +334,13 @@ body > *:not(#printView){display:none !important;}
 <!-- CROPS -->
 <div class="view" id="view-crops">
 <section class="panel">
-<h2 id="cropsTabHeading">Crops currently growing</h2>
+<div class="tier-row" id="cropsSubTabs">
+<button class="tier-pill active" data-cropsview="crops" id="cropsTabHeading">Crops now growing</button>
+<button class="tier-pill" data-cropsview="compost">Compost</button>
+</div>
 <button class="btn secondary" id="btnNewCrop" style="margin-bottom:12px;">+ Add one by hand</button>
 <div id="cropList"></div>
+<div id="compostSubList" style="display:none;"></div>
 </section>
 </div>
 <!-- WISHLIST -->
@@ -1578,6 +1582,8 @@ let movingFeature = null;
 let outlineEditing = false;
 let activeTier = {}; // featId -> tierId, transient (not persisted)
 let traySortMode = {}; // featId -> 'num'|'date'|'az', transient (not persisted)
+let cropsSubTab = 'crops'; // 'crops'|'compost', transient (not persisted) - which half of the Crops tab is showing
+let compostListSort = 'date'; // 'date'|'az'|'usedup', transient (not persisted)
 let autoJumpedTiers = new Set(); // featIds that have already had their first-open smart tier-jump applied this session
 function defaultShape(w,h){ return [{x:0,y:0},{x:w,y:0},{x:w,y:h},{x:0,y:h}]; }
 function scaleShapeToSize(pts, newW, newH){
@@ -3853,24 +3859,39 @@ await put(storeKind, obj); await afterChange(); onDone();
 function openCompostBatchDetail(batch, obj, storeKind, backFn){
 openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${escapeHTML(compostBatchLabel(batch))}</h3>
 ${compostBatchEditHTML(batch)}
+<button type="button" class="btn danger" id="mDelBatch" style="margin-top:10px;">Delete this batch</button>
 ${compostUsedOnHTML(batch.id)}`, true);
 document.getElementById('mBack').addEventListener('click', backFn);
 wireCompostBatchEdit(batch, obj, storeKind, ()=>openCompostBatchDetail(batch, obj, storeKind, backFn));
 wireCompostUsedOn();
+// Deleting is different from every other action on this screen - there's no batch left to
+// redraw afterward, so this goes back to wherever the person came from (the crate's own
+// Composting screen, or the plot-wide Compost list) rather than re-opening what it just removed.
+document.getElementById('mDelBatch').addEventListener('click', async ()=>{
+if(await confirmDialog('Delete this batch? Its log and "Used on" history go with it — this can\'t be undone.')){
+for(const e of (batch.contentsLog||[])) await recordTombstone(e.id);
+await recordTombstone(batch.id);
+obj.compostBatches = (obj.compostBatches||[]).filter(b=>b.id!==batch.id);
+await put(storeKind, obj); await afterChange();
+backFn();
+}
+});
 }
 // Every batch, past and current, from every compost source - plain heaps, plus any container/
 // basket or raised bed with "Composting underneath" switched on. Listed explicitly by its own
 // date range rather than guessing which one's "current", since the compost actually being spread
-// is almost always an old, finished batch, not whatever's just gone in. Newest batch first within
-// each source, sources ordered by their own most recent batch.
+// is almost always an old, finished batch, not whatever's just gone in. Oldest batch first within
+// each source, and sources themselves ordered by their own oldest batch - the crate that's been
+// sitting longest is the one most likely to actually be ready, so that's what surfaces first
+// rather than whatever was most recently started.
 function compostSourceOptions(){
 const crates = [];
 STATE.features.forEach(f=>{
 if(f.type==='compost' || ((f.type==='container'||f.type==='basket') && f.composting)) crates.push({kind:'feature', id:f.id, label:f.label||FEATURE_TYPES[f.type].label, obj:f});
 });
 STATE.beds.forEach(b=>{ if(b.raised && b.composting) crates.push({kind:'bed', id:b.id, label:b.name, obj:b}); });
-const groups = crates.map(c=>({...c, batches:(c.obj.compostBatches||[]).filter(b=>!b.usedUp).sort((a,b)=> (b.startDate||'').localeCompare(a.startDate||''))})).filter(g=>g.batches.length);
-groups.sort((a,b)=> (b.batches[0].startDate||'').localeCompare(a.batches[0].startDate||''));
+const groups = crates.map(c=>({...c, batches:(c.obj.compostBatches||[]).filter(b=>!b.usedUp).sort((a,b)=> (a.startDate||'').localeCompare(b.startDate||''))})).filter(g=>g.batches.length);
+groups.sort((a,b)=> (a.batches[0].startDate||'').localeCompare(b.batches[0].startDate||''));
 const options = [];
 groups.forEach(g=> g.batches.forEach(batch=> options.push({sourceKind:g.kind, sourceId:g.id, batchId:batch.id, label:`${g.label} — ${compostBatchLabel(batch)}`})));
 return options;
@@ -5920,8 +5941,17 @@ toast('Saved');
 }
 function renderCropList(){
 const wrap=document.getElementById('cropList');
+const compostWrap = document.getElementById('compostSubList');
 const heading = document.getElementById('cropsTabHeading');
-if(heading) heading.textContent = STATE.settings.syncCode ? "Crops we're currently growing" : "Crops currently growing";
+const compostTabBtn = document.querySelector('#cropsSubTabs [data-cropsview="compost"]');
+const newCropBtn = document.getElementById('btnNewCrop');
+if(heading) heading.textContent = STATE.settings.syncCode ? "Crops we're now growing" : "Crops now growing";
+if(heading) heading.classList.toggle('active', cropsSubTab==='crops');
+if(compostTabBtn) compostTabBtn.classList.toggle('active', cropsSubTab==='compost');
+if(newCropBtn) newCropBtn.style.display = cropsSubTab==='crops' ? '' : 'none';
+if(wrap) wrap.style.display = cropsSubTab==='crops' ? '' : 'none';
+if(compostWrap) compostWrap.style.display = cropsSubTab==='compost' ? '' : 'none';
+if(cropsSubTab==='compost'){ renderCompostSubList(); return; }
 const current = STATE.crops.filter(c=>c.name!=='Path' && cropHasCurrentInstance(c.id))
 .sort((a,b)=> cropTypeKey(a).localeCompare(cropTypeKey(b)) || a.name.localeCompare(b.name));
 if(current.length===0){ wrap.innerHTML='<p class="empty-note">Nothing currently growing — sow or plant something and it will show up here.</p>'; return; }
@@ -5985,6 +6015,39 @@ await put('trays', tray);
 }
 await afterChange();
 }
+}));
+}
+// The plot-wide compost list - every batch across every heap, raised bed, and composting
+// container/basket, tappable straight into the same editable batch screen reached from a crate's
+// own Composting screen. A row tagged "(current)" is still open (no end date yet); "(used up)" is
+// the same tag the crate's own Past batches list already uses.
+function renderCompostSubList(){
+const wrap = document.getElementById('compostSubList');
+if(!wrap) return;
+const crates = [];
+STATE.features.forEach(f=>{
+if(f.type==='compost' || ((f.type==='container'||f.type==='basket') && f.composting)) crates.push({storeKind:'features', label:f.label||FEATURE_TYPES[f.type].label, obj:f});
+});
+STATE.beds.forEach(b=>{ if(b.raised && b.composting) crates.push({storeKind:'beds', label:b.name, obj:b}); });
+let rows = [];
+crates.forEach(c=> (c.obj.compostBatches||[]).forEach(batch=> rows.push({crateLabel:c.label, batch, obj:c.obj, storeKind:c.storeKind})));
+if(rows.length===0){ wrap.innerHTML = '<p class="empty-note">No compost batches yet — turn on "Composting underneath" on a raised bed or container, or add a Compost heap, to start tracking one.</p>'; return; }
+const byDate = (a,b)=> (a.batch.startDate||'').localeCompare(b.batch.startDate||'');
+if(compostListSort==='az') rows.sort((a,b)=> a.crateLabel.localeCompare(b.crateLabel) || byDate(a,b));
+else if(compostListSort==='usedup') rows.sort((a,b)=> ((a.batch.usedUp?1:0)-(b.batch.usedUp?1:0)) || byDate(a,b));
+else rows.sort(byDate);
+const sortRowHTML = rows.length>1 ? `<div class="sort-row"><span class="tiny-muted">Sort by</span>
+<button class="tier-pill ${compostListSort==='date'?'active':''}" data-compostsort="date">Date</button>
+<button class="tier-pill ${compostListSort==='az'?'active':''}" data-compostsort="az">A&ndash;Z</button>
+<button class="tier-pill ${compostListSort==='usedup'?'active':''}" data-compostsort="usedup">Used up last</button></div>` : '';
+wrap.innerHTML = sortRowHTML + rows.map(r=>`<div class="planting-row" style="cursor:pointer;" data-openbatch="${r.batch.id}" data-storekind="${r.storeKind}" data-objid="${r.obj.id}"><span class="pname">${escapeHTML(r.crateLabel)} — ${escapeHTML(compostBatchLabel(r.batch))}${r.batch.usedUp?' <span class="tiny-muted">(used up)</span>':(!r.batch.endDate?' <span class="tiny-muted">(current)</span>':'')}</span></div>`).join('');
+wrap.querySelectorAll('.sort-row [data-compostsort]').forEach(b=>b.addEventListener('click', ()=>{ compostListSort = b.dataset.compostsort; renderCompostSubList(); }));
+wrap.querySelectorAll('[data-openbatch]').forEach(el=>el.addEventListener('click', ()=>{
+const obj = STATE[el.dataset.storekind].find(o=>o.id===el.dataset.objid);
+if(!obj) return;
+const batch = (obj.compostBatches||[]).find(b=>b.id===el.dataset.openbatch);
+if(!batch) return;
+openCompostBatchDetail(batch, obj, el.dataset.storekind, closeModal);
 }));
 }
 function openEditCrop(cropId){
@@ -7499,6 +7562,10 @@ document.getElementById('btnNewCrop').addEventListener('click', ()=>{
 goHome();
 toast('Tap the bed, container, or pot you want to plant in');
 });
+document.querySelectorAll('#cropsSubTabs [data-cropsview]').forEach(b=>b.addEventListener('click', ()=>{
+cropsSubTab = b.dataset.cropsview;
+renderCropList();
+}));
 /* ======================= SHARING / SYNC ======================= */
 const SHARED_META_KEYS = ['plotName','plotWidthM','plotDepthM','plotShape','groundColor','postcode','lat','lon','thFrost','thRain','thWind','customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory','tombstones'];
 let supa = null, syncChannel = null, pushTimer = null, applyingRemote = false, lastKnownRemoteUpdatedAt = null, renderPending = false;
