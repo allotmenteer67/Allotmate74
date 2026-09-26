@@ -3773,6 +3773,15 @@ function fullDateLabel(iso){
   const d = new Date(iso+'T00:00:00');
   return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
 }
+// Same idea as fullDateLabel but drops the day - used specifically for naming a compost batch
+// (in the Source picker, the Past batches list, and a batch's own screen title), since knowing
+// which month a batch started or ended is enough to tell it apart from another, and the day-level
+// precision was just adding length to a list that's already the thing getting long.
+function monthYearLabel(iso){
+  if(!iso) return '';
+  const d = new Date(iso+'T00:00:00');
+  return d.toLocaleDateString('en-GB',{month:'short',year:'numeric'});
+}
 // A crate or heap's compost history is a series of batches, not one ongoing thing - emptying it
 // out and refilling starts a fresh batch with its own dates and its own log, so a treatment can
 // always be traced to the specific batch that was actually spread rather than "whatever's in
@@ -3788,8 +3797,8 @@ function currentCompostBatch(obj){
 // currentCompostBatch above which is for screens that are actually about to edit one.
 function openCompostBatchOf(obj){ return (obj.compostBatches||[]).find(b=>!b.endDate) || null; }
 function compostBatchLabel(batch){
-  if(batch.endDate) return `${fullDateLabel(batch.startDate)} to ${fullDateLabel(batch.endDate)}`;
-  return batch.startDate ? `since ${fullDateLabel(batch.startDate)}` : 'not yet started';
+  if(batch.endDate) return `${monthYearLabel(batch.startDate)} to ${monthYearLabel(batch.endDate)}`;
+  return batch.startDate ? `since ${monthYearLabel(batch.startDate)}` : 'not yet started';
 }
 // Shared between the plain compost-only screen (openFeatureDetail) and the dual-use Composting
 // screen reached from a container/basket/raised bed - same crate, same log either way. Kept as
@@ -3802,7 +3811,7 @@ function compostFieldsHTML(obj){
   const logRows = entries.map(e=>`<div class="planting-row"><span class="pname">${escapeHTML(e.note)}</span><span class="pdate">${dayLabel(e.date)}</span></div>
     <button type="button" class="btn small danger" data-dellog="${e.id}" style="margin:-6px 0 8px;">Remove entry</button>`).join('') || '<p class="muted">Nothing logged yet.</p>';
   const pastBatches = (obj.compostBatches||[]).filter(b=>b.id!==batch.id && b.endDate).sort((a,b)=> (b.endDate||'').localeCompare(a.endDate||''));
-  const pastHTML = pastBatches.length ? `<div class="row-heading">Past batches</div>${pastBatches.map(b=>`<div class="planting-row" style="cursor:pointer;" data-viewbatch="${b.id}"><span class="pname">${escapeHTML(compostBatchLabel(b))}</span></div>`).join('')}` : '';
+  const pastHTML = pastBatches.length ? `<div class="row-heading">Past batches</div>${pastBatches.map(b=>`<div class="planting-row" style="cursor:pointer;" data-viewbatch="${b.id}"><span class="pname">${escapeHTML(compostBatchLabel(b))}${b.usedUp?' <span class="tiny-muted">(used up)</span>':''}</span></div>`).join('')}` : '';
   return `<div class="form-row">
       <div><label>Compost started</label><p class="tiny-muted" style="margin:2px 0 6px;">optional</p><input type="date" id="mCreatedDate" value="${batch.startDate||''}"></div>
       <div><label>Use after</label><p class="tiny-muted" style="margin:2px 0 6px;">optional</p><input type="month" id="mUseAfter" value="${batch.useAfter||''}"></div>
@@ -3863,19 +3872,62 @@ function wireCompostFields(obj, storeKind, onDone){
   });
   modalContent.querySelectorAll('[data-viewbatch]').forEach(b=>b.addEventListener('click', ()=>{
     const past = (obj.compostBatches||[]).find(x=>x.id===b.dataset.viewbatch);
-    if(past) openCompostBatchDetail(past, onDone);
+    if(past) openCompostBatchDetail(past, obj, storeKind, onDone);
   }));
 }
-// A closed batch's own read-only view - its log exactly as it was left, plus its own "Used on"
-// trace. Kept separate from the current batch's screen so an old batch can never be mistaken for
-// what's actually in the crate right now.
-function openCompostBatchDetail(batch, backFn){
+// A past batch's own screen - properly editable, not the read-only view this used to be. Its
+// dates and log can be corrected after the fact, and it carries its own "Used up" switch: turning
+// that on drops it out of the Source picker everywhere (nothing left in it worth choosing), while
+// leaving it exactly where it is in this Past batches list and in the "Used on" trace below - nothing
+// is deleted or hidden from history, it just stops being offered as something to log against.
+function compostBatchEditHTML(batch){
   const entries = (batch.contentsLog||[]).slice().sort((a,b)=> b.date.localeCompare(a.date));
-  const logRows = entries.map(e=>`<div class="planting-row"><span class="pname">${escapeHTML(e.note)}</span><span class="pdate">${dayLabel(e.date)}</span></div>`).join('') || '<p class="muted">Nothing logged.</p>';
+  const logRows = entries.map(e=>`<div class="planting-row"><span class="pname">${escapeHTML(e.note)}</span><span class="pdate">${dayLabel(e.date)}</span></div>
+    <button type="button" class="btn small danger" data-dellog="${e.id}" style="margin:-6px 0 8px;">Remove entry</button>`).join('') || '<p class="muted">Nothing logged.</p>';
+  return `<div class="form-row">
+      <div><label>Started</label><input type="date" id="mBatchStart" value="${batch.startDate||''}"></div>
+      <div><label>Ended</label><input type="date" id="mBatchEnd" value="${batch.endDate||''}"></div>
+    </div>
+    <div class="toggle-row"><span>Used up</span><label class="switch"><input type="checkbox" id="mUsedUp" ${batch.usedUp?'checked':''}><span class="slider"></span></label></div>
+    <div class="row-heading">What went in</div>
+    ${logRows}
+    <div class="form-row" style="margin-top:6px;"><div><label>Date</label><input type="date" id="mLogDate" value="${todayISO()}"></div><div><label>Added</label><input type="text" id="mLogNote" placeholder="e.g. Horse manure"></div></div>
+    <button type="button" class="btn small secondary" id="mLogAdd" style="margin-bottom:14px;">+ Add to log</button>`;
+}
+function wireCompostBatchEdit(batch, obj, storeKind, onDone){
+  document.getElementById('mBatchStart').addEventListener('change', async ()=>{
+    batch.startDate = document.getElementById('mBatchStart').value || null;
+    await put(storeKind, obj); await afterChange(); onDone();
+  });
+  document.getElementById('mBatchEnd').addEventListener('change', async ()=>{
+    batch.endDate = document.getElementById('mBatchEnd').value || null;
+    await put(storeKind, obj); await afterChange(); onDone();
+  });
+  document.getElementById('mUsedUp').addEventListener('change', async ()=>{
+    batch.usedUp = document.getElementById('mUsedUp').checked;
+    await put(storeKind, obj); await afterChange(); onDone();
+  });
+  document.getElementById('mLogAdd').addEventListener('click', async ()=>{
+    const note = document.getElementById('mLogNote').value.trim();
+    if(!note) return;
+    const date = document.getElementById('mLogDate').value || todayISO();
+    batch.contentsLog = batch.contentsLog || [];
+    batch.contentsLog.push({id:uid(), date, note});
+    await put(storeKind, obj); await afterChange(); onDone();
+  });
+  modalContent.querySelectorAll('[data-dellog]').forEach(b=>b.addEventListener('click', async ()=>{
+    const id = b.dataset.dellog;
+    batch.contentsLog = (batch.contentsLog||[]).filter(e=>e.id!==id);
+    await recordTombstone(id);
+    await put(storeKind, obj); await afterChange(); onDone();
+  }));
+}
+function openCompostBatchDetail(batch, obj, storeKind, backFn){
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${escapeHTML(compostBatchLabel(batch))}</h3>
-    <div class="row-heading">What went in</div>${logRows}
+    ${compostBatchEditHTML(batch)}
     ${compostUsedOnHTML(batch.id)}`, true);
   document.getElementById('mBack').addEventListener('click', backFn);
+  wireCompostBatchEdit(batch, obj, storeKind, ()=>openCompostBatchDetail(batch, obj, storeKind, backFn));
   wireCompostUsedOn();
 }
 // Every batch, past and current, from every compost source - plain heaps, plus any container/
@@ -3889,7 +3941,7 @@ function compostSourceOptions(){
     if(f.type==='compost' || ((f.type==='container'||f.type==='basket') && f.composting)) crates.push({kind:'feature', id:f.id, label:f.label||FEATURE_TYPES[f.type].label, obj:f});
   });
   STATE.beds.forEach(b=>{ if(b.raised && b.composting) crates.push({kind:'bed', id:b.id, label:b.name, obj:b}); });
-  const groups = crates.map(c=>({...c, batches:(c.obj.compostBatches||[]).slice().sort((a,b)=> (b.startDate||'').localeCompare(a.startDate||''))})).filter(g=>g.batches.length);
+  const groups = crates.map(c=>({...c, batches:(c.obj.compostBatches||[]).filter(b=>!b.usedUp).sort((a,b)=> (b.startDate||'').localeCompare(a.startDate||''))})).filter(g=>g.batches.length);
   groups.sort((a,b)=> (b.batches[0].startDate||'').localeCompare(a.batches[0].startDate||''));
   const options = [];
   groups.forEach(g=> g.batches.forEach(batch=> options.push({sourceKind:g.kind, sourceId:g.id, batchId:batch.id, label:`${g.label} — ${compostBatchLabel(batch)}`})));
