@@ -13,7 +13,7 @@
 <style>
   :root{
     --paper:#EDEFE2; --paper-dark:#E2E4D2; --card:#F6F7EE; --ink:#2B2A22; --soil:#4A3728;
-    --leaf:#3F6644; --leaf-light:#7E9A6D; --slate:#435760; --mustard:#B9852B; --brick:#A23B2D;
+    --leaf:#3F6644; --leaf-light:#7E9A6D; --slate:#435760; --mustard:#B9852B; --brick:#A23B2D; --danger:#A23B2D;
     --line:#C9C6AE; --line-soft:#DBD9C4; --radius:8px;
   }
   *{box-sizing:border-box;}
@@ -978,8 +978,8 @@ const KNOWN_CROPS = [
   {name:'Swede', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:130, tender:false, repeatHarvest:false, words:['swede'], varieties:[], underCoverMonth:4, directSowMonth:5},
   {name:'Turnip', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:55, tender:false, repeatHarvest:false, words:['turnip'], varieties:[], underCoverMonth:3, directSowMonth:4},
   {name:'Kohlrabi', family:'Brassicas', sowToPotOn:21, transplantToHarvest:60, directSowToHarvest:65, tender:false, repeatHarvest:false, words:['kohlrabi'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Leek', family:'Alliums', sowToPotOn:70, transplantToHarvest:120, directSowToHarvest:null, tender:false, repeatHarvest:false, words:['leek'], varieties:['Musselburgh','Tornado',"Chef's White"], underCoverMonth:2, directSowMonth:4},
-  {name:'Onion', family:'Alliums', sowToPotOn:56, transplantToHarvest:110, directSowToHarvest:null, tender:false, repeatHarvest:false, words:['onion'], varieties:['Stuttgarter','Sturon','Red Baron','Elista','Walla Walla','Senshyu'], underCoverMonth:1, directSowMonth:3},
+  {name:'Leek', family:'Alliums', sowToPotOn:70, transplantToHarvest:120, directSowToHarvest:120, tender:false, repeatHarvest:false, words:['leek'], varieties:['Musselburgh','Tornado',"Chef's White"], underCoverMonth:2, directSowMonth:4},
+  {name:'Onion', family:'Alliums', sowToPotOn:56, transplantToHarvest:110, directSowToHarvest:120, tender:false, repeatHarvest:false, words:['onion'], varieties:['Stuttgarter','Sturon','Red Baron','Elista','Walla Walla','Senshyu'], underCoverMonth:1, directSowMonth:3},
   {name:'Garlic', family:'Alliums', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:240, tender:false, repeatHarvest:false, words:['garlic'], varieties:['Solent Wight','Germidour'], underCoverMonth:10, directSowMonth:10},
   {name:'Elephant Garlic', family:'Alliums', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:270, tender:false, repeatHarvest:false, words:['elephant garlic'], varieties:[], underCoverMonth:10, directSowMonth:10},
   {name:'Lettuce', family:'Other', sowToPotOn:21, transplantToHarvest:45, directSowToHarvest:50, tender:true, repeatHarvest:true, words:['lettuce','salad leaves'], varieties:['Little Gem','Lollo Rosso',"Webbs Wonderful",'Bright and Spicy','Mesclun Mixed'], underCoverMonth:2, directSowMonth:3},
