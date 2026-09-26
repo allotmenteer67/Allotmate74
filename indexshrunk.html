@@ -1199,6 +1199,16 @@ if(CROP_ISSUES[crop.name]) return CROP_ISSUES[crop.name];
 const {crop:m, confident} = matchCropWithConfidence(crop.name);
 return (m && confident) ? (CROP_ISSUES[m.name] || []) : [];
 }
+// Weeds aren't a property of the crop the way pests/diseases are, so there's no built-in list to
+// offer the way there is for Insecticide/Pesticide - instead this learns from your own past
+// Weedkiller entries across every bed, container and tray, offering back whatever's actually been
+// typed before as a reason, most-used first.
+function commonWeedkillerReasons(){
+const counts = {};
+const scan = arr => (arr||[]).forEach(o=> (o.treatments||[]).forEach(t=>{ if(t.type==='Weedkiller' && t.reason) counts[t.reason] = (counts[t.reason]||0)+1; }));
+scan(STATE.beds); scan(STATE.features); scan(STATE.trays);
+return Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([r])=>r);
+}
 function matchCrop(typed){
 const {crop, confident} = matchCropWithConfidence(typed);
 return confident ? crop : null;
@@ -5744,22 +5754,74 @@ return el.value==='yes';
 }
 function treatmentChipsHTML(){
 // Compost used to be left out here since logging it properly needed a source picked, with
-// nowhere sensible to ask that mid-sow. Now that quick-tap Compost logs the same way as every
-// other type - instantly, source left blank and added afterward - that reasoning no longer
-// applies, so it's included here too for the same reason: this is what you're actually starting
-// most trays and containers with, and needing to close, reopen, and dig back in just to flag it
-// was exactly the friction this row exists to avoid for everything else.
+// nowhere sensible to ask that mid-sow. It's included now, and tapping it reveals its own
+// Source picker right in this row (same options as everywhere else Source is asked) - so this
+// is what you're actually starting most trays and containers with, and the whole thing, source
+// included, is done in one pass rather than needing a trip back in afterward.
+// Insecticide/Pesticide/Weedkiller get the same on-tap reveal, but only where there's something
+// to reveal: a small tap-to-pick "what for?" row, never free text - the crop's own known issues
+// for the first two (the same list already shown read-only elsewhere on this screen), your own
+// past Weedkiller reasons for the third. Nothing else here gets this treatment - Feed, Manure,
+// Fertiliser and Other only ever take a free-text product name, which there's nothing faster
+// than just typing later if you want it, so revealing anything for those would only slow the
+// row down for no real gain.
+const sources = compostSourceOptions();
+const sourceOptionsHTML = `<option value="bought">Bought in</option>` + sources.map(s=>`<option value="${s.sourceKind}:${s.sourceId}:${s.batchId}">${escapeHTML(s.label)}</option>`).join('');
+const detailRow = (type)=> `<div class="form-row" id="sowDetail${type}Row" style="display:none; margin-top:-2px;"><div><label>What for?</label><div class="swatch-row" id="sowDetail${type}Chips"></div></div></div>`;
 return `<label style="margin-top:6px;">Treatments used</label>
-<div class="swatch-row" id="sowTagRow">${TREATMENT_TYPES.map(t=>`<button type="button" class="btn small secondary" data-tag="${t}">${t}</button>`).join('')}</div>`;
+<div class="swatch-row" id="sowTagRow">${TREATMENT_TYPES.map(t=>`<button type="button" class="btn small secondary" data-tag="${t}">${t}</button>`).join('')}</div>
+<div class="form-row" id="sowCompostSourceRow" style="display:none; margin-top:-2px;"><div><label>Source</label><select id="mSowCompostSource">${sourceOptionsHTML}</select></div></div>
+${detailRow('Insecticide')}${detailRow('Pesticide')}${detailRow('Weedkiller')}`;
 }
 function wireTreatmentChips(container){
 let picked = [];
+const detailValues = {};
+const detailTypes = ['Insecticide','Pesticide','Weedkiller'];
+const sources = compostSourceOptions();
+const sourceRow = container.querySelector('#sowCompostSourceRow');
+const sourceSel = container.querySelector('#mSowCompostSource');
+const cropNameEl = container.querySelector('#mCropName');
+function issuesForCurrentCrop(){
+const typed = cropNameEl ? cropNameEl.value.trim() : '';
+if(!typed) return [];
+const {crop, confident} = matchCropWithConfidence(typed);
+return (crop && confident) ? commonIssuesFor(crop) : [];
+}
+function renderDetailChips(type){
+const row = container.querySelector(`#sowDetail${type}Row`);
+const chipsBox = container.querySelector(`#sowDetail${type}Chips`);
+if(!row || !chipsBox) return;
+if(!picked.includes(type)){ row.style.display='none'; return; }
+const options = type==='Weedkiller' ? commonWeedkillerReasons() : issuesForCurrentCrop();
+if(!options.length){ row.style.display='none'; return; }
+chipsBox.innerHTML = options.map(o=>`<button type="button" class="btn small secondary" data-detailchip data-value="${escapeAttr(o)}">${escapeHTML(o)}</button>`).join('');
+row.style.display = '';
+chipsBox.querySelectorAll('[data-detailchip]').forEach(b=>b.addEventListener('click', ()=>{
+detailValues[type] = b.dataset.value;
+chipsBox.querySelectorAll('[data-detailchip]').forEach(x=>x.classList.add('secondary'));
+b.classList.remove('secondary');
+}));
+}
 container.querySelectorAll('[data-tag]').forEach(b=>b.addEventListener('click', ()=>{
 const t = b.dataset.tag;
 if(picked.includes(t)){ picked = picked.filter(x=>x!==t); b.classList.add('secondary'); }
 else { picked.push(t); b.classList.remove('secondary'); }
+if(t==='Compost' && sourceRow) sourceRow.style.display = picked.includes('Compost') ? '' : 'none';
+if(detailTypes.includes(t)) renderDetailChips(t);
 }));
-return ()=>picked.map(t=>({id:uid(), type:t, date:todayISO(), notes:'', by:who()}));
+// The pest/disease chips depend on which crop is being sown, which can still be changing as
+// this is typed - so Insecticide/Pesticide (not Weedkiller, which isn't crop-specific) refresh
+// live rather than being fixed at the moment the row was first revealed.
+if(cropNameEl) cropNameEl.addEventListener('input', ()=>{ ['Insecticide','Pesticide'].forEach(renderDetailChips); });
+return ()=>picked.map(t=>{
+const rec = {id:uid(), type:t, date:todayISO(), notes:'', reason: detailValues[t]||'', by:who()};
+if(t==='Compost' && sourceSel && sourceSel.value){
+const sv = sourceSel.value;
+if(sv==='bought') rec.sourceKind = 'bought';
+else { const [k,id,batchId] = sv.split(':'); const src = sources.find(s=>s.batchId===batchId); rec.sourceKind=k; rec.sourceId=id; rec.batchId=batchId; rec.sourceLabel = src?src.label:undefined; }
+}
+return rec;
+});
 }
 function renderWishlist(){
 const wrap = document.getElementById('wishlistBody');
