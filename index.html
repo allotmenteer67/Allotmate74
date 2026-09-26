@@ -494,6 +494,7 @@
         <button class="btn secondary" id="btnExport">Save a copy</button>
         <label class="btn secondary" style="margin:0;">Load a copy<input type="file" id="importFile" accept="application/json" style="display:none;"></label>
       </div>
+      <p class="muted" id="backupLoadStatus" style="margin-top:8px;"></p>
       <div class="toggle-row" style="margin-top:14px;"><span>Back up automatically</span><label class="switch"><input type="checkbox" id="autoBackupToggle"><span class="slider"></span></label></div>
       <p class="muted" id="autoBackupStatus" style="margin-top:6px;"></p>
       <button class="btn secondary" id="btnDownloadSnapshot" style="margin-top:8px; display:none;">Download last automatic backup</button>
@@ -628,6 +629,11 @@
         <button class="btn small secondary" data-units="imperial">Feet &amp; inches</button>
       </div>
     </section>
+
+    <section class="panel">
+      <h2>About</h2>
+      <p class="muted" id="aboutVersionLine"></p>
+    </section>
   </div>
 
   <!-- HELP -->
@@ -715,6 +721,10 @@
 <script>
 /* ======================= DATA LAYER ======================= */
 const DB_NAME='plotbook4', DB_VERSION=5; let db;
+// Bumped by hand on each delivered build so Setup can show which one is actually running -
+// there's no build pipeline here to generate this automatically. Format: the date it was put
+// together, plus a same-day counter for more than one delivery in a day.
+const APP_VERSION = '2026.09.26.1';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -1751,6 +1761,9 @@ async function loadAll(){
   STATE.settings.gardenerName = await getMeta('gardenerName', '');
   STATE.settings.customContainerSizes = await getMeta('customContainerSizes', []);
   STATE.settings.treatmentReasons = await getMeta('treatmentReasons', []);
+  STATE.settings.lastEditedBy = await getMeta('lastEditedBy', '');
+  STATE.settings.lastEditedAt = await getMeta('lastEditedAt', null);
+  STATE.settings.loadedFromBackup = await getMeta('loadedFromBackup', null);
 }
 function cropById(id){ return STATE.crops.find(c=>c.id===id); }
 function bedById(id){ return STATE.beds.find(b=>b.id===id); }
@@ -7675,12 +7688,20 @@ document.querySelectorAll('#cropsSubTabs [data-cropsview]').forEach(b=>b.addEven
 }));
 
 /* ======================= SHARING / SYNC ======================= */
-const SHARED_META_KEYS = ['plotName','plotWidthM','plotDepthM','plotShape','groundColor','postcode','lat','lon','thFrost','thRain','thWind','customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory','tombstones'];
+const SHARED_META_KEYS = ['plotName','plotWidthM','plotDepthM','plotShape','groundColor','postcode','lat','lon','thFrost','thRain','thWind','customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory','tombstones','lastEditedBy','lastEditedAt'];
 let supa = null, syncChannel = null, pushTimer = null, applyingRemote = false, lastKnownRemoteUpdatedAt = null, renderPending = false;
 
 async function afterChange(){
   if(!restoring && !applyingRemote){
     if(lastSnapshot){ undoStack.push(lastSnapshot); if(undoStack.length>30) undoStack.shift(); redoStack=[]; }
+    // Stamped on every genuine local change (not a remote update landing, not undo/redo's own
+    // internal restore) so "last edited by" in Share reflects who actually changed something,
+    // rather than just whoever's device happens to sync last for unrelated reasons.
+    const editor = who();
+    if(editor){
+      await setMeta('lastEditedBy', editor);
+      await setMeta('lastEditedAt', new Date().toISOString());
+    }
   }
   await loadAll();
   renderAll();
@@ -7940,9 +7961,13 @@ function renderSharePanel(){
     const statusLine = STATE.settings.lastSyncFailed
       ? `<p style="color:var(--brick); font-weight:700;">⚠️ Last sync attempt didn't go through — will keep trying.</p>`
       : (STATE.settings.lastSyncOkAt ? `<p class="muted">Last synced ${dayLabel(STATE.settings.lastSyncOkAt.slice(0,10))} at ${new Date(STATE.settings.lastSyncOkAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}.</p>` : '');
+    const lastEditLine = STATE.settings.lastEditedBy && STATE.settings.lastEditedAt
+      ? `<p class="muted">Last edited by ${escapeHTML(STATE.settings.lastEditedBy)}, ${dayLabel(STATE.settings.lastEditedAt.slice(0,10))} at ${new Date(STATE.settings.lastEditedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}.</p>`
+      : '';
     body.innerHTML = `${nameField}
       <p style="margin-top:14px;">✅ Sharing is on — every gardener sees the same plot automatically.</p>
       ${statusLine}
+      ${lastEditLine}
       <p class="muted">Your plot's code: <strong>${escapeHTML(code)}</strong></p>
       <div class="btn-row"><button class="btn" id="btnInvite">Invite another gardener</button><button class="btn secondary" id="btnTurnOff">Turn off sharing</button></div>`;
     document.getElementById('btnInvite').addEventListener('click', ()=>{ if(requireGardenerName()) openInviteScreen(code); });
@@ -8250,6 +8275,10 @@ document.getElementById('importFile').addEventListener('change', async (e)=>{
     closeModal();
     if(replace){ for(const store of stores) await clearStore(store); }
     for(const store of stores) if(dump[store]) for(const obj of dump[store]) await put(store,obj);
+    // Which backup a device is currently running on is a per-device fact, not something to sync -
+    // two devices can quite reasonably be restored from two different files - so this is kept
+    // local only, not added to SHARED_META_KEYS.
+    await setMeta('loadedFromBackup', {name:file.name, mode:replace?'replace':'merge', at:new Date().toISOString()});
     await loadAll(); await afterChange();
     alert(replace ? 'Backup loaded — this replaces what was here before.' : 'Backup merged in.');
     e.target.value = '';
@@ -8306,6 +8335,12 @@ function renderAll(){
   document.getElementById('autoBackupStatus').textContent = STATE.settings.autoBackupOn
     ? (STATE.settings.lastBackupAt ? `Last backup: ${dayLabel(STATE.settings.lastBackupAt.slice(0,10))} at ${new Date(STATE.settings.lastBackupAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}.` : 'On — will back up quietly in the background next time the app is open online.')
     : "Off — you'll need to tap Save a copy yourself. You'll get an occasional reminder if it's been a while.";
+  const lfb = STATE.settings.loadedFromBackup;
+  document.getElementById('backupLoadStatus').textContent = lfb
+    ? `This device: ${lfb.mode==='replace'?'restored from':'merged in'} "${lfb.name}" on ${dayLabel(lfb.at.slice(0,10))} at ${new Date(lfb.at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}.`
+    : "This device: running its own ongoing data, not restored from a backup file.";
+  const aboutEl = document.getElementById('aboutVersionLine');
+  if(aboutEl) aboutEl.textContent = `Version ${APP_VERSION}`;
   const snapBtn = document.getElementById('btnDownloadSnapshot');
   snapBtn.style.display = STATE.settings.autoSnapshotDate ? '' : 'none';
   if(STATE.settings.autoSnapshotDate) snapBtn.textContent = `Download last automatic backup (${dayLabel(STATE.settings.autoSnapshotDate)})`;
