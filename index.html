@@ -4640,15 +4640,18 @@ function wireTreatmentRows(obj, storeKind, onDone, cropForSuggestions, plantingI
   root = root || modalContent;
   root.querySelectorAll('[data-edittreatment]').forEach(el=>el.addEventListener('click', ()=> openAddTreatment(obj, storeKind, onDone, el.dataset.edittreatment, cropForSuggestions, plantingId)));
   root.querySelectorAll('[data-quicktreatment]').forEach(el=>el.addEventListener('click', async ()=>{
-    // Compost is the one type where the source is the whole point - instant-logging it with
-    // nothing recorded would defeat the traceability this was built for, so it jumps straight
-    // into the full form (pre-selected) rather than logging blind like the other quick-tap types.
-    if(el.dataset.quicktreatment==='Compost'){ openAddTreatment(obj, storeKind, onDone, null, cropForSuggestions, plantingId, 'Compost'); return; }
+    // Every type, Compost included, logs instantly on tap - consistent with quick, on-site data
+    // entry rather than forcing a detour through a form before anything's recorded. Compost's
+    // source is simply left blank at this point (same as how "reason" starts blank for every
+    // other type), and the follow-up toast jumps straight into editing to fill it in right after
+    // if wanted - identical shape to "Add a reason", just worded around the field that actually
+    // matters for this type.
     obj.treatments = obj.treatments||[];
-    const rec = {id:uid(), type:el.dataset.quicktreatment, date:todayISO(), notes:'', reason:'', by:who(), plantingId};
+    const type = el.dataset.quicktreatment;
+    const rec = {id:uid(), type, date:todayISO(), notes:'', reason:'', by:who(), plantingId};
     obj.treatments.push(rec);
     await put(storeKind, obj); await afterChange(); onDone();
-    toastWithAction('Logged', 'Add a reason', ()=> openAddTreatment(obj, storeKind, onDone, rec.id, cropForSuggestions, plantingId));
+    toastWithAction('Logged', type==='Compost'?'Add source':'Add a reason', ()=> openAddTreatment(obj, storeKind, onDone, rec.id, cropForSuggestions, plantingId));
   }));
 }
 function openDirectSow(bedId, presetName, kind){
@@ -5794,11 +5797,14 @@ function readRepeatHarvestField(){
   return el.value==='yes';
 }
 function treatmentChipsHTML(){
-  // Compost is left out here on purpose - logging it properly needs a source picked, and there's
-  // nowhere sensible to ask that mid-sow. It's still fully available afterward via the quick-tap
-  // row or "+ Add a treatment" on the bed/container itself, both of which ask for the source.
+  // Compost used to be left out here since logging it properly needed a source picked, with
+  // nowhere sensible to ask that mid-sow. Now that quick-tap Compost logs the same way as every
+  // other type - instantly, source left blank and added afterward - that reasoning no longer
+  // applies, so it's included here too for the same reason: this is what you're actually starting
+  // most trays and containers with, and needing to close, reopen, and dig back in just to flag it
+  // was exactly the friction this row exists to avoid for everything else.
   return `<label style="margin-top:6px;">Treatments used</label>
-    <div class="swatch-row" id="sowTagRow">${TREATMENT_TYPES.filter(t=>t!=='Compost').map(t=>`<button type="button" class="btn small secondary" data-tag="${t}">${t}</button>`).join('')}</div>`;
+    <div class="swatch-row" id="sowTagRow">${TREATMENT_TYPES.map(t=>`<button type="button" class="btn small secondary" data-tag="${t}">${t}</button>`).join('')}</div>`;
 }
 function wireTreatmentChips(container){
   let picked = [];
