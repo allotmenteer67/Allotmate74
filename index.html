@@ -215,7 +215,8 @@
   .pic-ruler.show{opacity:1;}
   .picgrid.show{opacity:1;}
   .crop-box{position:absolute; border:2px solid var(--leaf); background:#ffffffd9; border-radius:6px; display:flex; align-items:flex-start; gap:4px; padding:6px 7px 2px; font-size:15px; font-weight:700; overflow:hidden; touch-action:none; cursor:grab; white-space:nowrap;}
-  .crop-box.icon-centered{justify-content:center; align-items:center;}
+  .crop-box.icon-centered{justify-content:center; align-items:center; padding:1px 5px;}
+  .crop-mark-dot{display:flex; align-items:center; justify-content:center; height:17px; line-height:1;}
   .crop-box.anchor-y-bottom{align-items:flex-end; padding:2px 7px 6px;}
   .crop-box.anchor-x-right{justify-content:flex-end;}
   .crop-icon{font-size:16px; line-height:1; flex-shrink:0;}
@@ -724,7 +725,7 @@ const DB_NAME='plotbook4', DB_VERSION=5; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.09.26.1';
+const APP_VERSION = '2026.09.28.1';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -3006,49 +3007,83 @@ function measureLabelWidth(text){
   _labelMeasureCtx.font = '700 15px Karla, sans-serif'; // matches .crop-box's own font-size/weight and the app's base font-family
   return _labelMeasureCtx.measureText(text).width;
 }
-function cropBoxContentHTML(label, icon, w, h, num){
+function cropBoxContentHTML(label, icon, w, h, num, dotHTML){
+  // One rule for every box, whatever it holds: content is centred across the box and, when there
+  // is room, hangs from the top edge - so an icon crop, a plain-name crop (Fallow, an unmatched
+  // name) and a path all sit in the same place instead of each drawing itself its own way. The
+  // only difference is what stands in the "mark" slot above the name: the crop's icon if it has
+  // one, otherwise its coloured family dot (given the same 17px slot, so the names line up).
+  // As a box gets smaller it steps down through the tiers below - stack, one centred row, icon
+  // alone, name alone at a font sized to the box - and where even a legible name won't fit it
+  // shows nothing rather than a half-sliced word.
+  //
+  // The tray number sits as its own small line directly under an icon rather than as trailing
+  // "#N" text on the label - the digit count was inflating the label's effective length by a
+  // different amount per tray, pushing otherwise similar trays into different layouts. A number
+  // needs an icon to sit under; where there isn't one it rides on the name as "#N" instead.
   const escLabel = escapeHTML(label);
-  // The tray number sits as its own small line directly under the icon (not a corner badge - see
-  // below, second attempt) rather than as trailing "#N" text on the label itself - the digit
-  // count was inflating the label's effective length by a different, unpredictable amount per
-  // tray (a two-digit "#31" versus a one-digit "#2"), which was a real contributor to two
-  // otherwise similar trays landing in different layout branches. A number needs an icon to sit
-  // under, and not every box has one (an empty tray, or a crop name the app can't confidently
-  // match) - for those, the number still needs to be visible somewhere, so it falls back to the
-  // old "#N" suffix rather than being silently dropped.
   const numTag = num!=null ? ` #${num}` : '';
+  const hasIcon = !!icon;
   const NUM_LINE_PX = 13;
-  if(!icon) return {html:`<span class="lbl">${escLabel}${numTag}</span>`, iconUsed:false, centered:false};
-  const ICON_PX = 16, PAD_PX = 14, GAP_PX = 4, LINE_PX = 12;
-  const textPx = measureLabelWidth(label);
-  // Tried before the side-by-side row below, not after - the full stack (icon above number above
-  // wrapped text, all one column) is the single presentation every box uses when it fits, rather
-  // than picking whichever of the two happened to fit first. Trying the row layout first meant a
-  // box just wide enough for one line landed there even when it had plenty of height to spare,
-  // producing the exact mismatch reported: a two-row icon-and-number block sitting to one side of
-  // a single-row label, each a different height, looking genuinely inconsistent rather than just
-  // differently laid out.
-  const availTextW = w - PAD_PX;
-  const linesNeeded = availTextW>=18 ? Math.ceil(textPx/availTextW) : 99;
-  if(availTextW>=18 && linesNeeded<=3 && h >= ICON_PX+4+linesNeeded*LINE_PX+6+(num!=null?NUM_LINE_PX:0)){
-    const numHTML = num!=null ? `<span class="crop-icon-num">${num}</span>` : '';
-    return {html:`<div class="crop-box-stack"><span class="crop-icon-wrap stacked-num"><span class="crop-icon">${icon}</span>${numHTML}</span><span class="lbl">${escLabel}</span></div>`, iconUsed:true, centered:false};
+  const STACK_PAD_PX = 18;   // 2px border + 7px padding, each side
+  const ROW_PAD_PX = 14;     // 2px border + 5px padding, each side (see .icon-centered)
+  const GAP_PX = 4, LINE_H = 1.15, BOX_TOP_PX = 10; // border 2+2, top padding 6
+  const MIN_FONT_PX = 10;
+  const markPx = (hasIcon || dotHTML) ? 17 : 0;
+  const markW = hasIcon ? 16 : (dotHTML ? 9 : 0);
+  const shownText = hasIcon ? label : label + numTag;
+  const escShown = hasIcon ? escLabel : escLabel + numTag;
+  const textPx = measureLabelWidth(shownText);
+  const longestWordPx = Math.max(...shownText.split(/\s+/).map(measureLabelWidth));
+
+  // 1. Full stack: mark, then the name wrapped over up to three lines. A name is never broken
+  // mid-word: if its longest word is wider than the box, the text is shrunk to keep it whole,
+  // down to a legible limit, and only if it still won't fit does this tier give way.
+  const availTextW = w - STACK_PAD_PX;
+  if(availTextW >= 18){
+    const scale = Math.min(1, availTextW / Math.max(1, longestWordPx));
+    if(scale >= 0.72){
+      const fontPx = Math.floor(15*scale);
+      const linesNeeded = Math.ceil((textPx*scale) / availTextW);
+      const numLine = (hasIcon && num!=null) ? NUM_LINE_PX : 0;
+      if(linesNeeded<=3 && h >= BOX_TOP_PX + markPx + linesNeeded*fontPx*LINE_H + numLine + 2){
+        const numHTML = (hasIcon && num!=null) ? `<span class="crop-icon-num">${num}</span>` : '';
+        const markBlock = hasIcon
+          ? `<span class="crop-icon-wrap stacked-num"><span class="crop-icon">${icon}</span>${numHTML}</span>`
+          : (dotHTML ? `<span class="crop-mark-dot">${dotHTML}</span>` : '');
+        const lblStyle = fontPx<15 ? ` style="font-size:${fontPx}px;"` : '';
+        return {html:`<div class="crop-box-stack">${markBlock}<span class="lbl"${lblStyle}>${escShown}</span></div>`, centered:false, boxStyle:'', noLock:false};
+      }
+    }
   }
-  // Side-by-side row: for a box too short for the full stack but wide enough for icon and text on
-  // one line. No number here even when one exists - showing it would mean reintroducing that same
-  // two-row-block-next-to-one-row-of-text mismatch this whole reordering exists to avoid, and the
-  // crop name is the one thing that should never be sacrificed to make room for it. The number
-  // isn't lost - it's still shown in the icon-only fallback below when there's genuinely no room
-  // for text at all, and always on the tray's own row in the list underneath this picture.
-  if(w >= ICON_PX+GAP_PX+textPx+PAD_PX && h >= 20){
-    return {html:`<span class="crop-icon">${icon}</span><span class="lbl">${escLabel}</span>`, iconUsed:true, centered:false};
+  // 2. One centred row - mark beside the name - for a box too short for the stack but wide enough
+  // for both on one line. No number here even when one exists: a two-row icon-and-number block
+  // beside a one-row name is the exact mismatch the stack ordering exists to avoid, and the name
+  // is the one thing not to sacrifice for it. The number is still shown in the icon-only tier and
+  // always on the tray's own row in the list underneath.
+  if(w >= markW + (markW?GAP_PX:0) + textPx + ROW_PAD_PX && h >= 24){
+    const markInline = hasIcon ? `<span class="crop-icon">${icon}</span>` : (dotHTML||'');
+    return {html:`${markInline}<span class="lbl">${escShown}</span>`, centered:true, boxStyle:'', noLock:false};
   }
-  if(w >= ICON_PX+PAD_PX/2 && h >= ICON_PX+6){
-    const fitsNum = num!=null && h >= ICON_PX+6+NUM_LINE_PX;
+  // 3. Icon alone, with its number if there's a sliver of room for one.
+  if(hasIcon && w >= 16+ROW_PAD_PX/2 && h >= 22){
+    const fitsNum = num!=null && h >= 16+6+NUM_LINE_PX;
     const numHTML = fitsNum ? `<span class="crop-icon-num">${num}</span>` : '';
-    return {html:`<span class="crop-icon-wrap stacked-num"><span class="crop-icon" style="font-size:15px;">${icon}</span>${numHTML}</span>`, iconUsed:true, centered:true};
+    return {html:`<span class="crop-icon-wrap stacked-num"><span class="crop-icon" style="font-size:15px;">${icon}</span>${numHTML}</span>`, centered:true, boxStyle:'', noLock:false};
   }
-  return {html:`<span class="lbl">${escLabel}${numTag}</span>`, iconUsed:false, centered:false};
+  // 4. The name alone, centred, at whatever font size fits the box's own height and width - a thin
+  // strip (a path, a narrow bed) still gets a readable label rather than one sliced off by its own
+  // padding. Below a legible size there's nothing worth drawing, so the box is left blank instead
+  // (it grows back in as the picture scales up).
+  const innerH = h - 6, innerW = w - 12;
+  if(innerH>0 && innerW>0){
+    let fontPx = Math.min(15, Math.floor(innerH));
+    if(textPx > innerW) fontPx = Math.min(fontPx, Math.floor(15*innerW/textPx));
+    if(fontPx >= MIN_FONT_PX){
+      return {html:`<span class="lbl">${escShown}</span>`, centered:true, boxStyle:`font-size:${fontPx}px; line-height:1;`, noLock:true};
+    }
+  }
+  return {html:'', centered:true, boxStyle:'', noLock:true};
 }
 function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onChange, onTap, highlightId, isEmptyFn, getColor, getNumber, allowOverhang, _isRetry){
   const el = document.getElementById(containerId);
@@ -3228,9 +3263,14 @@ function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onCha
   for(let i=0;i<items.length;i++){
     for(let j=i+1;j<items.length;j++){
       const a = effectivePos[i], b = effectivePos[j];
-      const overlapsX = a._boxLeft < b._boxLeft+b._boxW && b._boxLeft < a._boxLeft+a._boxW;
-      const overlapsY = a._boxTop < b._boxTop+b._boxH && b._boxTop < a._boxTop+a._boxH;
-      if(!(overlapsX && overlapsY)) continue; // no real overlap — leave both on the tier's own anchor
+      // How far the two boxes actually cover each other, in pixels - not just whether they touch.
+      // Neighbours that sit edge to edge (a bed and the path beside it) routinely overlap by a
+      // pixel or so once sizes are snapped and rounded, and that alone used to count as overlap,
+      // which pushed the lower box's label down to the bottom of its box (a crop sitting just
+      // under a path, say) while every other box kept its label at the top.
+      const overlapW = Math.min(a._boxLeft+a._boxW, b._boxLeft+b._boxW) - Math.max(a._boxLeft, b._boxLeft);
+      const overlapH = Math.min(a._boxTop+a._boxH, b._boxTop+b._boxH) - Math.max(a._boxTop, b._boxTop);
+      if(overlapW <= 6 || overlapH <= 6) continue; // touching or barely overlapping — leave both on the tier's own anchor
       // Which one actually sits above the other, by their real positions — not just array order —
       // so each label gets pushed to the end of its OWN box that's farthest from the other box.
       const aCenterY = a._boxTop + a._boxH/2, bCenterY = b._boxTop + b._boxH/2;
@@ -3248,7 +3288,8 @@ function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onCha
     const label = getLabel(it);
     const icon = isEmpty ? null : iconForLabel(label);
     const num = getNumber ? getNumber(it) : null;
-    const { html: content, iconUsed, centered } = cropBoxContentHTML(label, icon, w, h, num);
+    const dotHTML = isEmpty ? '' : `<span class="fam-dot" style="background:${col||'var(--leaf)'};"></span>`;
+    const { html: content, centered, boxStyle, noLock } = cropBoxContentHTML(label, icon, w, h, num, dotHTML);
     const alignStyle = labelAlign[idx] ? `align-items:${labelAlign[idx]};` : '';
     // The resize handle is a fixed 20x20px icon, which used to always fit because nothing could be
     // resized narrower than ~30px anyway (see the drag-floor fix above). Now a box genuinely can be
@@ -3256,8 +3297,8 @@ function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onCha
     // an unreachable sliver, making the handle impossible to grab precisely where it matters most.
     // Scale the icon to the box's own size once the box is the smaller of the two.
     const handleSize = Math.max(10, Math.min(20, w, h));
-    html += `<div class="crop-box${hl}${isEmpty?' empty':''}${centered?' icon-centered':''}${(!centered&&anchor.y==='bottom')?' anchor-y-bottom':''}${(!centered&&anchor.x==='right')?' anchor-x-right':''}" data-idx="${idx}" data-allowoverlap="${it.allowOverlap?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${colStyle} ${alignStyle}">
-      ${(!isEmpty && !iconUsed)?`<span class="fam-dot" style="background:${col};"></span>`:''}${content}${it.locked?' 🔒':''}
+    html += `<div class="crop-box${hl}${isEmpty?' empty':''}${centered?' icon-centered':''}${(!centered&&anchor.y==='bottom')?' anchor-y-bottom':''}${(!centered&&anchor.x==='right')?' anchor-x-right':''}" data-idx="${idx}" data-allowoverlap="${it.allowOverlap?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${colStyle} ${alignStyle} ${boxStyle}">
+      ${content}${(it.locked && !noLock)?' 🔒':''}
       ${showResize?`<div class="resize-handle-sm" style="width:${handleSize}px; height:${handleSize}px; ${col?`background:${col};`:''}"></div>`:''}</div>`;
   });
   el.innerHTML = html;
