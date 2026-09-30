@@ -672,7 +672,7 @@ const DB_NAME='plotbook4', DB_VERSION=5; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.09.29.3';
+const APP_VERSION = '2026.09.29.4';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -4000,8 +4000,17 @@ if(f.type==='compost' || ((f.type==='container'||f.type==='basket') && f.compost
 STATE.beds.forEach(b=>{ if(b.raised && b.composting) crates.push({kind:'bed', id:b.id, label:b.name, obj:b}); });
 // Only a crate switched "In use" (from the plot-wide Compost list) is offered here - with a
 // couple of dozen crates and only ever one or two genuinely being drawn from, listing every one
-// of them here made the actual pick a long scroll to get through.
-const groups = crates.filter(c=>c.obj.compostInUse).map(c=>({...c, batches:(c.obj.compostBatches||[]).filter(b=>!b.usedUp).sort((a,b)=> (a.startDate||'').localeCompare(b.startDate||''))})).filter(g=>g.batches.length);
+// of them here made the actual pick a long scroll to get through. And within an in-use crate,
+// only its single oldest not-used-up batch - a crate can hold an old, finished batch and a
+// fresh one filling at the same time, and offering both as separate picks for the same crate
+// name was its own source of confusion (which "Crate 12" is this?). The existing "Used up"
+// switch on a batch is what moves the picker on to the next one - mark the old batch used up
+// once it's gone and the newer one becomes the one offered, same as it already worked, just
+// never more than one at a time now.
+const groups = crates.filter(c=>c.obj.compostInUse).map(c=>{
+const notUsedUp = (c.obj.compostBatches||[]).filter(b=>!b.usedUp).sort((a,b)=> (a.startDate||'').localeCompare(b.startDate||''));
+return {...c, batches: notUsedUp.slice(0,1)};
+}).filter(g=>g.batches.length);
 groups.sort((a,b)=> (a.batches[0].startDate||'').localeCompare(b.batches[0].startDate||''));
 const options = [];
 groups.forEach(g=> g.batches.forEach(batch=> options.push({sourceKind:g.kind, sourceId:g.id, batchId:batch.id, label:`${g.label} — ${compostBatchLabel(batch)}`})));
