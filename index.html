@@ -223,6 +223,7 @@
   .crop-box-stack{display:flex; flex-direction:column; align-items:center; gap:0; width:100%; line-height:1.15;}
   .crop-box-stack .crop-icon{font-size:17px;}
   .crop-box-stack .lbl{font-size:15px; white-space:normal; text-align:center; word-break:break-word;}
+  .lbl-extra{display:block; font-size:11px; line-height:1.15; opacity:0.72; margin-top:2px; white-space:nowrap; text-align:center;}
   .crop-icon-wrap{position:relative; display:inline-flex;}
   .crop-icon-wrap.stacked-num{flex-direction:column; align-items:center; line-height:1;}
   .crop-icon-num{display:block; margin-top:2px; font-size:11px; font-weight:800; color:var(--soil); line-height:1;}
@@ -371,7 +372,9 @@
       <div class="tier-row" id="cropsSubTabs">
         <button class="tier-pill active" data-cropsview="crops" id="cropsTabHeading">Crops now growing</button>
         <button class="tier-pill" data-cropsview="compost">Compost</button>
+        <button class="tier-pill" data-cropsview="fallow">Fallow</button>
       </div>
+      <div id="fallowSubList" style="display:none;"></div>
       <button class="btn secondary" id="btnNewCrop" style="margin-bottom:12px;">+ Add one by hand</button>
       <div id="cropList"></div>
       <div id="compostSubList" style="display:none;"></div>
@@ -725,7 +728,7 @@ const DB_NAME='plotbook4', DB_VERSION=5; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.09.28.1';
+const APP_VERSION = '2026.09.29.2';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -808,6 +811,18 @@ function addDays(iso,n){ const d=new Date(iso+'T00:00:00'); d.setDate(d.getDate(
 // missing a date (an old or hand-edited backup, a part-written record) threw inside Array.sort,
 // which took out renderAll() and left the whole app blank rather than just that one row.
 function hDate(h){ return (h && h.harvestDate) || ''; }
+// The one place a bed/container's history entry gets built, whichever of the several removal
+// paths triggered it (remove-and-keep, full delete of something old enough, clearing a crop
+// everywhere it grows). Carries the planting's own start date along with when it was cleared -
+// added specifically so a Fallow period's duration survives once something real is planted over
+// it, since crop rotation planning depends on that record still being there, not just the date
+// it ended. Harmless, and available the same way, for anything else that ever wants it.
+function historyEntryFor(crop, p){
+  const entry = {family:crop?crop.family:'Other', cropName:crop?crop.name:'Something', clearedDate:todayISO()};
+  if(p && p.date) entry.startedDate = p.date;
+  if(p && p.notes) entry.notes = p.notes;
+  return entry;
+}
 function checkRotationClash(bed, cropFamily, cropName){
   if(!cropFamily) return [];
   const recentHistory = (bed.history||[]).slice(-3);
@@ -1653,7 +1668,7 @@ let outlineEditing = false;
 let activeTier = {}; // featId -> tierId, transient (not persisted)
 let traySortMode = {}; // featId -> 'num'|'date'|'az', transient (not persisted)
 let cropsSubTab = 'crops'; // 'crops'|'compost', transient (not persisted) - which half of the Crops tab is showing
-let compostListSort = 'date'; // 'date'|'az'|'usedup', transient (not persisted)
+let compostListSort = 'inuse'; // 'inuse'|'date'|'az', transient (not persisted)
 let autoJumpedTiers = new Set(); // featIds that have already had their first-open smart tier-jump applied this session
 
 function defaultShape(w,h){ return [{x:0,y:0},{x:w,y:0},{x:w,y:h},{x:0,y:h}]; }
@@ -3007,7 +3022,7 @@ function measureLabelWidth(text){
   _labelMeasureCtx.font = '700 15px Karla, sans-serif'; // matches .crop-box's own font-size/weight and the app's base font-family
   return _labelMeasureCtx.measureText(text).width;
 }
-function cropBoxContentHTML(label, icon, w, h, num, dotHTML){
+function cropBoxContentHTML(label, icon, w, h, num, dotHTML, extraLines){
   // One rule for every box, whatever it holds: content is centred across the box and, when there
   // is room, hangs from the top edge - so an icon crop, a plain-name crop (Fallow, an unmatched
   // name) and a path all sit in the same place instead of each drawing itself its own way. The
@@ -3021,6 +3036,11 @@ function cropBoxContentHTML(label, icon, w, h, num, dotHTML){
   // "#N" text on the label - the digit count was inflating the label's effective length by a
   // different amount per tray, pushing otherwise similar trays into different layouts. A number
   // needs an icon to sit under; where there isn't one it rides on the name as "#N" instead.
+  //
+  // extraLines (optional): candidate strings for a supplementary line under the name, longest
+  // first - currently just Fallow's "since <month> · <n> weeks". Only offered in the full stack
+  // tier, where there's genuinely spare room; every smaller tier drops it entirely rather than
+  // squeezing it in, same as the name itself gives way to a plainer tier rather than clipping.
   const escLabel = escapeHTML(label);
   const numTag = num!=null ? ` #${num}` : '';
   const hasIcon = !!icon;
@@ -3029,6 +3049,7 @@ function cropBoxContentHTML(label, icon, w, h, num, dotHTML){
   const ROW_PAD_PX = 14;     // 2px border + 5px padding, each side (see .icon-centered)
   const GAP_PX = 4, LINE_H = 1.15, BOX_TOP_PX = 10; // border 2+2, top padding 6
   const MIN_FONT_PX = 10;
+  const EXTRA_LINE_PX = 14;
   const markPx = (hasIcon || dotHTML) ? 17 : 0;
   const markW = hasIcon ? 16 : (dotHTML ? 9 : 0);
   const shownText = hasIcon ? label : label + numTag;
@@ -3052,7 +3073,19 @@ function cropBoxContentHTML(label, icon, w, h, num, dotHTML){
           ? `<span class="crop-icon-wrap stacked-num"><span class="crop-icon">${icon}</span>${numHTML}</span>`
           : (dotHTML ? `<span class="crop-mark-dot">${dotHTML}</span>` : '');
         const lblStyle = fontPx<15 ? ` style="font-size:${fontPx}px;"` : '';
-        return {html:`<div class="crop-box-stack">${markBlock}<span class="lbl"${lblStyle}>${escShown}</span></div>`, centered:false, boxStyle:'', noLock:false};
+        const usedH = BOX_TOP_PX + markPx + linesNeeded*fontPx*LINE_H + numLine;
+        let extraHTML = '';
+        if(extraLines && extraLines.length){
+          const spareH = h - usedH - 2;
+          for(const cand of extraLines){
+            const candScale = Math.min(1, availTextW / Math.max(1, measureLabelWidth(cand)));
+            // Only ever offered as a single line - a wrapped supplementary line would fight the
+            // name for the same space this tier is already tight on, so it either fits on one
+            // line as-is or the next, shorter candidate is tried instead.
+            if(candScale >= 0.85 && spareH >= EXTRA_LINE_PX + GAP_PX){ extraHTML = `<span class="lbl-extra">${escapeHTML(cand)}</span>`; break; }
+          }
+        }
+        return {html:`<div class="crop-box-stack">${markBlock}<span class="lbl"${lblStyle}>${escShown}</span>${extraHTML}</div>`, centered:false, boxStyle:'', noLock:false};
       }
     }
   }
@@ -3289,7 +3322,16 @@ function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onCha
     const icon = isEmpty ? null : iconForLabel(label);
     const num = getNumber ? getNumber(it) : null;
     const dotHTML = isEmpty ? '' : `<span class="fam-dot" style="background:${col||'var(--leaf)'};"></span>`;
-    const { html: content, centered, boxStyle, noLock } = cropBoxContentHTML(label, icon, w, h, num, dotHTML);
+    // Fallow's own start date is already on the planting (same as any other crop's sow date) -
+    // this just surfaces "how long" from it, in the box itself, only where there's genuinely
+    // spare room (see the extraLines handling inside cropBoxContentHTML). Longest candidate
+    // first; the function itself falls back to the shorter one, or neither, as the box allows.
+    let extraLines = null;
+    if(!isEmpty && label==='Fallow' && it.date){
+      const weeks = Math.floor(daysBetween(it.date, todayISO())/7);
+      extraLines = [`since ${monthYearLabel(it.date)} · ${weeks} week${weeks===1?'':'s'}`, `${weeks} week${weeks===1?'':'s'}`];
+    }
+    const { html: content, centered, boxStyle, noLock } = cropBoxContentHTML(label, icon, w, h, num, dotHTML, extraLines);
     const alignStyle = labelAlign[idx] ? `align-items:${labelAlign[idx]};` : '';
     // The resize handle is a fixed 20x20px icon, which used to always fit because nothing could be
     // resized narrower than ~30px anyway (see the drag-floor fix above). Now a box genuinely can be
@@ -4026,7 +4068,10 @@ function compostSourceOptions(){
     if(f.type==='compost' || ((f.type==='container'||f.type==='basket') && f.composting)) crates.push({kind:'feature', id:f.id, label:f.label||FEATURE_TYPES[f.type].label, obj:f});
   });
   STATE.beds.forEach(b=>{ if(b.raised && b.composting) crates.push({kind:'bed', id:b.id, label:b.name, obj:b}); });
-  const groups = crates.map(c=>({...c, batches:(c.obj.compostBatches||[]).filter(b=>!b.usedUp).sort((a,b)=> (a.startDate||'').localeCompare(b.startDate||''))})).filter(g=>g.batches.length);
+  // Only a crate switched "In use" (from the plot-wide Compost list) is offered here - with a
+  // couple of dozen crates and only ever one or two genuinely being drawn from, listing every one
+  // of them here made the actual pick a long scroll to get through.
+  const groups = crates.filter(c=>c.obj.compostInUse).map(c=>({...c, batches:(c.obj.compostBatches||[]).filter(b=>!b.usedUp).sort((a,b)=> (a.startDate||'').localeCompare(b.startDate||''))})).filter(g=>g.batches.length);
   groups.sort((a,b)=> (a.batches[0].startDate||'').localeCompare(b.batches[0].startDate||''));
   const options = [];
   groups.forEach(g=> g.batches.forEach(batch=> options.push({sourceKind:g.kind, sourceId:g.id, batchId:batch.id, label:`${g.label} — ${compostBatchLabel(batch)}`})));
@@ -4690,7 +4735,7 @@ function openEditPlanting(bedId, plantingId, kind){
       if(oldEnoughForHistory){
         const crop = cropById(p.cropId);
         bed.history = bed.history || [];
-        const entry = {family:crop?crop.family:'Other', cropName:crop?crop.name:'Something', clearedDate:todayISO()};
+        const entry = historyEntryFor(crop, p);
         if(reason) entry.reason = reason;
         bed.history.push(entry);
         bed.plantings = bed.plantings.filter(pp=>pp.id!==p.id);
@@ -4711,7 +4756,7 @@ function openEditPlanting(bedId, plantingId, kind){
     if(await confirmDialog('Remove this crop but keep its history? Useful when it had some success but couldn\'t be harvested — disease, pests, or similar — since the record of what grew here still matters. Any treatments logged stay too.', ()=>openEditPlanting(bedId, plantingId, kind), 'Remove, keep history', true)){
       const crop = cropById(p.cropId);
       bed.history = bed.history || [];
-      const entry = {family:crop?crop.family:'Other', cropName:crop?crop.name:'Something', clearedDate:todayISO()};
+      const entry = historyEntryFor(crop, p);
       if(reason) entry.reason = reason;
       bed.history.push(entry);
       bed.plantings = bed.plantings.filter(pp=>pp.id!==p.id);
@@ -5827,7 +5872,7 @@ function openHarvestModal(ctx){
       } else {
         ctx.planting.active=false;
         ctx.bed.history = ctx.bed.history||[];
-        ctx.bed.history.push({family:crop?crop.family:'Other', cropName:crop?crop.name:'Something', clearedDate:todayISO()});
+        ctx.bed.history.push(historyEntryFor(crop, ctx.planting));
         await savePlantable(ctx.plantableKind||'beds', ctx.bed);
         const relatedTask = STATE.tasks.find(t=>t.linkedPlantingId===ctx.planting.id && !t.done);
         if(relatedTask){ relatedTask.done=true; await put('tasks', relatedTask); }
@@ -6102,16 +6147,21 @@ function openEditWishlistItem(wishId){
 function renderCropList(){
   const wrap=document.getElementById('cropList');
   const compostWrap = document.getElementById('compostSubList');
+  const fallowWrap = document.getElementById('fallowSubList');
   const heading = document.getElementById('cropsTabHeading');
   const compostTabBtn = document.querySelector('#cropsSubTabs [data-cropsview="compost"]');
+  const fallowTabBtn = document.querySelector('#cropsSubTabs [data-cropsview="fallow"]');
   const newCropBtn = document.getElementById('btnNewCrop');
   if(heading) heading.textContent = STATE.settings.syncCode ? "Crops we're now growing" : "Crops now growing";
   if(heading) heading.classList.toggle('active', cropsSubTab==='crops');
   if(compostTabBtn) compostTabBtn.classList.toggle('active', cropsSubTab==='compost');
+  if(fallowTabBtn) fallowTabBtn.classList.toggle('active', cropsSubTab==='fallow');
   if(newCropBtn) newCropBtn.style.display = cropsSubTab==='crops' ? '' : 'none';
   if(wrap) wrap.style.display = cropsSubTab==='crops' ? '' : 'none';
   if(compostWrap) compostWrap.style.display = cropsSubTab==='compost' ? '' : 'none';
+  if(fallowWrap) fallowWrap.style.display = cropsSubTab==='fallow' ? '' : 'none';
   if(cropsSubTab==='compost'){ renderCompostSubList(); return; }
+  if(cropsSubTab==='fallow'){ renderFallowSubList(); return; }
   const current = STATE.crops.filter(c=>c.name!=='Path' && cropHasCurrentInstance(c.id))
     .sort((a,b)=> cropTypeKey(a).localeCompare(cropTypeKey(b)) || a.name.localeCompare(b.name));
   if(current.length===0){ wrap.innerHTML='<p class="empty-note">Nothing currently growing — sow or plant something and it will show up here.</p>'; return; }
@@ -6139,7 +6189,7 @@ function renderCropList(){
         if(!active.length) continue;
         bed.history = bed.history || [];
         for(const p of active){
-          bed.history.push({family:crop?crop.family:'Other', cropName:crop?crop.name:'Something', clearedDate:todayISO()});
+          bed.history.push(historyEntryFor(crop, p));
           const linkedTask = STATE.tasks.find(t=>t.linkedPlantingId===p.id && !t.done);
           if(linkedTask) await del('tasks', linkedTask.id);
         }
@@ -6151,7 +6201,7 @@ function renderCropList(){
         if(!active.length) continue;
         feat.history = feat.history || [];
         for(const p of active){
-          feat.history.push({family:crop?crop.family:'Other', cropName:crop?crop.name:'Something', clearedDate:todayISO()});
+          feat.history.push(historyEntryFor(crop, p));
           const linkedTask = STATE.tasks.find(t=>t.linkedPlantingId===p.id && !t.done);
           if(linkedTask) await del('tasks', linkedTask.id);
         }
@@ -6177,10 +6227,13 @@ function renderCropList(){
     }
   }));
 }
-// The plot-wide compost list - every batch across every heap, raised bed, and composting
-// container/basket, tappable straight into the same editable batch screen reached from a crate's
-// own Composting screen. A row tagged "(current)" is still open (no end date yet); "(used up)" is
-// the same tag the crate's own Past batches list already uses.
+// The plot-wide compost list - grouped by crate rather than a flat list of every batch, since a
+// handful of crates each with several batches would otherwise interleave into a long, hard-to-
+// scan list. Each crate carries its own "In use" switch: only a crate switched on appears in the
+// Source picker shown when logging a treatment, which is what actually solves the scrolling
+// problem there - the admin list itself still shows everything, on or off, nothing is hidden here.
+// Starts off for every crate, on the basis that most will rarely if ever be the thing actually
+// being drawn from at a given time - switch on the one or two genuinely in use.
 function renderCompostSubList(){
   const wrap = document.getElementById('compostSubList');
   if(!wrap) return;
@@ -6189,25 +6242,84 @@ function renderCompostSubList(){
     if(f.type==='compost' || ((f.type==='container'||f.type==='basket') && f.composting)) crates.push({storeKind:'features', label:f.label||FEATURE_TYPES[f.type].label, obj:f});
   });
   STATE.beds.forEach(b=>{ if(b.raised && b.composting) crates.push({storeKind:'beds', label:b.name, obj:b}); });
-  let rows = [];
-  crates.forEach(c=> (c.obj.compostBatches||[]).forEach(batch=> rows.push({crateLabel:c.label, batch, obj:c.obj, storeKind:c.storeKind})));
-  if(rows.length===0){ wrap.innerHTML = '<p class="empty-note">No compost batches yet — turn on "Composting underneath" on a raised bed or container, or add a Compost heap, to start tracking one.</p>'; return; }
-  const byDate = (a,b)=> (a.batch.startDate||'').localeCompare(b.batch.startDate||'');
-  if(compostListSort==='az') rows.sort((a,b)=> a.crateLabel.localeCompare(b.crateLabel) || byDate(a,b));
-  else if(compostListSort==='usedup') rows.sort((a,b)=> ((a.batch.usedUp?1:0)-(b.batch.usedUp?1:0)) || byDate(a,b));
-  else rows.sort(byDate);
-  const sortRowHTML = rows.length>1 ? `<div class="sort-row"><span class="tiny-muted">Sort by</span>
-    <button class="tier-pill ${compostListSort==='date'?'active':''}" data-compostsort="date">Date</button>
-    <button class="tier-pill ${compostListSort==='az'?'active':''}" data-compostsort="az">A&ndash;Z</button>
-    <button class="tier-pill ${compostListSort==='usedup'?'active':''}" data-compostsort="usedup">Used up last</button></div>` : '';
-  wrap.innerHTML = sortRowHTML + rows.map(r=>`<div class="planting-row" style="cursor:pointer;" data-openbatch="${r.batch.id}" data-storekind="${r.storeKind}" data-objid="${r.obj.id}"><span class="pname">${escapeHTML(r.crateLabel)} — ${escapeHTML(compostBatchLabel(r.batch))}${r.batch.usedUp?' <span class="tiny-muted">(used up)</span>':(!r.batch.endDate?' <span class="tiny-muted">(current)</span>':'')}</span></div>`).join('');
+  if(crates.length===0){ wrap.innerHTML = '<p class="empty-note">No compost batches yet — turn on "Composting underneath" on a raised bed or container, or add a Compost heap, to start tracking one.</p>'; return; }
+  const groups = crates.map(c=>({...c, batches:(c.obj.compostBatches||[]).slice().sort((a,b)=> (a.startDate||'').localeCompare(b.startDate||''))}));
+  const oldestStart = g=> (g.batches[0] && g.batches[0].startDate) || '';
+  if(compostListSort==='az') groups.sort((a,b)=> a.label.localeCompare(b.label));
+  else if(compostListSort==='date') groups.sort((a,b)=> oldestStart(a).localeCompare(oldestStart(b)));
+  else groups.sort((a,b)=> ((b.obj.compostInUse?1:0)-(a.obj.compostInUse?1:0)) || oldestStart(a).localeCompare(oldestStart(b)));
+  const sortRowHTML = groups.length>1 ? `<div class="sort-row"><span class="tiny-muted">Sort by</span>
+    <button class="tier-pill ${compostListSort==='inuse'?'active':''}" data-compostsort="inuse">In use first</button>
+    <button class="tier-pill ${compostListSort==='date'?'active':''}" data-compostsort="date">Oldest</button>
+    <button class="tier-pill ${compostListSort==='az'?'active':''}" data-compostsort="az">A&ndash;Z</button></div>` : '';
+  wrap.innerHTML = sortRowHTML + groups.map(g=>{
+    const batchRows = g.batches.length ? g.batches.map(batch=>`<div class="planting-row" style="cursor:pointer; padding-left:14px;" data-openbatch="${batch.id}" data-storekind="${g.storeKind}" data-objid="${g.obj.id}"><span class="pname">${escapeHTML(compostBatchLabel(batch))}${batch.usedUp?' <span class="tiny-muted">(used up)</span>':(!batch.endDate?' <span class="tiny-muted">(current)</span>':'')}</span></div>`).join('')
+      : '<p class="muted" style="padding-left:14px; margin:2px 0 8px;">No batches logged yet.</p>';
+    return `<div class="row-heading" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+      <span>${escapeHTML(g.label)}</span>
+      <label class="switch" title="Show in the compost picker when logging a treatment"><input type="checkbox" data-inuse="${g.obj.id}" data-storekind="${g.storeKind}" ${g.obj.compostInUse?'checked':''}><span class="slider"></span></label>
+    </div>
+    ${batchRows}`;
+  }).join('');
   wrap.querySelectorAll('.sort-row [data-compostsort]').forEach(b=>b.addEventListener('click', ()=>{ compostListSort = b.dataset.compostsort; renderCompostSubList(); }));
+  wrap.querySelectorAll('[data-inuse]').forEach(el=>el.addEventListener('change', async ()=>{
+    const obj = STATE[el.dataset.storekind].find(o=>o.id===el.dataset.inuse);
+    if(!obj) return;
+    obj.compostInUse = el.checked;
+    await put(el.dataset.storekind, obj); await afterChange();
+  }));
   wrap.querySelectorAll('[data-openbatch]').forEach(el=>el.addEventListener('click', ()=>{
     const obj = STATE[el.dataset.storekind].find(o=>o.id===el.dataset.objid);
     if(!obj) return;
     const batch = (obj.compostBatches||[]).find(b=>b.id===el.dataset.openbatch);
     if(!batch) return;
     openCompostBatchDetail(batch, obj, el.dataset.storekind, closeModal);
+  }));
+}
+// The plot-wide fallow list - every fallow period, current and past, oldest-started first (the
+// one that's been sitting longest is the most relevant to crop rotation planning, same reasoning
+// as compost's own oldest-first ordering). A past period comes from history, kept there for
+// exactly this reason even once something real has been planted over the spot - it's the one
+// thing this list exists to guarantee doesn't just vanish. Only a current period is tappable
+// through to its own planting screen; a past one is a closed record; there's nothing live to open.
+function renderFallowSubList(){
+  const wrap = document.getElementById('fallowSubList');
+  if(!wrap) return;
+  const labelFor = (obj)=> obj.name || obj.label || (FEATURE_TYPES[obj.type]&&FEATURE_TYPES[obj.type].label) || 'Somewhere';
+  let rows = [];
+  const collectActive = (obj, storeKind)=>{
+    (obj.plantings||[]).forEach(p=>{
+      if(!p.active) return;
+      const crop = cropById(p.cropId);
+      if(!crop || crop.name!=='Fallow') return;
+      rows.push({label:labelFor(obj), startedDate:p.date, endedDate:null, notes:p.notes, active:true, obj, storeKind, plantingId:p.id});
+    });
+  };
+  STATE.beds.forEach(b=>collectActive(b,'beds'));
+  STATE.features.forEach(f=>collectActive(f,'features'));
+  const collectPast = (obj)=>{
+    (obj.history||[]).forEach(h=>{
+      if(h.cropName!=='Fallow') return;
+      rows.push({label:labelFor(obj), startedDate:h.startedDate||null, endedDate:h.clearedDate, notes:h.notes, active:false});
+    });
+  };
+  STATE.beds.forEach(collectPast);
+  STATE.features.forEach(collectPast);
+  if(rows.length===0){ wrap.innerHTML = '<p class="empty-note">No fallow periods recorded yet — mark a bed or area fallow and it will show up here, and stay on record even once something\'s planted there.</p>'; return; }
+  rows.sort((a,b)=> (a.startedDate||'').localeCompare(b.startedDate||''));
+  wrap.innerHTML = rows.map(r=>{
+    const weeks = r.startedDate ? Math.floor(daysBetween(r.startedDate, r.endedDate||todayISO())/7) : null;
+    const weeksTxt = weeks!=null ? ` · ${weeks} week${weeks===1?'':'s'}${r.active?' so far':''}` : '';
+    const dateText = r.startedDate
+      ? (r.active ? `since ${monthYearLabel(r.startedDate)}${weeksTxt}` : `${monthYearLabel(r.startedDate)} to ${monthYearLabel(r.endedDate)}${weeksTxt}`)
+      : `cleared ${monthYearLabel(r.endedDate)}`;
+    const noteText = r.notes ? ` — ${escapeHTML(r.notes)}` : '';
+    const tag = r.active ? '' : ' <span class="tiny-muted">(ended)</span>';
+    const tapAttrs = r.active ? ` style="cursor:pointer;" data-openfallow="${r.plantingId}" data-storekind="${r.storeKind}" data-objid="${r.obj.id}"` : '';
+    return `<div class="planting-row"${tapAttrs}><span class="pname">${escapeHTML(r.label)}${tag}</span><span class="pdate">${dateText}${noteText}</span></div>`;
+  }).join('');
+  wrap.querySelectorAll('[data-openfallow]').forEach(el=>el.addEventListener('click', ()=>{
+    openPlantingInfo(el.dataset.objid, el.dataset.openfallow, el.dataset.storekind);
   }));
 }
 function openEditCrop(cropId){
