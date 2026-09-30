@@ -728,7 +728,7 @@ const DB_NAME='plotbook4', DB_VERSION=5; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.09.29.4';
+const APP_VERSION = '2026.09.29.5';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -1834,8 +1834,12 @@ function openModal(html, fullscreen){
   }
   document.getElementById('mCloseBtn').addEventListener('click', closeOrBack);
   document.getElementById('mHomeBtn').addEventListener('click', goHome);
-  document.getElementById('mUndoBtn').addEventListener('click', async ()=>{ await performUndo(); closeModal(); });
-  document.getElementById('mRedoBtn').addEventListener('click', async ()=>{ await performRedo(); closeModal(); });
+  // Undo/redo refresh the screen in place via currentDetailReopen (see restoreSnapshot) - they
+  // must not also close the modal themselves, which is what was actually sending undo back to
+  // the front page: closing it reveals whatever tab sits behind it, which is usually My Plot,
+  // giving the appearance of a jump home even though nothing had navigated there.
+  document.getElementById('mUndoBtn').addEventListener('click', performUndo);
+  document.getElementById('mRedoBtn').addEventListener('click', performRedo);
 }
 function closeModal(){
   if(pendingFlashTimeout){ clearTimeout(pendingFlashTimeout); pendingFlashTimeout = null; }
