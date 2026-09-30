@@ -728,7 +728,7 @@ const DB_NAME='plotbook4', DB_VERSION=5; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.09.29.2';
+const APP_VERSION = '2026.09.29.3';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -1839,6 +1839,7 @@ function openModal(html, fullscreen){
 }
 function closeModal(){
   if(pendingFlashTimeout){ clearTimeout(pendingFlashTimeout); pendingFlashTimeout = null; }
+  currentDetailReopen = null;
   backdrop.classList.remove('open'); modalContent.innerHTML='';
   document.body.style.position=''; document.body.style.top=''; document.body.style.left=''; document.body.style.right='';
   window.scrollTo(0, scrollY_before_modal);
@@ -1924,6 +1925,16 @@ plotNameEl.addEventListener('keydown',(e)=>{ if(e.key==='Enter'){ e.preventDefau
 
 /* ======================= UNDO / REDO ======================= */
 let undoStack=[], redoStack=[], lastSnapshot=null, restoring=false;
+// Whichever of the three "drag a crop's box around" screens (a bed, a container, a structure's
+// tray view) is currently open sets this to a closure that reopens itself fresh. Undo/redo swap
+// every store's data out from under whatever's on screen - without this, the screen was left
+// holding onto objects from before the swap, which is what sent it back to the front page: a
+// planting still referenced by the old object it was drawn from wouldn't be found in the fresh
+// data by whatever it tried to look up next, and every one of these screens falls back to the
+// front page precisely when that lookup fails. Reopening the same screen fresh - rather than
+// leaving stale references sitting there, or leaving the screen for undo/redo to navigate away
+// from - is what actually keeps you where you were.
+let currentDetailReopen = null;
 function snapshotState(){
   return JSON.parse(JSON.stringify({crops:STATE.crops, beds:STATE.beds, features:STATE.features, trays:STATE.trays, tasks:STATE.tasks, harvests:STATE.harvests, wishlist:STATE.wishlist, planningItems:STATE.planningItems, planningChanges:STATE.planningChanges}));
 }
@@ -1935,6 +1946,9 @@ async function restoreSnapshot(snap){
       for(const item of (snap[store]||[])) await put(store, item);
     }
     await loadAll(); renderAll();
+    // If a bed/container/structure screen is open, refresh it against the data just swapped in
+    // rather than leaving it showing objects from before the swap - see currentDetailReopen above.
+    if(currentDetailReopen) currentDetailReopen();
     lastSnapshot = snapshotState();
   } finally { restoring = false; }
   if(supa) schedulePush();
@@ -4229,6 +4243,7 @@ function treatmentsSectionHTML(obj, storeKind, filterMode, heading){
 function openContainerDetail(featId, highlightId){
   const feat = featureById(featId);
   if(!feat){ goHome(); return; }
+  currentDetailReopen = ()=>openContainerDetail(featId, highlightId);
   const typeLabel = (FEATURE_TYPES[feat.type] && FEATURE_TYPES[feat.type].label || 'Container').toLowerCase();
   const active = (feat.plantings||[]).filter(p=>p.active);
   const groups = {};
@@ -4364,6 +4379,7 @@ function hostedContainersAsOccupied(bed){
 function openBedDetail(bedId, highlightId){
   const bed = bedById(bedId);
   if(!bed){ goHome(); return; }
+  currentDetailReopen = ()=>openBedDetail(bedId, highlightId);
   const active = (bed.plantings||[]).filter(p=>p.active);
   // A path segment is edited by tapping its box in the picture above, same as any other item -
   // listing it again here too is pure repetition, and for a bed with several path segments (the
@@ -5067,6 +5083,8 @@ function wireTierDropTargets(feat, currentTierId){
 }
 function openStructureDetail(feat, highlightTrayId){
   if(!feat){ goHome(); return; }
+  const featId = feat.id;
+  currentDetailReopen = ()=>{ const f = featureById(featId); if(f) openStructureDetail(f, highlightTrayId); else goHome(); };
   const info = FEATURE_TYPES[feat.type], locName = info.label;
   const tiers = getTiers(feat);
   const neverOpened = !activeTier[feat.id] || !tiers.find(t=>t.id===activeTier[feat.id]);
