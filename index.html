@@ -112,6 +112,8 @@
   #swRow .swatch{flex-shrink:0;}
   .swatch{width:34px; height:34px; border-radius:50%; border:3px solid transparent; cursor:pointer;}
   .swatch.picked{border-color:var(--soil);}
+  .swatch-auto{display:flex; flex-direction:column; align-items:center; gap:0;}
+  .swatch-auto span{font-size:12px; line-height:1.1; color:var(--soil); font-weight:700;}
   .btn.picked{background:var(--leaf); color:#fff; border-color:var(--leaf);}
   #historySortRow button.picked{background:var(--leaf); color:#fff; border-color:var(--leaf);}
 
@@ -587,6 +589,7 @@
         <button class="btn secondary" id="btnReshape">Reshape outline</button>
       </div>
       <label style="margin-top:14px;">Ground colour</label>
+      <p class="tiny-muted" style="margin:0;">Just on this device — anyone you share with keeps their own.</p>
       <div class="swatch-row" id="groundSwatchRow"></div>
     </section>
 
@@ -611,6 +614,7 @@
         </label>
       </div>
       <details class="adv"><summary>Adjust how sensitive the alerts are</summary>
+        <p class="tiny-muted" style="margin:10px 0 0;">Just for you — anyone you share with sets their own.</p>
         <div class="form-row" style="margin-top:10px;">
           <div><label>Frost at or below (&deg;C)</label><input type="number" onfocus="this.select()" id="thFrost" value="0"></div>
           <div><label>Heavy rain (mm/day)</label><input type="number" onfocus="this.select()" id="thRain" value="20"></div>
@@ -728,7 +732,7 @@ const DB_NAME='plotbook4', DB_VERSION=5; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.09.29.5';
+const APP_VERSION = '2026.10.01.3';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -795,13 +799,85 @@ async function recordTombstone(id){
   STATE.settings.tombstones.push({id, deletedAt: Date.now()});
   await setMeta('tombstones', STATE.settings.tombstones);
 }
+// Records every one of a list of nested items (crops, treatments) as deleted - for removals that
+// happen inside a bed, container or tray rather than through del(), which would otherwise leave
+// nothing to stop a synced copy that still has them from putting them straight back.
+async function tombstoneEach(items){
+  for(const it of (items||[])) if(it && it.id) await recordTombstone(it.id);
+}
 async function del(store,id){
   await recordTombstone(id);
   return new Promise((res,rej)=>{ const r=txStore(store,'readwrite').delete(id); r.onsuccess=()=>res(); r.onerror=rej; });
 }
 function clearStore(name){ return new Promise((res,rej)=>{ const r=txStore(name,'readwrite').clear(); r.onsuccess=()=>res(); r.onerror=rej; }); }
 function getMeta(key,fallback){ return new Promise((res)=>{ const r=txStore('meta').get(key); r.onsuccess=()=>res(r.result?r.result.value:fallback); r.onerror=()=>res(fallback); }); }
-function setMeta(key,value){ return put('meta',{key,value}); }
+// Settings shared between gardeners come in two kinds. A single value (the plot's name, size,
+// shape, location) - whoever changed it most recently wins. A list (your own treatment reasons,
+// custom container sizes, companion notes, "Not sure which bed" records) - everyone's additions
+// are kept, and a removal sticks. Either way that needs to know WHEN something actually changed,
+// so every genuine local change is stamped here (a remote update landing is not a local change,
+// and saving a value that hasn't changed - e.g. tapping into the plot name and back out - isn't
+// stamped either, or it would wrongly beat someone else's real change). Everything else in
+// settings (units, weather warning levels, ground colour, notifications...) is personal to each
+// device and never synced at all.
+const SHARED_SINGLE_KEYS = ['plotName','plotWidthM','plotDepthM','plotShape','postcode','lat','lon'];
+const SHARED_LIST_KEYS = ['customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory'];
+function settingListItemKey(item){
+  if(typeof item==='string') return 's:'+item.toLowerCase();
+  if(item && typeof item==='object'){
+    if(item.id) return 'id:'+item.id;
+    if(item.label) return 'label:'+item.label;
+  }
+  return 'j:'+JSON.stringify(item);
+}
+function settingListMap(list){
+  const m = new Map();
+  for(const item of (Array.isArray(list)?list:[])) m.set(settingListItemKey(item), item);
+  return m;
+}
+function normaliseSyncStamps(st){
+  const out = {singles:{}, lists:{}};
+  if(st && typeof st==='object'){
+    if(st.singles && typeof st.singles==='object') Object.assign(out.singles, st.singles);
+    if(st.lists && typeof st.lists==='object') for(const k of Object.keys(st.lists)) out.lists[k] = {...(st.lists[k]||{})};
+  }
+  return out;
+}
+async function stampSharedSetting(key, value){
+  const old = await getMeta(key, undefined);
+  const stamps = normaliseSyncStamps(await getMeta('syncStamps', null));
+  const now = Date.now();
+  if(SHARED_SINGLE_KEYS.includes(key)){
+    if(JSON.stringify(old)===JSON.stringify(value)) return false;
+    stamps.singles[key] = now;
+  } else {
+    const oldMap = settingListMap(old), newMap = settingListMap(value);
+    const log = stamps.lists[key] = stamps.lists[key] || {};
+    let changed = false;
+    for(const [k,item] of newMap){
+      if(!oldMap.has(k) || JSON.stringify(oldMap.get(k))!==JSON.stringify(item)){ log[k] = {at:now, del:false}; changed = true; }
+    }
+    for(const k of oldMap.keys()) if(!newMap.has(k)){ log[k] = {at:now, del:true}; changed = true; }
+    // Same long window as deleted-item records: a removal has to keep winning for as long as an
+    // out-of-touch device might still be holding the old list.
+    const cutoff = now - (3650*24*60*60*1000);
+    for(const k of Object.keys(log)) if(log[k].del && log[k].at < cutoff) delete log[k];
+    if(!changed) return false;
+  }
+  STATE.settings.syncStamps = stamps;
+  await put('meta', {key:'syncStamps', value:stamps});
+  return true;
+}
+async function setMeta(key,value){
+  const shared = SHARED_SINGLE_KEYS.includes(key) || SHARED_LIST_KEYS.includes(key);
+  const changed = shared && !applyingRemote ? await stampSharedSetting(key, value) : false;
+  const result = await put('meta',{key,value});
+  if(shared) STATE.settings[key] = value;
+  // Some of these are saved without any other change following (renaming the plot is just this
+  // one save), so nothing else would trigger sending it to other gardeners - send it here.
+  if(changed && supa) schedulePush();
+  return result;
+}
 
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 function todayISO(){ return new Date().toISOString().slice(0,10); }
@@ -818,10 +894,38 @@ function hDate(h){ return (h && h.harvestDate) || ''; }
 // it, since crop rotation planning depends on that record still being there, not just the date
 // it ended. Harmless, and available the same way, for anything else that ever wants it.
 function historyEntryFor(crop, p){
-  const entry = {family:crop?crop.family:'Other', cropName:crop?crop.name:'Something', clearedDate:todayISO()};
+  const entry = {id:uid(), family:crop?crop.family:'Other', cropName:crop?crop.name:'Something', clearedDate:todayISO()};
   if(p && p.date) entry.startedDate = p.date;
   if(p && p.notes) entry.notes = p.notes;
   return entry;
+}
+// History entries kept inside a bed, container or tray used to have no id of their own. Sync
+// merges nested items by id, so every id-less entry in one bed looked like "the same item" and
+// each sync quietly squashed a bed's whole history down to a single entry - and a deleted entry
+// had no id to record as deleted, so the other copy simply put it back. Every entry now carries
+// an id. Older entries are given one worked out from what they already contain (where, which
+// crop, which dates), so two devices that each add ids to the same old entry independently -
+// including a device still on an older build - arrive at the SAME id, rather than two different
+// ones that would then look like two separate records.
+function stableHistoryId(ownerId, h, seen){
+  const key = [ownerId||'', h.cropName||'', h.family||'', h.clearedDate||'', h.startedDate||''].join('|');
+  const n = seen.get(key)||0; seen.set(key, n+1);
+  const s = key+'|'+n;
+  let a = 5381, b = 52711;
+  for(let i=0;i<s.length;i++){ const c=s.charCodeAt(i); a = ((a*33) ^ c) >>> 0; b = ((b*31) + c) >>> 0; }
+  return 'hx-'+a.toString(36)+b.toString(36)+'-'+n;
+}
+function ensureHistoryIds(obj){
+  if(!obj || !Array.isArray(obj.history)) return false;
+  // Every entry is counted in order, whether it already has an id or not, so a second identical
+  // entry (same crop, same dates, same bed) still gets its own different id.
+  let changed = false; const seen = new Map();
+  for(const h of obj.history){
+    if(!h || typeof h!=='object') continue;
+    const id = stableHistoryId(obj.id, h, seen);
+    if(!h.id){ h.id = id; changed = true; }
+  }
+  return changed;
 }
 function checkRotationClash(bed, cropFamily, cropName){
   if(!cropFamily) return [];
@@ -1628,6 +1732,12 @@ const CROP_COLOR_HINTS = [
   {keywords:['sweetcorn','corn'], colours:['#CC9A1E']},
   {keywords:['blueberry'], colours:['#457B9D']},
 ];
+// The "Automatic" choice in every crop/tray colour picker: shows the colour it will actually give
+// (Fallow's near-black, Path's dark grey, a crop's own colour...) with "Auto" underneath, rather
+// than a blank crossed-out circle that read as "no colour".
+function autoSwatchHTML(colour, picked){
+  return `<div class="swatch-auto"><div class="swatch ${picked?'picked':''}" data-c="" style="background:${colour};" title="Automatic"></div><span>Auto</span></div>`;
+}
 function colorForCropName(name){
   const lower = (name||'').toLowerCase();
   let hash = 0;
@@ -1721,6 +1831,9 @@ async function loadAll(){
       await put('trays', t);
     }
   }
+  for(const [store, list] of [['beds', STATE.beds], ['features', STATE.features], ['trays', STATE.trays]]){
+    for(const obj of list) if(ensureHistoryIds(obj)) await put(store, obj, true);
+  }
   STATE.tasks = await getAll('tasks');
   STATE.harvests = await getAll('harvests');
   STATE.wishlist = await getAll('wishlist');
@@ -1778,6 +1891,7 @@ async function loadAll(){
   STATE.settings.customContainerSizes = await getMeta('customContainerSizes', []);
   STATE.settings.treatmentReasons = await getMeta('treatmentReasons', []);
   STATE.settings.lastEditedBy = await getMeta('lastEditedBy', '');
+  STATE.settings.syncStamps = await getMeta('syncStamps', null);
   STATE.settings.lastEditedAt = await getMeta('lastEditedAt', null);
   STATE.settings.loadedFromBackup = await getMeta('loadedFromBackup', null);
 }
@@ -2602,6 +2716,7 @@ async function confirmMoveFeature(mx, my, targetBedId){
     for(const p of displaced){
       (targetBed.treatments||[]).forEach(t=>{ if(t.plantingId===p.id) delete t.plantingId; });
       targetBed.plantings = targetBed.plantings.filter(pp=>pp.id!==p.id);
+      await recordTombstone(p.id);
       const linkedTask = STATE.tasks.find(t=>t.linkedPlantingId===p.id && !t.done);
       if(linkedTask) await del('tasks', linkedTask.id);
     }
@@ -2844,6 +2959,7 @@ async function doTransplant(tray, plantOutPlanting, bed, date, rowLabel, portion
   if(plantingGone){
     const relatedTask = STATE.tasks.find(t=>t.linkedTrayId===tray.id && (!t.linkedPlantingId || t.linkedPlantingId===plantOutPlanting.id) && !t.done);
     if(relatedTask){ relatedTask.done=true; await put('tasks', relatedTask); }
+    await tombstoneEach((tray.treatments||[]).filter(tt=>tt.plantingId===plantOutPlanting.id));
     if(tray.treatments) tray.treatments = tray.treatments.filter(tt=>tt.plantingId!==plantOutPlanting.id);
     tray.plantings = tray.plantings.filter(p=>p.id!==plantOutPlanting.id);
     await recordTombstone(plantOutPlanting.id);
@@ -4590,7 +4706,8 @@ function openPlantingInfo(bedId, plantingId, kind){
 }
 function openEditTrayDetails(trayId){
   const tray = STATE.trays.find(t=>t.id===trayId); if(!tray) return;
-  const autoSwatch = `<div class="swatch ${!tray.colorOverride?'picked':''}" data-c="" style="background:linear-gradient(135deg, #fff 47%, #999 47%, #999 53%, #fff 53%); border:1.5px solid var(--line);" title="Automatic"></div>`;
+  const trayAutoColour = (()=>{ if(trayIsEmpty(tray)) return '#8a8a7a'; const c=cropById(tray.plantings[0].cropId); return c?cropColor(c):'#8a8a7a'; })();
+  const autoSwatch = autoSwatchHTML(trayAutoColour, !tray.colorOverride);
   const colorSwatches = CROP_COLORS.map(c=>`<div class="swatch ${tray.colorOverride===c?'picked':''}" data-c="${c}" style="background:${c};"></div>`).join('');
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit ${escapeHTML(trayLabelText(tray))} details</h3>
     <div class="form-row"><div><label>Tray number</label><input type="number" onfocus="this.select()" id="mTrayNum" value="${tray.number!=null?tray.number:''}"></div></div>
@@ -4712,7 +4829,7 @@ function openEditPlanting(bedId, plantingId, kind){
   const bed = plantableById(kind, bedId);
   const p = bed.plantings.find(pp=>pp.id===plantingId);
   const crop = cropById(p.cropId);
-  const autoSwatch = `<div class="swatch ${!p.colorOverride?'picked':''}" data-c="" style="background:linear-gradient(135deg, #fff 47%, #999 47%, #999 53%, #fff 53%); border:1.5px solid var(--line);" title="Automatic"></div>`;
+  const autoSwatch = autoSwatchHTML(crop?cropColor(crop):'#8a8a7a', !p.colorOverride);
   const colorSwatches = CROP_COLORS.map(c=>`<div class="swatch ${p.colorOverride===c?'picked':''}" data-c="${c}" style="background:${c};"></div>`).join('');
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit ${crop?escapeHTML(crop.name):'planting'}</h3>
     <div class="form-row"><div><label>Crop</label><input type="text" id="mCropName" list="cropSuggestions" value="${crop?escapeAttr(crop.name):''}"></div></div>
@@ -4771,6 +4888,7 @@ function openEditPlanting(bedId, plantingId, kind){
         await recordTombstone(p.id);
       } else {
         bed.plantings = bed.plantings.filter(pp=>pp.id!==p.id);
+        await tombstoneEach((bed.treatments||[]).filter(t=>t.plantingId===p.id));
         bed.treatments = (bed.treatments||[]).filter(t=>t.plantingId!==p.id);
         await recordTombstone(p.id);
       }
@@ -4843,6 +4961,7 @@ function openAddTreatment(obj, storeKind, onDone, existingId, cropForSuggestions
   if(existing) document.getElementById('mDelTreat').addEventListener('click', async ()=>{
     if(await confirmDialog('Remove this treatment?', onDone)){
       obj.treatments = obj.treatments.filter(t=>t.id!==existing.id);
+      await recordTombstone(existing.id);
       await put(storeKind, obj); await afterChange(); onDone();
     }
   });
@@ -5463,6 +5582,7 @@ function openTrayPlantingInfo(trayId, plantingId){
   const removeBtn = document.getElementById('mRemoveCrop');
   if(removeBtn) removeBtn.addEventListener('click', async ()=>{
     if(await confirmDialog(`Remove ${crop?escapeHTML(crop.name):'this crop'} from the tray? Whatever's growing will be lost — harvest or plant it out first if you want to keep a record.`)){
+      await tombstoneEach((tray.treatments||[]).filter(tt=>tt.plantingId===p.id));
       if(tray.treatments) tray.treatments = tray.treatments.filter(tt=>tt.plantingId!==p.id);
       tray.plantings = tray.plantings.filter(pp=>pp.id!==p.id);
       await recordTombstone(p.id);
@@ -5882,6 +6002,7 @@ function openHarvestModal(ctx){
       } else {
         const relatedTask = STATE.tasks.find(t=>t.linkedTrayId===ctx.tray.id && (!t.linkedPlantingId || t.linkedPlantingId===ctx.planting.id) && !t.done);
         if(relatedTask){ relatedTask.done=true; await put('tasks', relatedTask); }
+        await tombstoneEach((ctx.tray.treatments||[]).filter(tt=>tt.plantingId===ctx.planting.id));
         if(ctx.tray.treatments) ctx.tray.treatments = ctx.tray.treatments.filter(tt=>tt.plantingId!==ctx.planting.id);
         ctx.tray.plantings = ctx.tray.plantings.filter(p=>p.id!==ctx.planting.id);
         await recordTombstone(ctx.planting.id);
@@ -6224,6 +6345,7 @@ function renderCropList(){
           const linkedTask = STATE.tasks.find(t=>t.linkedPlantingId===p.id && !t.done);
           if(linkedTask) await del('tasks', linkedTask.id);
         }
+        await tombstoneEach(active);
         bed.plantings = (bed.plantings||[]).filter(p=>!(p.active && p.cropId===cropId));
         await put('beds', bed);
       }
@@ -6236,6 +6358,7 @@ function renderCropList(){
           const linkedTask = STATE.tasks.find(t=>t.linkedPlantingId===p.id && !t.done);
           if(linkedTask) await del('tasks', linkedTask.id);
         }
+        await tombstoneEach(active);
         feat.plantings = (feat.plantings||[]).filter(p=>!(p.active && p.cropId===cropId));
         await put('features', feat);
       }
@@ -6246,6 +6369,7 @@ function renderCropList(){
           if(linkedTask) await del('tasks', linkedTask.id);
           await recordTombstone(p.id);
         }
+        await tombstoneEach((tray.treatments||[]).filter(tt=>removed.some(p=>p.id===tt.plantingId)));
         if(tray.treatments) tray.treatments = tray.treatments.filter(tt=>!removed.some(p=>p.id===tt.plantingId));
         tray.plantings = tray.plantings.filter(p=>p.cropId!==cropId);
         if(tray.plantings.length===0 && !tray.sizeLocked){
@@ -6366,7 +6490,10 @@ function openEditCrop(cropId){
   const sowToPotTarget = targetDateLabel(c.sowToPotOn);
   const transTarget = targetDateLabel((c.sowToPotOn||0) + (c.transplantToHarvest||0));
   const directTarget = targetDateLabel(c.directSowToHarvest);
-  const colorSwatches = CROP_COLORS.map(col=>`<div class="swatch ${c.color===col?'picked':''}" data-c="${col}" style="background:${col};"></div>`).join('');
+  // "Auto" here means the colour the crop's own name gives it - the only way back to Fallow's
+  // near-black or Path's dark grey, neither of which is in the ordinary palette.
+  const cropAutoPicked = !c.color || c.color===colorForCropName(c.name);
+  const colorSwatches = autoSwatchHTML(colorForCropName(c.name), cropAutoPicked) + CROP_COLORS.map(col=>`<div class="swatch ${(!cropAutoPicked && c.color===col)?'picked':''}" data-c="${col}" style="background:${col};"></div>`).join('');
   const spots = whereIsCropNowDetailed(cropId);
   // Real treatment history, broken out by container - each one keeps its own quick-tap row so a
   // second (or third) application of the same type, or a different one, is one tap away, and a
@@ -6389,7 +6516,7 @@ function openEditCrop(cropId){
     <label style="margin-top:14px;">Colour</label>
     <div class="swatch-row" id="swRow">${colorSwatches}</div>
     <button class="btn big" id="mSave">Save</button>`, true);
-  let pickedColor = c.color || colorForCropName(c.name);
+  let pickedColor = cropAutoPicked ? '' : c.color;
   modalContent.querySelectorAll('[data-jump]').forEach(b=>b.addEventListener('click', ()=>{
     const [id, kind] = b.dataset.jump.split('|');
     if(kind==='beds') openBedDetail(id);
@@ -6410,7 +6537,7 @@ function openEditCrop(cropId){
   }));
   document.getElementById('mSave').addEventListener('click', async ()=>{
     c.name = document.getElementById('mName').value.trim()||c.name;
-    c.color = pickedColor;
+    c.color = pickedColor || colorForCropName(c.name);
     c.sowToPotOn = document.getElementById('mSowToPot').value===''?null:parseInt(document.getElementById('mSowToPot').value);
     c.transplantToHarvest = document.getElementById('mTransToHarvest').value===''?null:parseInt(document.getElementById('mTransToHarvest').value);
     c.directSowToHarvest = document.getElementById('mDirectToHarvest').value===''?null:parseInt(document.getElementById('mDirectToHarvest').value);
@@ -6427,8 +6554,8 @@ let historyCropTerm = '';
 let historyBedTerm = '';
 function gatherRemovedHistory(){
   const removed = [];
-  for(const bed of STATE.beds) for(const h of (bed.history||[])) removed.push({id:'rm-'+bed.id+'-'+h.clearedDate+'-'+h.cropName, cropName:h.cropName, family:h.family, locationLabel:bed.name, harvestDate:h.clearedDate, reason:h.reason, removed:true, approx:h.approx, sourceKind:'beds', sourceId:bed.id});
-  for(const feat of STATE.features) for(const h of (feat.history||[])) removed.push({id:'rm-'+feat.id+'-'+h.clearedDate+'-'+h.cropName, cropName:h.cropName, family:h.family, locationLabel:feat.label, harvestDate:h.clearedDate, reason:h.reason, removed:true, approx:h.approx, sourceKind:'features', sourceId:feat.id});
+  for(const bed of STATE.beds) for(const h of (bed.history||[])) removed.push({id:h.id?'rm-'+h.id:'rm-'+bed.id+'-'+h.clearedDate+'-'+h.cropName, entryId:h.id, cropName:h.cropName, family:h.family, locationLabel:bed.name, harvestDate:h.clearedDate, reason:h.reason, removed:true, approx:h.approx, sourceKind:'beds', sourceId:bed.id});
+  for(const feat of STATE.features) for(const h of (feat.history||[])) removed.push({id:h.id?'rm-'+h.id:'rm-'+feat.id+'-'+h.clearedDate+'-'+h.cropName, entryId:h.id, cropName:h.cropName, family:h.family, locationLabel:feat.label, harvestDate:h.clearedDate, reason:h.reason, removed:true, approx:h.approx, sourceKind:'features', sourceId:feat.id});
   for(const h of (STATE.settings.unplacedHistory||[])) removed.push({id:'up-'+h.id, unplacedId:h.id, cropName:h.cropName, family:h.family, locationLabel:'Not sure which bed', harvestDate:h.clearedDate, reason:h.reason, removed:true, approx:true, unplaced:true, by:h.by, sourceKind:'unplaced'});
   return removed;
 }
@@ -6608,7 +6735,7 @@ function renderHistory(){
         lastYear = y;
       }
     }
-    bodyHTML += `<div class="crop-card" ${h.removed?`data-rh="${h.id}"`:`data-h="${h.id}"`}>
+    bodyHTML += `<div class="crop-card" ${h.removed?`data-rh="${escapeAttr(h.id)}"`:`data-h="${escapeAttr(h.id)}"`}>
       <div class="crop-head"><span class="fam-dot" style="background:${h.cropId&&cropById(h.cropId)?cropColor(cropById(h.cropId)):colorForCropName(h.cropName||'?')};"></span>
         <strong style="flex:1;">${escapeHTML(h.cropName)}</strong>
         <span class="tiny-muted">${h.approx?'~':''}${dayLabel(h.harvestDate)}</span></div>
@@ -6700,7 +6827,7 @@ function renderHistoryCropLookup(wrap){
     const dueLine = (h.dueDateDiff!=null) ? `<div>\uD83D\uDCC5 ${h.dueDateDiff===0?'harvested on the due date':(h.dueDateDiff<0?`${Math.abs(h.dueDateDiff)} day${Math.abs(h.dueDateDiff)===1?'':'s'} early`:`${h.dueDateDiff} day${h.dueDateDiff===1?'':'s'} late`)}</div>` : '';
     const amountLine = h.amount ? `<div>\u2696\uFE0F ${formatAmount(h.amount)}</div>` : '';
     const reasonLine = (h.removed && h.reason) ? `<div>${escapeHTML(h.reason)}</div>` : '';
-    return `<div class="harvest-card" ${h.removed?`data-rh="${h.id}"`:`data-h="${h.id}"`}>
+    return `<div class="harvest-card" ${h.removed?`data-rh="${escapeAttr(h.id)}"`:`data-h="${escapeAttr(h.id)}"`}>
       <div class="harvest-top"><span class="harvest-name">${escapeHTML(h.cropName)}${h.partial?' <span class="tiny-muted">(partial)</span>':''}</span>${ratingHTML}</div>
       <div class="harvest-meta">${escapeHTML(h.locationLabel||'')} \u00B7 ${h.removed?'removed':'harvested'} ${dayLabel(h.harvestDate)}</div>
       <div class="harvest-detail">${amountLine}${dueLine}${wxLine}${treatLine}${reasonLine}</div>
@@ -6832,7 +6959,7 @@ function renderHistoryBedLookup(wrap){
       <div><span class="stat-num">${spanLabel}</span></div>
     </div></div>`;
   const cardsHTML = items.map(h=>`
-    <div class="crop-card" ${h.removed?`data-rh="${h.id}"`:`data-h="${h.id}"`}>
+    <div class="crop-card" ${h.removed?`data-rh="${escapeAttr(h.id)}"`:`data-h="${escapeAttr(h.id)}"`}>
       <div class="crop-head"><span class="fam-dot" style="background:${h.cropId&&cropById(h.cropId)?cropColor(cropById(h.cropId)):colorForCropName(h.cropName||'?')};"></span>
         <strong style="flex:1;">${escapeHTML(h.cropName)}</strong>
         <span class="tiny-muted">${h.approx?'~':''}${dayLabel(h.harvestDate)}</span></div>
@@ -7341,10 +7468,18 @@ function openRemovedHistoryDetail(hid){
     } else {
       const target = plantableById(h.sourceKind, h.sourceId);
       if(target){
-        // Matched on clearedDate + cropName, same as the synthetic id gatherRemovedHistory builds
-        // this entry from - these bed/feature history entries have never carried their own id, so
-        // there's nothing more specific to match against.
-        target.history = (target.history||[]).filter(x => !(x.clearedDate===h.harvestDate && x.cropName===h.cropName));
+        // Removed by its own id, and recorded as deleted - the same as a deleted crop - so a
+        // synced copy that still holds it can't put it back. (The date+name match is only a
+        // fallback for an entry that somehow still has no id, and removes just that one entry.)
+        if(h.entryId){
+          target.history = (target.history||[]).filter(x => x.id!==h.entryId);
+          await recordTombstone(h.entryId);
+        } else {
+          const list = target.history||[];
+          const i = list.findIndex(x => x.clearedDate===h.harvestDate && x.cropName===h.cropName);
+          if(i>=0) list.splice(i,1);
+          target.history = list;
+        }
         await savePlantable(h.sourceKind, target);
       }
     }
@@ -7872,7 +8007,10 @@ document.querySelectorAll('#cropsSubTabs [data-cropsview]').forEach(b=>b.addEven
 }));
 
 /* ======================= SHARING / SYNC ======================= */
-const SHARED_META_KEYS = ['plotName','plotWidthM','plotDepthM','plotShape','groundColor','postcode','lat','lon','thFrost','thRain','thWind','customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory','tombstones','lastEditedBy','lastEditedAt'];
+// Ground colour and the frost/rain/wind warning levels used to be in here too - they're now
+// personal to each gardener (see SHARED_SINGLE_KEYS above), so each device simply keeps whatever
+// it already had. syncStamps carries the "when was this changed" record the merge relies on.
+const SHARED_META_KEYS = [...SHARED_SINGLE_KEYS, ...SHARED_LIST_KEYS, 'tombstones', 'lastEditedBy', 'lastEditedAt', 'syncStamps'];
 let supa = null, syncChannel = null, pushTimer = null, applyingRemote = false, lastKnownRemoteUpdatedAt = null, renderPending = false;
 
 async function afterChange(){
@@ -7904,13 +8042,21 @@ function buildSyncPayload(){
 // the other outright.
 function mergeItemListById(remoteList, localList, tombstoned){
   tombstoned = tombstoned || new Set();
+  // Anything that somehow still arrives without an id is kept as its own distinct item (matched
+  // only against an exact copy of itself), never lumped in with every other id-less item.
+  const keyOf = (item)=>{
+    if(item && item.id) return item.id;
+    const {_ts, ...rest} = item||{};
+    return 'noid:'+JSON.stringify(rest);
+  };
   const byId = new Map();
-  for(const item of (remoteList||[])) byId.set(item.id, item);
+  for(const item of (remoteList||[])) byId.set(keyOf(item), item);
   for(const item of (localList||[])){
-    const existing = byId.get(item.id);
-    if(!existing || (item._ts||0) >= (existing._ts||0)) byId.set(item.id, item);
+    const k = keyOf(item);
+    const existing = byId.get(k);
+    if(!existing || (item._ts||0) >= (existing._ts||0)) byId.set(k, item);
   }
-  return Array.from(byId.values()).filter(item=>!tombstoned.has(item.id));
+  return Array.from(byId.values()).filter(item=>!(item && item.id && tombstoned.has(item.id)));
 }
 // Beds and containers nest their own crops and logs inside them rather than storing each as its
 // own standalone item, so merging them needs to reach one level deeper: when the same bed/container
@@ -7921,6 +8067,7 @@ function mergeItemListById(remoteList, localList, tombstoned){
 // silently discarding the other device's own crop. Nested items also respect the same tombstone
 // set, so a deliberately-removed crop within a bed can't resurrect either.
 function mergeContainerLikeItem(remoteObj, localObj, tombstoned){
+  ensureHistoryIds(remoteObj); ensureHistoryIds(localObj);
   const newer = (localObj._ts||0) >= (remoteObj._ts||0) ? localObj : remoteObj;
   const merged = {...newer};
   for(const nested of ['plantings','history','treatments','compostBatches']){
@@ -7937,6 +8084,47 @@ function mergeContainerLikeList(remoteList, localList, tombstoned){
     byId.set(item.id, existing ? mergeContainerLikeItem(existing, item, tombstoned) : item);
   }
   return Array.from(byId.values()).filter(item=>!tombstoned.has(item.id));
+}
+// Settings used to be merged as "this device's own value always wins", so a change made on one
+// device never reached another that already had any value of its own. Now: a single setting goes
+// with whichever side changed it most recently (with no record of a change on either side, the
+// local value stays, as before); a list keeps everyone's items, minus any removed after they
+// were added; "last edited by" goes with whichever edit was genuinely the latest.
+function mergeSharedSettings(out, rm, lm){
+  const rs = normaliseSyncStamps(rm.syncStamps), ls = normaliseSyncStamps(lm.syncStamps);
+  for(const k of SHARED_SINGLE_KEYS){
+    const rt = rs.singles[k]||0, lt = ls.singles[k]||0;
+    if(rm[k]!==undefined && (rt > lt || lm[k]===undefined)) out[k] = rm[k];
+    else if(lm[k]!==undefined) out[k] = lm[k];
+  }
+  for(const k of SHARED_LIST_KEYS){
+    if(rm[k]===undefined && lm[k]===undefined) continue;
+    const rLog = rs.lists[k]||{}, lLog = ls.lists[k]||{};
+    const rMap = settingListMap(rm[k]), lMap = settingListMap(lm[k]);
+    const result = [];
+    const seen = new Set();
+    for(const key of [...lMap.keys(), ...rMap.keys()]){
+      if(seen.has(key)) continue; seen.add(key);
+      const ra = rLog[key], la = lLog[key];
+      const latest = !ra ? la : !la ? ra : (la.at >= ra.at ? la : ra);
+      if(latest && latest.del) continue;
+      let item;
+      if(rMap.has(key) && lMap.has(key)) item = ((ra&&ra.at)||0) > ((la&&la.at)||0) ? rMap.get(key) : lMap.get(key);
+      else item = lMap.has(key) ? lMap.get(key) : rMap.get(key);
+      result.push(item);
+    }
+    out[k] = result;
+  }
+  const stamps = {singles:{...rs.singles}, lists:{}};
+  for(const [k,t] of Object.entries(ls.singles)) if(!(stamps.singles[k] >= t)) stamps.singles[k] = t;
+  for(const k of new Set([...Object.keys(rs.lists), ...Object.keys(ls.lists)])){
+    const log = {...(rs.lists[k]||{})};
+    for(const [ik, e] of Object.entries(ls.lists[k]||{})) if(!log[ik] || e.at >= log[ik].at) log[ik] = e;
+    stamps.lists[k] = log;
+  }
+  out.syncStamps = stamps;
+  if((rm.lastEditedAt||'') > (lm.lastEditedAt||'')){ out.lastEditedBy = rm.lastEditedBy; out.lastEditedAt = rm.lastEditedAt; }
+  else if(lm.lastEditedAt){ out.lastEditedBy = lm.lastEditedBy; out.lastEditedAt = lm.lastEditedAt; }
 }
 function mergePayloads(remotePayload, localPayload){
   // Combine both sides' own tombstone records into one unified set before merging anything else,
@@ -7957,6 +8145,7 @@ function mergePayloads(remotePayload, localPayload){
   const mergedTombstones = Array.from(tombstoneMap.values());
   const tombstoned = new Set(mergedTombstones.map(t=>t.id));
   const merged = { meta: { ...(remotePayload.meta||{}), ...(localPayload.meta||{}), tombstones: mergedTombstones } };
+  mergeSharedSettings(merged.meta, remotePayload.meta||{}, localPayload.meta||{});
   for(const store of ['crops','tasks','harvests','wishlist','notes']) merged[store] = mergeItemListById(remotePayload[store], localPayload[store], tombstoned);
   for(const store of ['beds','features','trays']) merged[store] = mergeContainerLikeList(remotePayload[store], localPayload[store], tombstoned);
   return merged;
@@ -8012,6 +8201,7 @@ async function applyRemotePayload(payload, updatedAt, isJoin){
     for(const n of privateNotesKept) await put('notes', n, true);
     for(const n of (merged.notes||[])) await put('notes', n, true);
     if(merged.meta) for(const k of SHARED_META_KEYS) if(merged.meta[k]!==undefined) await setMeta(k, merged.meta[k]);
+    if(isJoin && (!merged.meta || merged.meta.syncStamps===undefined)) await setMeta('syncStamps', null);
     await loadAll();
     // A modal open right now means someone may be actively typing into a form - a full re-render
     // at that exact moment can destroy and recreate the very input they're focused on, silently
