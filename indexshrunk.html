@@ -684,7 +684,7 @@ const DB_NAME='plotbook4', DB_VERSION=5; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.02.5';
+const APP_VERSION = '2026.10.02.6';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -8428,6 +8428,7 @@ body.innerHTML = `${nameField}
 <div class="btn-row"><button class="btn" id="btnStartSharing">Turn on sharing</button></div>
 <p class="muted" style="margin-top:16px;">Received an invitation?</p>
 <div class="form-row"><div><input type="text" id="joinCodeInput" placeholder="Paste what they sent you here"></div></div>
+<button class="btn small secondary" id="btnPasteInvite" style="margin:-4px 0 10px;">📋 Paste</button>
 <button class="btn secondary" id="btnJoin">Join their plot</button>`;
 document.getElementById('btnStartSharing').addEventListener('click', async ()=>{
 if(!requireGardenerName()) return;
@@ -8442,6 +8443,14 @@ if(!code) throw new Error('could not find a free code - please try again');
 await afterChange();
 openInviteScreen(code);
 }catch(e){ toast('Could not set up sharing: ' + (e.message || 'unknown problem')); }
+});
+document.getElementById('btnPasteInvite').addEventListener('click', async ()=>{
+try{
+const txt = await navigator.clipboard.readText();
+if(txt && txt.trim()){ document.getElementById('joinCodeInput').value = txt.trim(); toast('Pasted — now tap "Join their plot"'); return; }
+}catch(e){}
+document.getElementById('joinCodeInput').focus();
+toast('Press and hold in the box above, then tap Paste');
 });
 document.getElementById('btnJoin').addEventListener('click', async ()=>{
 if(!requireGardenerName()) return;
@@ -8682,6 +8691,9 @@ renderUserCompanionPairs();
 });
 async function checkAutoBackup(){
 if(!navigator.onLine) return;
+// Nothing to back up yet - a brand-new install (including someone about to join a shared plot)
+// was being told "It's been a while since your last backup" before it had any plot at all.
+if(!STATE.settings.plotShape && !STATE.beds.length && !STATE.features.length) return;
 const last = STATE.settings.lastAutoBackupDate;
 if(last && daysBetween(last, todayISO()) < 7) return;
 if(STATE.settings.autoBackupOn){
@@ -8845,10 +8857,27 @@ if(bedChanged){ await put('beds', bed); changed = true; }
 }
 if(changed) await loadAll();
 }
+// On an iPhone or iPad, My Plot added to the Home Screen keeps its own data, completely separate
+// from Safari's - so joining from an invite link in Safari never carried over to the Home Screen
+// copy, and the person had to join all over again. When an invite link opens in Safari there,
+// the person is walked through adding it to the Home Screen first, with the invitation copied
+// ready to paste into it. (Elsewhere - Android, a computer - the browser and the installed app
+// share their data, so joining straight away from the link works fine and is left as it was.)
+function isAppleTouchDevice(){
+return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+}
+function isRunningFromHomeScreen(){
+return navigator.standalone===true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+}
 async function checkInviteLink(){
 const params = new URLSearchParams(window.location.search);
 const su = params.get('su'), sk = params.get('sk'), sc = params.get('sc'), sn = params.get('sn');
 if(!su || !sk || !sc) return;
+if(isAppleTouchDevice() && !isRunningFromHomeScreen()){ openInviteHomeScreenFirst(su, sk, sc, sn); return; }
+history.replaceState(null, '', window.location.pathname);
+joinFromInvite(su, sk, sc, sn);
+}
+function joinFromInvite(su, sk, sc, sn){
 history.replaceState(null, '', window.location.pathname);
 const nameKnown = !!STATE.settings.gardenerName;
 openModal(`<h3>Join ${sn?escapeHTML(sn)+"'s":'their'} plot?</h3>
@@ -8867,6 +8896,28 @@ try{
 await connectSync(su, sk, sc);
 toast('Connected — sharing is on');
 }catch(e){ toast('Could not connect: ' + (e.message || 'unknown problem')); }
+});
+}
+function openInviteHomeScreenFirst(su, sk, sc, sn){
+// The invite stays in the page address on purpose: if the Home Screen copy happens to open with
+// it, it offers to join straight away and no pasting is needed at all.
+const pasteCode = `${su}|${sk}|${sc}`;
+const who = sn ? escapeHTML(sn)+"'s" : 'their';
+openModal(`<h3>Joining ${who} plot</h3>
+<p>First, put My Plot on your Home Screen — on an iPhone or iPad, joining here in Safari wouldn't carry over to it, and you'd have to join twice.</p>
+<div class="tray-card" style="margin-bottom:10px;"><strong>1. Tap "Copy invitation" below</strong></div>
+<div class="tray-card" style="margin-bottom:10px;"><strong>2. Tap Share, then "Add to Home Screen"</strong><p class="muted" style="margin:4px 0 0;">If you don't see it, scroll down the list, or tap "Edit Actions" at the bottom and add it.</p></div>
+<div class="tray-card" style="margin-bottom:14px;"><strong>3. Open My Plot from your Home Screen</strong><p class="muted" style="margin:4px 0 0;">If it asks to join, tap Join. Otherwise tap "Join their plot instead", then 📋 Paste, then "Join their plot".</p></div>
+<button class="btn big" id="mCopyInvite" style="width:100%;">Copy invitation</button>
+<textarea readonly rows="2" onclick="this.select()" style="width:100%; margin-top:10px; font-family:monospace; font-size:13px;">${escapeHTML(pasteCode)}</textarea>
+<button class="btn secondary" id="mJoinInSafari" style="margin-top:14px;">Just use it here in Safari instead</button>`, true);
+document.getElementById('mCopyInvite').addEventListener('click', async ()=>{
+try{ await navigator.clipboard.writeText(pasteCode); toast('Invitation copied — now add My Plot to your Home Screen'); }
+catch(e){ toast('Could not copy — press and hold the text below and copy it'); }
+});
+document.getElementById('mJoinInSafari').addEventListener('click', ()=>{
+closeModal();
+joinFromInvite(su, sk, sc, sn);
 });
 }
 (async function init(){
