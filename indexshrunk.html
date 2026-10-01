@@ -195,6 +195,17 @@ size along the way. */
 @keyframes pillFlash{0%,100%{background:var(--leaf); color:#fff;} 50%{background:var(--leaf-light); color:#fff;}}
 .tier-pill{padding:6px 12px; border-radius:16px; border:1.5px solid var(--line); background:var(--paper); font-size:16px; font-weight:700; color:var(--soil);}
 .tier-pill.active{background:var(--leaf); color:#fff; border-color:var(--leaf);}
+/* Costs tab */
+.cost-balance{background:var(--paper); border:2px solid var(--leaf); border-radius:var(--radius); padding:16px; margin-bottom:14px;}
+.cost-balance .big{font-family:'Zilla Slab', Georgia, serif; font-weight:700; font-size:26px; line-height:1.2; margin:4px 0 6px;}
+.cost-bar{height:10px; background:var(--line-soft); border-radius:5px; overflow:hidden;}
+.cost-bar > div{height:10px; border-radius:5px;}
+.cost-list{border:1px solid var(--line); border-radius:var(--radius); background:var(--paper); overflow:hidden; margin-bottom:12px;}
+.cost-row{display:flex; justify-content:space-between; gap:10px; padding:12px 14px; border-bottom:1px solid var(--line-soft); width:100%; background:none; border-left:none; border-right:none; border-top:none; text-align:left; font:inherit; color:inherit; cursor:pointer;}
+.cost-row:last-child{border-bottom:none;}
+.cost-row.settle{background:var(--line-soft);}
+.cost-row .what{font-weight:700; font-size:17px;}
+.cost-row .amt{font-weight:700; font-size:17px; white-space:nowrap;}
 .bed-picture-wrap{overflow-x:auto; margin-bottom:8px;}
 .bed-picture{position:relative; border-radius:10px; border:2px solid var(--soil); background:var(--card); touch-action:pan-x pan-y pinch-zoom; overflow:hidden; margin:0 auto;}
 .picgrid{position:absolute; inset:0; pointer-events:none; opacity:0; transition:opacity 0.12s;}
@@ -288,6 +299,7 @@ body > *:not(#printView){display:none !important;}
 <button data-view="planning">Planning ahead</button>
 <button class="wx-btn" id="wxBtn"><span id="wxIcon">Weather</span></button>
 <button data-view="notes">Notes</button>
+<button data-view="costs">Costs</button>
 <button id="btnSearch" title="Search">Search</button>
 <button data-view="setup">Setup</button>
 <button data-view="help" class="help-tab-btn">Help</button>
@@ -306,6 +318,12 @@ body > *:not(#printView){display:none !important;}
 </section>
 </div>
 <!-- NOTES -->
+<div class="view" id="view-costs">
+<section class="panel">
+<h2>Costs</h2>
+<div id="costsBody"></div>
+</section>
+</div>
 <div class="view" id="view-notes">
 <section class="panel">
 <h2>Notes</h2>
@@ -680,11 +698,11 @@ body > *:not(#printView){display:none !important;}
 <div class="modal-backdrop" id="modalBackdrop"><div class="modal" id="modalContent"></div></div>
 <script>
 /* ======================= DATA LAYER ======================= */
-const DB_NAME='plotbook4', DB_VERSION=5; let db;
+const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.02.6';
+const APP_VERSION = '2026.10.03.1';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -696,7 +714,7 @@ const SHARED_APP_URL = 'https://allotmenteer67.github.io/Allotmate74/index.html'
 function openDB(){ return new Promise((resolve,reject)=>{
 const req = indexedDB.open(DB_NAME, DB_VERSION);
 req.onupgradeneeded = (e)=>{ const d=e.target.result;
-for(const s of ['crops','beds','features','trays','tasks','harvests','meta','wishlist','planningItems','planningChanges','notes']){
+for(const s of ['crops','beds','features','trays','tasks','harvests','meta','wishlist','planningItems','planningChanges','notes','costs']){
 if(!d.objectStoreNames.contains(s)) d.createObjectStore(s,{keyPath: s==='meta'?'key':'id'});
 }
 };
@@ -842,7 +860,7 @@ function getMeta(key,fallback){ return new Promise((res)=>{ const r=txStore('met
 // settings (units, weather warning levels, ground colour, notifications...) is personal to each
 // device and never synced at all.
 const SHARED_SINGLE_KEYS = ['plotName','plotWidthM','plotDepthM','plotShape','postcode','lat','lon'];
-const SHARED_LIST_KEYS = ['customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory'];
+const SHARED_LIST_KEYS = ['customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory','costPeople'];
 function settingListItemKey(item){
 if(typeof item==='string') return 's:'+item.toLowerCase();
 if(item && typeof item==='object'){
@@ -1767,7 +1785,7 @@ return CROP_COLORS[hash % CROP_COLORS.length];
 }
 function cropColor(crop){ return (crop && crop.color) || (crop ? colorForCropName(crop.name) : '#8a8a7a'); }
 /* ======================= STATE ======================= */
-let STATE = { crops:[], beds:[], features:[], trays:[], tasks:[], harvests:[], settings:{}, wishlist:[], planningItems:[], planningChanges:[], notes:[] };
+let STATE = { crops:[], beds:[], features:[], trays:[], tasks:[], harvests:[], settings:{}, wishlist:[], planningItems:[], planningChanges:[], notes:[], costs:[] };
 let LAST_WEATHER = null;
 // Cloude's own corrected feed — see fetchCorrectedForecast(). Null
 // whenever it's missing, stale, or unreachable; every read site treats
@@ -1855,6 +1873,7 @@ STATE.wishlist = await getAll('wishlist');
 STATE.planningItems = await getAll('planningItems');
 STATE.planningChanges = await getAll('planningChanges');
 STATE.notes = await getAll('notes');
+STATE.costs = await getAll('costs');
 STATE.settings.plotName = await getMeta('plotName','My Plot');
 STATE.settings.plotWidthM = await getMeta('plotWidthM', 10);
 STATE.settings.plotDepthM = await getMeta('plotDepthM', 6);
@@ -1907,6 +1926,7 @@ STATE.settings.customContainerSizes = await getMeta('customContainerSizes', []);
 STATE.settings.treatmentReasons = await getMeta('treatmentReasons', []);
 STATE.settings.lastEditedBy = await getMeta('lastEditedBy', '');
 STATE.settings.syncStamps = await getMeta('syncStamps', null);
+STATE.settings.costPeople = await getMeta('costPeople', []);
 STATE.settings.lastEditedAt = await getMeta('lastEditedAt', null);
 STATE.settings.loadedFromBackup = await getMeta('loadedFromBackup', null);
 }
@@ -2082,12 +2102,12 @@ let undoStack=[], redoStack=[], lastSnapshot=null, restoring=false;
 // from - is what actually keeps you where you were.
 let currentDetailReopen = null;
 function snapshotState(){
-return JSON.parse(JSON.stringify({crops:STATE.crops, beds:STATE.beds, features:STATE.features, trays:STATE.trays, tasks:STATE.tasks, harvests:STATE.harvests, wishlist:STATE.wishlist, planningItems:STATE.planningItems, planningChanges:STATE.planningChanges}));
+return JSON.parse(JSON.stringify({crops:STATE.crops, beds:STATE.beds, features:STATE.features, trays:STATE.trays, tasks:STATE.tasks, harvests:STATE.harvests, wishlist:STATE.wishlist, planningItems:STATE.planningItems, planningChanges:STATE.planningChanges, costs:STATE.costs}));
 }
 async function restoreSnapshot(snap){
 restoring = true;
 try{
-for(const store of ['crops','beds','features','trays','tasks','harvests','wishlist','planningItems','planningChanges']){
+for(const store of ['crops','beds','features','trays','tasks','harvests','wishlist','planningItems','planningChanges','costs']){
 await clearStore(store);
 for(const item of (snap[store]||[])) await put(store, item);
 }
@@ -8041,7 +8061,7 @@ if(supa && !applyingRemote && !restoring) schedulePush();
 // incoming update, where storage (not whatever a screen happens to hold) is the true current state.
 // Everything kept in its own list that's shared between gardeners - Planning Ahead (its plans and
 // the sketched changes on its map) included, so every gardener plans against the same picture.
-const SYNCED_ITEM_STORES = ['crops','beds','features','trays','tasks','harvests','wishlist','planningItems','planningChanges'];
+const SYNCED_ITEM_STORES = ['crops','beds','features','trays','tasks','harvests','wishlist','planningItems','planningChanges','costs'];
 async function buildSyncPayloadFromStorage(){
 const out = {};
 for(const s of SYNCED_ITEM_STORES) out[s] = await getAll(s);
@@ -8077,7 +8097,7 @@ if(clearStamps) ms.put({key:'syncStamps', value:null});
 function buildSyncPayload(){
 const meta = {};
 for(const k of SHARED_META_KEYS) meta[k] = STATE.settings[k];
-return { crops:STATE.crops, beds:STATE.beds, features:STATE.features, trays:STATE.trays, tasks:STATE.tasks, harvests:STATE.harvests, wishlist:STATE.wishlist, planningItems:STATE.planningItems, planningChanges:STATE.planningChanges, notes:STATE.notes.filter(n=>n.shared), meta };
+return { crops:STATE.crops, beds:STATE.beds, features:STATE.features, trays:STATE.trays, tasks:STATE.tasks, harvests:STATE.harvests, wishlist:STATE.wishlist, planningItems:STATE.planningItems, planningChanges:STATE.planningChanges, costs:STATE.costs, notes:STATE.notes.filter(n=>n.shared), meta };
 }
 // Combines two lists of the same kind of item (matched by their own id) into one - where both
 // sides have the same id, keeps whichever was genuinely touched more recently (_ts, stamped
@@ -8190,7 +8210,7 @@ const mergedTombstones = Array.from(tombstoneMap.values());
 const tombstoned = new Set(mergedTombstones.map(t=>t.id));
 const merged = { meta: { ...(remotePayload.meta||{}), ...(localPayload.meta||{}), tombstones: mergedTombstones } };
 mergeSharedSettings(merged.meta, remotePayload.meta||{}, localPayload.meta||{});
-for(const store of ['crops','tasks','harvests','wishlist','planningItems','planningChanges','notes']) merged[store] = mergeItemListById(remotePayload[store], localPayload[store], tombstoned);
+for(const store of ['crops','tasks','harvests','wishlist','planningItems','planningChanges','costs','notes']) merged[store] = mergeItemListById(remotePayload[store], localPayload[store], tombstoned);
 for(const store of ['beds','features','trays']) merged[store] = mergeContainerLikeList(remotePayload[store], localPayload[store], tombstoned);
 return merged;
 }
@@ -8574,7 +8594,7 @@ async function buildBackupDump(){
 // growing every export a little for no reason.
 const meta = (await getAll('meta')).filter(m=>m.key!==AUTO_SNAPSHOT_META_KEY);
 return { crops:await getAll('crops'), beds:await getAll('beds'), features:await getAll('features'),
-trays:await getAll('trays'), tasks:await getAll('tasks'), harvests:await getAll('harvests'), wishlist:await getAll('wishlist'), planningItems:await getAll('planningItems'), planningChanges:await getAll('planningChanges'), notes:await getAll('notes'), meta, exportedAt:new Date().toISOString() };
+trays:await getAll('trays'), tasks:await getAll('tasks'), harvests:await getAll('harvests'), wishlist:await getAll('wishlist'), planningItems:await getAll('planningItems'), planningChanges:await getAll('planningChanges'), costs:await getAll('costs'), notes:await getAll('notes'), meta, exportedAt:new Date().toISOString() };
 }
 async function doBackupExport(){
 const dump = await buildBackupDump();
@@ -8729,7 +8749,7 @@ const text = await file.text();
 let dump;
 try{ dump = JSON.parse(text); }
 catch(err){ alert("Couldn't read that file."); e.target.value=''; return; }
-const stores = ['crops','beds','features','trays','tasks','harvests','wishlist','planningItems','planningChanges','notes','meta'];
+const stores = ['crops','beds','features','trays','tasks','harvests','wishlist','planningItems','planningChanges','costs','notes','meta'];
 const doImport = async (replace)=>{
 closeModal();
 if(replace){ for(const store of stores) await clearStore(store); }
@@ -8775,11 +8795,252 @@ const names = new Set(KNOWN_CROPS.map(c=>c.name));
 for(const c of STATE.crops) names.add(c.name);
 dl.innerHTML = [...names].sort((a,b)=>a.localeCompare(b)).map(n=>`<option value="${escapeAttr(n)}"></option>`).join('');
 }
+// ---- Costs ----
+// A plain shared record of what the gardeners have bought for the plot. Every cost is split
+// equally between everyone sharing costs on the date it was bought (someone who joins later only
+// shares costs from their joining date on). A settle-up is just another entry - nothing is ever
+// cleared - so the full history and the yearly totals always stay intact; only the "who owes
+// whom" figure, worked out afresh from every entry each time, comes back to zero. No reminders
+// or notifications of any kind come from here. Amounts are kept in whole pence.
+const COST_KINDS = [
+{key:'seeds', label:'Seeds & plants', colour:'var(--leaf)'},
+{key:'feed',  label:'Feed, compost & soil', colour:'#8A6A1F'},
+{key:'tools', label:'Tools & kit', colour:'var(--soil)'},
+{key:'rent',  label:'Rent & water', colour:'var(--slate)'},
+{key:'other', label:'Other', colour:'#8C8A78'}
+];
+let costsYear = String(new Date().getFullYear());
+function costKindLabel(k){ const c = COST_KINDS.find(c=>c.key===k); return c ? c.label : 'Other'; }
+function money(p){ const v = Math.round(p)/100; return '£' + v.toFixed(2); }
+function parseMoney(txt){
+const v = parseFloat(String(txt||'').replace(/[£\s,]/g, (m)=> m===',' ? '' : ''));
+return isFinite(v) && v>0 ? Math.round(v*100) : null;
+}
+function costPeople(){ return (STATE.settings.costPeople||[]).filter(p=>p && p.id); }
+function costPersonName(id){ const p = costPeople().find(p=>p.id===id); return p ? p.name : 'Someone'; }
+function costPeopleOn(date){ return costPeople().filter(p=>!p.from || p.from <= date); }
+function costEntriesSorted(){
+return [...(STATE.costs||[])].sort((a,b)=> (a.date||'').localeCompare(b.date||'') || (a.createdAt||'').localeCompare(b.createdAt||''));
+}
+// Each person's position: positive = owed money, negative = owes money.
+function costBalances(){
+const net = {}; for(const p of costPeople()) net[p.id] = 0;
+for(const e of costEntriesSorted()){
+if(e.kind==='settle'){
+if(e.from in net) net[e.from] += e.amount;
+if(e.to in net) net[e.to] -= e.amount;
+continue;
+}
+const members = costPeopleOn(e.date||'').map(p=>p.id);
+if(e.paidBy && !members.includes(e.paidBy) && e.paidBy in net) members.push(e.paidBy);
+if(!members.length) continue;
+if(e.paidBy in net) net[e.paidBy] += e.amount;
+// Split into whole pennies so every figure shown adds up exactly; any odd pennies go to the
+// same people in the same order on every device.
+members.sort();
+const base = Math.floor(e.amount / members.length), extra = e.amount - base*members.length;
+members.forEach((m,i)=>{ net[m] -= base + (i<extra ? 1 : 0); });
+}
+return net;
+}
+// The fewest payments that bring everyone back to zero.
+function costSuggestedPayments(net){
+const owe = [], owed = [];
+for(const [id,v] of Object.entries(net)){ const r = Math.round(v); if(r<=-1) owe.push({id, v:-r}); else if(r>=1) owed.push({id, v:r}); }
+owe.sort((a,b)=>b.v-a.v); owed.sort((a,b)=>b.v-a.v);
+const pays = []; let i=0, j=0;
+while(i<owe.length && j<owed.length){
+const amt = Math.min(owe[i].v, owed[j].v);
+if(amt>=1) pays.push({from:owe[i].id, to:owed[j].id, amount:amt});
+owe[i].v -= amt; owed[j].v -= amt;
+if(owe[i].v<1) i++; if(owed[j].v<1) j++;
+}
+return pays;
+}
+function renderCosts(){
+const el = document.getElementById('costsBody'); if(!el) return;
+const people = costPeople();
+if(people.length < 2){ renderCostPeopleSetup(el); return; }
+const net = costBalances();
+const pays = costSuggestedPayments(net);
+const settles = costEntriesSorted().filter(e=>e.kind==='settle');
+const lastSettle = settles.length ? settles[settles.length-1].date : null;
+let headline, detail = '';
+if(!pays.length) headline = 'All square';
+else if(people.length===2) headline = `${escapeHTML(costPersonName(pays[0].from))} owes ${escapeHTML(costPersonName(pays[0].to))} ${money(pays[0].amount)}`;
+else {
+headline = 'Where everyone stands';
+detail = people.map(p=>{ const v = Math.round(net[p.id]||0); return `<div style="font-size:17px;">${escapeHTML(p.name)} ${v>=1 ? 'is owed '+money(v) : v<=-1 ? 'owes '+money(-v) : 'is square'}</div>`; }).join('')
++ `<div class="tiny-muted" style="margin-top:6px;">To square up: ${pays.map(x=>`${escapeHTML(costPersonName(x.from))} pays ${escapeHTML(costPersonName(x.to))} ${money(x.amount)}`).join(' · ')}</div>`;
+}
+const allYears = new Set((STATE.costs||[]).map(e=>(e.date||'').slice(0,4)).filter(Boolean));
+allYears.add(String(new Date().getFullYear()));
+const years = [...allYears].sort().reverse();
+if(costsYear!=='all' && !allYears.has(costsYear)) costsYear = years[0];
+const inYear = (e)=> costsYear==='all' || (e.date||'').startsWith(costsYear);
+const yearCosts = (STATE.costs||[]).filter(e=>e.kind!=='settle' && inYear(e));
+const total = yearCosts.reduce((t,e)=>t+e.amount,0);
+const byKind = COST_KINDS.map(k=>({...k, total: yearCosts.filter(e=>(e.category||'other')===k.key).reduce((t,e)=>t+e.amount,0)})).filter(k=>k.total>0).sort((a,b)=>b.total-a.total);
+const maxKind = byKind.length ? byKind[0].total : 1;
+const paidBy = people.map(p=>({name:p.name, total: yearCosts.filter(e=>e.paidBy===p.id).reduce((t,e)=>t+e.amount,0)}));
+const yearLabel = costsYear==='all' ? 'All years' : (costsYear===String(new Date().getFullYear()) ? `${costsYear} so far` : costsYear);
+const shown = (STATE.costs||[]).filter(inYear).sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.createdAt||'').localeCompare(a.createdAt||''));
+const groups = [];
+for(const e of shown){
+const d = new Date((e.date||todayISO())+'T12:00:00');
+const label = d.toLocaleDateString('en-GB', costsYear==='all' ? {month:'long', year:'numeric'} : {month:'long'});
+if(!groups.length || groups[groups.length-1].label!==label) groups.push({label, items:[]});
+groups[groups.length-1].items.push(e);
+}
+const short = (iso)=> new Date((iso||todayISO())+'T12:00:00').toLocaleDateString('en-GB',{day:'numeric', month:'short'});
+const rowHTML = (e)=> e.kind==='settle'
+? `<button class="cost-row settle" data-cost="${escapeAttr(e.id)}"><span><div class="what">Settled up</div><div class="tiny-muted">${short(e.date)} · ${escapeHTML(costPersonName(e.from))} paid ${escapeHTML(costPersonName(e.to))}</div></span><span class="amt">${money(e.amount)}</span></button>`
+: `<button class="cost-row" data-cost="${escapeAttr(e.id)}"><span><div class="what">${escapeHTML(e.item||'Something')}</div><div class="tiny-muted">${short(e.date)} · ${escapeHTML(costPersonName(e.paidBy))} paid · ${escapeHTML(costKindLabel(e.category))}${e.note?' · '+escapeHTML(e.note):''}</div></span><span class="amt">${money(e.amount)}</span></button>`;
+el.innerHTML = `
+<div class="cost-balance">
+<div class="tiny-muted" style="text-transform:uppercase; letter-spacing:0.04em; font-weight:700;">${lastSettle ? 'Since you last settled up ('+short(lastSettle)+')' : 'So far'}</div>
+<div class="big">${headline}</div>
+${detail}
+${pays.length ? `<button class="btn secondary" id="btnSettleUp" style="margin-top:10px;">We've settled up</button>` : ''}
+</div>
+<button class="btn big" id="btnAddCost" style="width:100%; margin-bottom:14px;">+ Add a cost</button>
+<div class="tray-card" style="margin-bottom:14px;">
+<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+<h3 style="margin:0;">${yearLabel}</h3>
+<label style="display:flex; align-items:center; gap:6px; font-weight:700;">Year
+<select id="costsYearSel">${years.map(y=>`<option value="${y}" ${y===costsYear?'selected':''}>${y}</option>`).join('')}<option value="all" ${costsYear==='all'?'selected':''}>All years</option></select>
+</label>
+</div>
+<div style="font-family:'Zilla Slab', Georgia, serif; font-weight:700; font-size:24px; margin:8px 0 2px;">${money(total)}</div>
+<div class="tiny-muted" style="margin-bottom:10px;">${paidBy.map(p=>`${escapeHTML(p.name)} paid ${money(p.total)}`).join(' · ')}</div>
+${byKind.length ? byKind.map(k=>`<div style="margin-bottom:9px;"><div style="display:flex; justify-content:space-between; font-size:16px;"><span>${escapeHTML(k.label)}</span><strong>${money(k.total)}</strong></div><div class="cost-bar"><div style="width:${Math.max(3, Math.round(k.total/maxKind*100))}%; background:${k.colour};"></div></div></div>`).join('') : '<p class="tiny-muted" style="margin:0;">Nothing recorded for this year yet.</p>'}
+</div>
+${groups.map(g=>`<h3 style="margin:10px 0 6px;">${escapeHTML(g.label)}</h3><div class="cost-list">${g.items.map(rowHTML).join('')}</div>`).join('')}
+<button class="btn small secondary" id="btnCostPeople" style="margin-top:6px;">Who's sharing costs (${people.length})</button>`;
+document.getElementById('btnAddCost').addEventListener('click', ()=>openCostEditor(null));
+const su = document.getElementById('btnSettleUp'); if(su) su.addEventListener('click', ()=>openSettleUp(pays));
+document.getElementById('costsYearSel').addEventListener('change', (e)=>{ costsYear = e.target.value; renderCosts(); });
+document.getElementById('btnCostPeople').addEventListener('click', openCostPeopleEditor);
+el.querySelectorAll('[data-cost]').forEach(b=>b.addEventListener('click', ()=>{
+const e = (STATE.costs||[]).find(x=>x.id===b.dataset.cost); if(!e) return;
+if(e.kind==='settle') openSettleEditor(e); else openCostEditor(e);
+}));
+}
+function renderCostPeopleSetup(el){
+const existing = costPeople();
+const names = existing.length ? existing.map(p=>p.name) : [STATE.settings.gardenerName||'', ''];
+while(names.length<2) names.push('');
+el.innerHTML = `<p class="muted">Who shares the plot's costs? Everything you add here is split equally between them.</p>
+<div id="costNameRows">${names.map((n,i)=>`<div class="form-row"><div><label for="costName${i}">Person ${i+1}</label><input type="text" id="costName${i}" class="costNameInput" value="${escapeAttr(n)}" placeholder="Name"></div></div>`).join('')}</div>
+<button class="btn small secondary" id="btnCostAddName" style="margin-bottom:12px;">+ Add another person</button>
+<button class="btn big" id="btnCostNamesSave" style="width:100%;">Start recording costs</button>`;
+document.getElementById('btnCostAddName').addEventListener('click', ()=>{
+const rows = document.getElementById('costNameRows'); const i = rows.querySelectorAll('.costNameInput').length;
+rows.insertAdjacentHTML('beforeend', `<div class="form-row"><div><label for="costName${i}">Person ${i+1}</label><input type="text" id="costName${i}" class="costNameInput" placeholder="Name"></div></div>`);
+});
+document.getElementById('btnCostNamesSave').addEventListener('click', async ()=>{
+const typed = [...el.querySelectorAll('.costNameInput')].map(i=>i.value.trim()).filter(Boolean);
+if(typed.length<2){ toast('Add at least two names'); return; }
+const list = typed.map(name=>({id:uid(), name, from:null}));
+STATE.settings.costPeople = list;
+await setMeta('costPeople', list); renderCosts();
+});
+}
+function openCostPeopleEditor(){
+const people = costPeople();
+const used = new Set((STATE.costs||[]).flatMap(e=> e.kind==='settle' ? [e.from, e.to] : [e.paidBy]));
+openModal(`<h3>Who's sharing costs</h3>
+<p class="tiny-muted">Each cost is split equally between everyone listed on the date it was bought.</p>
+${people.map(p=>`<div class="form-row"><div><label for="cp_${p.id}">Name</label><input type="text" id="cp_${p.id}" value="${escapeAttr(p.name)}"></div>
+<div><label>${p.from ? 'Shares costs from' : 'Shares costs'}</label><div style="padding:10px 0;">${p.from ? dayLabel(p.from) : 'from the start'}</div></div></div>
+${used.has(p.id) ? '' : `<button class="btn small danger" data-cpdel="${p.id}" style="margin:-4px 0 12px;">Remove ${escapeHTML(p.name)}</button>`}`).join('')}
+<h4 style="margin-top:14px;">Someone new joining</h4>
+<div class="form-row"><div><label for="cpNewName">Name</label><input type="text" id="cpNewName" placeholder="Name"></div><div><label for="cpNewFrom">Shares costs from</label><input type="date" id="cpNewFrom" value="${todayISO()}"></div></div>
+<div class="btn-row"><button class="btn" id="cpSave">Save</button><button class="btn secondary" id="cpCancel">Cancel</button></div>`);
+document.getElementById('cpCancel').addEventListener('click', closeModal);
+document.querySelectorAll('[data-cpdel]').forEach(b=>b.addEventListener('click', async ()=>{
+const list = costPeople().filter(p=>p.id!==b.dataset.cpdel);
+if(list.length<2){ toast('There need to be at least two people'); return; }
+STATE.settings.costPeople = list; await setMeta('costPeople', list); closeModal(); renderCosts();
+}));
+document.getElementById('cpSave').addEventListener('click', async ()=>{
+const list = costPeople().map(p=>({...p, name: (document.getElementById('cp_'+p.id).value.trim() || p.name)}));
+const nn = document.getElementById('cpNewName').value.trim();
+if(nn) list.push({id:uid(), name:nn, from: document.getElementById('cpNewFrom').value || todayISO()});
+STATE.settings.costPeople = list; await setMeta('costPeople', list); closeModal(); renderCosts();
+});
+}
+function openCostEditor(existing){
+const people = costPeople();
+const e = existing || {item:'', amount:null, date:todayISO(), paidBy: (people.find(p=>p.name===STATE.settings.gardenerName)||{}).id || null, category:null, note:''};
+let paidBy = e.paidBy, category = e.category;
+openModal(`<h3>${existing ? 'Edit cost' : 'Add a cost'}</h3>
+<div class="form-row"><div><label for="mCostItem">What was it?</label><input type="text" id="mCostItem" value="${escapeAttr(e.item||'')}" placeholder="e.g. onion sets"></div></div>
+<div class="form-row"><div><label for="mCostAmt">How much (£)</label><input type="text" inputmode="decimal" id="mCostAmt" value="${e.amount!=null ? (e.amount/100).toFixed(2) : ''}" placeholder="0.00"></div>
+<div><label for="mCostDate">When</label><input type="date" id="mCostDate" value="${escapeAttr(e.date||todayISO())}"></div></div>
+<label>Who paid?</label>
+<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">${people.map(p=>`<button class="tier-pill ${p.id===paidBy?'active':''}" data-payer="${p.id}" style="min-height:44px;">${escapeHTML(p.name)}</button>`).join('')}</div>
+<label>What sort of thing?</label>
+<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">${COST_KINDS.map(k=>`<button class="tier-pill ${k.key===category?'active':''}" data-kind="${k.key}" style="min-height:44px;">${escapeHTML(k.label)}</button>`).join('')}</div>
+<div class="form-row"><div><label for="mCostNote">Note (optional)</label><input type="text" id="mCostNote" value="${escapeAttr(e.note||'')}" placeholder="e.g. where from"></div></div>
+<div class="btn-row"><button class="btn" id="mCostSave">Save</button><button class="btn secondary" id="mCostCancel">Cancel</button>
+${existing ? '<button class="btn danger" id="mCostDel">Delete</button>' : ''}</div>`);
+document.querySelectorAll('[data-payer]').forEach(b=>b.addEventListener('click', ()=>{ paidBy = b.dataset.payer; document.querySelectorAll('[data-payer]').forEach(x=>x.classList.toggle('active', x===b)); }));
+document.querySelectorAll('[data-kind]').forEach(b=>b.addEventListener('click', ()=>{ category = b.dataset.kind; document.querySelectorAll('[data-kind]').forEach(x=>x.classList.toggle('active', x===b)); }));
+document.getElementById('mCostCancel').addEventListener('click', closeModal);
+if(existing) document.getElementById('mCostDel').addEventListener('click', async ()=>{
+if(await confirmDialog(`Delete "${escapeHTML(existing.item||'this cost')}"?`, ()=>openCostEditor(existing), 'Delete', true)){
+await del('costs', existing.id); await afterChange(); toast('Deleted');
+}
+});
+document.getElementById('mCostSave').addEventListener('click', async ()=>{
+const item = document.getElementById('mCostItem').value.trim();
+const amount = parseMoney(document.getElementById('mCostAmt').value);
+if(!item){ toast('Say what it was'); return; }
+if(!amount){ toast('Put in how much it cost'); return; }
+if(!paidBy){ toast('Tap who paid'); return; }
+const rec = existing || {id:uid(), kind:'cost', createdAt:new Date().toISOString(), createdBy:who()};
+rec.item = item; rec.amount = amount; rec.date = document.getElementById('mCostDate').value || todayISO();
+rec.paidBy = paidBy; rec.category = category || 'other'; rec.note = document.getElementById('mCostNote').value.trim();
+await put('costs', rec); closeModal(); await afterChange(); toast('Saved');
+});
+}
+function openSettleUp(pays){
+openModal(`<h3>Settle up</h3>
+<p class="tiny-muted">Change an amount if you paid a round figure — any difference just carries over.</p>
+${pays.map((x,i)=>`<div class="tray-card" style="margin-bottom:10px;"><strong style="font-size:18px;">${escapeHTML(costPersonName(x.from))} pays ${escapeHTML(costPersonName(x.to))}</strong>
+<div class="form-row" style="margin-top:6px;"><div><label for="suAmt${i}">Amount paid (£)</label><input type="text" inputmode="decimal" id="suAmt${i}" value="${(x.amount/100).toFixed(2)}"></div></div></div>`).join('')}
+<div class="form-row"><div><label for="suDate">When</label><input type="date" id="suDate" value="${todayISO()}"></div></div>
+<p class="tiny-muted">This adds a "Settled up" line and the balance starts again. Nothing is deleted — the year's totals stay as they are.</p>
+<div class="btn-row"><button class="btn" id="suSave">Record it</button><button class="btn secondary" id="suCancel">Cancel</button></div>`);
+document.getElementById('suCancel').addEventListener('click', closeModal);
+document.getElementById('suSave').addEventListener('click', async ()=>{
+const date = document.getElementById('suDate').value || todayISO();
+let n = 0;
+for(const [i,x] of pays.entries()){
+const amount = parseMoney(document.getElementById('suAmt'+i).value);
+if(!amount) continue;
+await put('costs', {id:uid(), kind:'settle', from:x.from, to:x.to, amount, date, createdAt:new Date().toISOString(), createdBy:who()}); n++;
+}
+closeModal(); await afterChange(); if(n) toast('Recorded');
+});
+}
+function openSettleEditor(e){
+openModal(`<h3>Settled up</h3>
+<p style="font-size:18px;"><strong>${escapeHTML(costPersonName(e.from))} paid ${escapeHTML(costPersonName(e.to))} ${money(e.amount)}</strong> on ${dayLabel(e.date)}.</p>
+<div class="btn-row"><button class="btn secondary" id="seClose">Close</button><button class="btn danger" id="seDel">Delete this settle-up</button></div>`);
+document.getElementById('seClose').addEventListener('click', closeModal);
+document.getElementById('seDel').addEventListener('click', async ()=>{
+if(await confirmDialog('Delete this settle-up? The balance will go back to what it was before it.', ()=>openSettleEditor(e), 'Delete', true)){
+await del('costs', e.id); await afterChange(); toast('Deleted');
+}
+});
+}
 function renderAll(){
 renderPending = false;
 refreshCropSuggestions();
 renderPlacingBanner();
-renderMap(); renderComingUp(); renderNotes(); renderJobsView(); renderCropList(); renderWishlist(); renderSharePanel(); renderHistory(); renderStructureList(); renderPlanning();
+renderMap(); renderComingUp(); renderNotes(); renderCosts(); renderJobsView(); renderCropList(); renderWishlist(); renderSharePanel(); renderHistory(); renderStructureList(); renderPlanning();
 plotNameEl.textContent = STATE.settings.plotName || 'My Plot';
 document.title = STATE.settings.plotName || 'My Plot';
 if(STATE.settings.postcode) document.getElementById('postcodeInput').value = STATE.settings.postcode;
