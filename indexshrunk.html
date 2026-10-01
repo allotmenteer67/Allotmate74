@@ -702,7 +702,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.03.1';
+const APP_VERSION = '2026.10.03.2';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -8835,13 +8835,19 @@ const members = costPeopleOn(e.date||'').map(p=>p.id);
 if(e.paidBy && !members.includes(e.paidBy) && e.paidBy in net) members.push(e.paidBy);
 if(!members.length) continue;
 if(e.paidBy in net) net[e.paidBy] += e.amount;
-// Split into whole pennies so every figure shown adds up exactly; any odd pennies go to the
-// same people in the same order on every device.
-members.sort();
-const base = Math.floor(e.amount / members.length), extra = e.amount - base*members.length;
-members.forEach((m,i)=>{ net[m] -= base + (i<extra ? 1 : 0); });
+const share = e.amount / members.length;
+for(const m of members) net[m] -= share;
 }
-return net;
+// Worked out exactly (half-pennies and all) and rounded to whole pennies only once, here at the
+// end, so the figures always add up to zero between everyone and never drift - rounding each
+// purchase separately let odd pennies pile up on one person (9p over one real year's spending).
+const ids = Object.keys(net);
+const floors = ids.map(id=>({id, f:Math.floor(net[id]+1e-9), r:net[id]-Math.floor(net[id]+1e-9)}));
+let spare = Math.round(-floors.reduce((t,x)=>t+x.f,0));
+floors.sort((a,b)=> (b.r-a.r) || a.id.localeCompare(b.id));
+const out = {};
+for(const x of floors){ out[x.id] = x.f + (spare>0 ? 1 : 0); if(spare>0) spare--; }
+return out;
 }
 // The fewest payments that bring everyone back to zero.
 function costSuggestedPayments(net){
