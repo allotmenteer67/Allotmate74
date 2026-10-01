@@ -24,9 +24,15 @@ h1,h2,h3{font-family:'Zilla Slab',serif; color:var(--soil); margin:0;}
 button{font-family:inherit; cursor:pointer;}
 input,select,textarea{font-family:inherit; font-size:19px;}
 .top{background:var(--card); padding:10px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+/* Undo and Redo travel together: beside the name when it fits, otherwise both on their own line
+underneath, leaving the logo and the whole name across the top. */
+.top .top-actions{display:flex; gap:8px; flex-shrink:0;}
+.top .top-title{display:flex; align-items:center; gap:8px; flex:0 1 auto; min-width:0;}
 .top .leaf-mark{width:27px; height:27px; display:block; flex-shrink:0;}
-.top h1{font-size:24px; border:none; background:transparent; padding:2px 4px; border-bottom:2px dashed transparent; max-width:42vw;}
-.top h1:hover,.top h1:focus{border-bottom-color:var(--line); outline:none;}
+/* Tapping the name opens a proper rename box - see openRenamePlot. */
+/* The plot name is shown in full - a long one wraps onto a second line rather than being cut short. */
+.top h1{font-size:24px; border:none; background:transparent; padding:2px 4px; border-bottom:2px dashed var(--line); flex:0 1 auto; min-width:0; white-space:normal; overflow-wrap:anywhere; cursor:pointer; line-height:1.2;}
+.top h1:focus{outline:none; border-bottom-color:var(--soil);}
 .icon-btn{background:var(--paper); border:1.5px solid var(--line); border-radius:8px; min-width:32px; height:32px; padding:0 8px; color:var(--soil); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; gap:4px;}
 .icon-btn svg{width:18px; height:18px; flex-shrink:0;}
 .icon-btn-lbl{font-size:15.5px; font-weight:700;}
@@ -250,7 +256,6 @@ so Delete and the second action always land in the same place relative to each o
 .toast-action{position:fixed; left:50%; bottom:56px; transform:translate(-50%,20px); background:var(--soil); border:1.5px solid rgba(255,255,255,0.35); box-shadow:0 4px 14px rgba(0,0,0,0.35); color:#fff; padding:10px 10px 10px 18px; border-radius:24px; font-size:16.5px; opacity:0; pointer-events:none; transition:0.2s; z-index:100; display:flex; align-items:center; gap:10px; max-width:92vw;}
 .toast-action.show{opacity:1; transform:translate(-50%,0); pointer-events:auto;}
 .toast-action button{background:rgba(255,255,255,0.18); color:#fff; border:none; border-radius:18px; padding:8px 14px; font-size:15px; font-weight:700; font-family:'Karla',-apple-system,sans-serif; white-space:nowrap;}
-footer.hint{text-align:center; font-size:16px; opacity:0.75; padding:24px 0 10px;}
 #printView{display:none;}
 @media print{
 @page{size:A4; margin:12mm;}
@@ -265,10 +270,14 @@ body > *:not(#printView){display:none !important;}
 </head>
 <body>
 <div class="top">
+<div class="top-title">
 <img class="leaf-mark" src="./apple-mark.png" alt="">
-<h1 id="plotName" contenteditable="true" spellcheck="false">My Plot</h1>
+<h1 id="plotName" role="button" tabindex="0" title="Rename your plot">My Plot</h1>
+</div>
+<div class="top-actions">
 <button class="icon-btn" id="btnUndo" title="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7 4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-1"/></svg><span class="icon-btn-lbl">Undo</span></button>
 <button class="icon-btn" id="btnRedo" title="Redo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7l5 5-5 5"/><path d="M20 12H9a5 5 0 0 0 0 10h1"/></svg><span class="icon-btn-lbl">Redo</span></button>
+</div>
 </div>
 <nav class="tabs" id="tabs">
 <button data-view="map" class="active">My Plot</button>
@@ -664,7 +673,6 @@ body > *:not(#printView){display:none !important;}
 </section>
 </div>
 </main>
-<footer class="hint">Everything here is stored only on this device, and keeps working without a signal.</footer>
 <datalist id="cropSuggestions"></datalist>
 <datalist id="reasonSuggestions"></datalist>
 <div class="map-toolbar" id="outlineToolbar" style="display:none;"></div>
@@ -676,7 +684,7 @@ const DB_NAME='plotbook4', DB_VERSION=5; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.01.3';
+const APP_VERSION = '2026.10.02.5';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -695,22 +703,91 @@ if(!d.objectStoreNames.contains(s)) d.createObjectStore(s,{keyPath: s==='meta'?'
 req.onsuccess=(e)=>resolve(e.target.result); req.onerror=(e)=>reject(e);
 });}
 function txStore(name,mode='readonly'){ return db.transaction(name,mode).objectStore(name); }
-function getAll(store){ return new Promise((res,rej)=>{ const r=txStore(store).getAll(); r.onsuccess=()=>res(r.result); r.onerror=rej; }); }
-function put(store,obj,preserveTs){
-if(!preserveTs && store!=='meta' && obj && typeof obj==='object'){
-obj._ts = Date.now();
-// beds/features nest their own crops (plantings) and logs (history, treatments, compost
-// batches) inside them rather than saving each as its own standalone item - stamp those
-// individually too, so a merge can later tell which specific one is newer, not just the bed
-// as a whole. A compost batch's own contentsLog isn't stamped a level deeper than that - two
-// devices editing the very same still-open batch while both offline is rare enough, for how
-// this is actually used, that whole-batch last-write-wins is an acceptable simplification.
-for(const nested of ['plantings','history','treatments','compostBatches']){
-if(Array.isArray(obj[nested])) for(const item of obj[nested]) if(item && typeof item==='object') item._ts = obj._ts;
+// ---- Saving safely alongside another gardener ----
+// Every saved item remembers what it looked like when the app last loaded it (its "base"). When it
+// is saved, it's compared three ways - base, what's being saved, and what's actually stored right
+// now - so only what THIS save genuinely changed is applied, and anything the other gardener's
+// device changed in the meantime is kept rather than overwritten by an out-of-date copy. This
+// matters because screens hold on to the bed they opened with: without it, saving a feed on a
+// bed opened before the other gardener's harvest arrived would quietly put the harvested crop
+// back, and an incoming update landing mid-save could wipe the save itself.
+// Only things that actually changed get a fresh "changed at" stamp - so a later sync knows exactly
+// which crop, treatment or record is the newer one, rather than every crop in a bed looking newly
+// changed whenever anything in that bed is saved.
+const NESTED_LISTS = ['plantings','history','treatments','compostBatches'];
+const itemBases = new WeakMap();
+function rememberBase(obj){
+if(obj && typeof obj==='object'){ try{ itemBases.set(obj, structuredClone(obj)); }catch(e){} }
+}
+function stableJSON(v){
+if(Array.isArray(v)) return '['+v.map(stableJSON).join(',')+']';
+if(v && typeof v==='object'){
+return '{'+Object.keys(v).filter(k=>k!=='_ts' && v[k]!==undefined).sort().map(k=>JSON.stringify(k)+':'+stableJSON(v[k])).join(',')+'}';
+}
+return JSON.stringify(v===undefined?null:v);
+}
+function sameItem(a,b){ return stableJSON(a)===stableJSON(b); }
+function nestedKey(item, i){ return (item && item.id) ? 'id:'+item.id : 'j:'+stableJSON(item); }
+function reconcileForSave(obj, stored, base, now){
+if(!stored){
+obj._ts = now;
+for(const n of NESTED_LISTS) if(Array.isArray(obj[n])) for(const it of obj[n]) if(it && typeof it==='object') it._ts = now;
+return;
+}
+const ref = base || stored;
+// The item's own fields (name, position, size, dates...): keep this save's change where it made
+// one, otherwise take whatever is stored now.
+let topChanged = false;
+const keys = new Set([...Object.keys(obj), ...Object.keys(stored), ...Object.keys(ref)]);
+for(const k of keys){
+if(k==='_ts' || NESTED_LISTS.includes(k)) continue;
+if(!sameItem(obj[k], ref[k])) { topChanged = true; continue; }
+if(k in stored) obj[k] = stored[k]; else delete obj[k];
+}
+obj._ts = topChanged ? now : (stored._ts || now);
+// The crops, records and treatments kept inside it, one by one.
+for(const n of NESTED_LISTS){
+if(!Array.isArray(obj[n]) && !Array.isArray(stored[n])) continue;
+const local = Array.isArray(obj[n]) ? obj[n] : [];
+const refMap = new Map((Array.isArray(ref[n])?ref[n]:[]).map((it,i)=>[nestedKey(it,i), it]));
+const storedMap = new Map((Array.isArray(stored[n])?stored[n]:[]).map((it,i)=>[nestedKey(it,i), it]));
+const out = []; const seen = new Set();
+for(const [i,it] of local.entries()){
+const k = nestedKey(it,i); seen.add(k);
+const r = refMap.get(k), st = storedMap.get(k);
+if(!r){                                   // added by this save
+if(st && sameItem(it, st)) out.push(st); else { if(it && typeof it==='object') it._ts = now; out.push(it); }
+} else if(sameItem(it, r)){               // untouched by this save
+if(st) out.push(st);                    // (and if it's gone from storage, it was removed elsewhere)
+} else {                                  // changed by this save
+if(it && typeof it==='object') it._ts = now; out.push(it);
 }
 }
-return new Promise((res,rej)=>{ const r=txStore(store,'readwrite').put(obj); r.onsuccess=()=>res(obj); r.onerror=rej; });
+for(const [k,st] of storedMap){             // added elsewhere since this copy was loaded
+if(!seen.has(k) && !refMap.has(k)) out.push(st);
 }
+obj[n] = out;
+}
+}
+// One queue for every write, so an incoming update and a local save can never interleave.
+let dataLock = Promise.resolve();
+function withDataLock(fn){
+const run = dataLock.then(()=>fn());
+dataLock = run.catch(()=>{});
+return run;
+}
+function getAll(store){ return new Promise((res,rej)=>{ const r=txStore(store).getAll(); r.onsuccess=()=>{ for(const it of r.result) rememberBase(it); res(r.result); }; r.onerror=rej; }); }
+function putUnlocked(store,obj,preserveTs){
+return new Promise((res,rej)=>{
+const st = txStore(store,'readwrite');
+const finish = ()=>{ const r = st.put(obj); r.onsuccess=()=>{ rememberBase(obj); res(obj); }; r.onerror=rej; };
+if(preserveTs || store==='meta' || !obj || typeof obj!=='object' || obj.id==null){ finish(); return; }
+const g = st.get(obj.id);
+g.onsuccess = ()=>{ reconcileForSave(obj, g.result, itemBases.get(obj), Date.now()); finish(); };
+g.onerror = rej;
+});
+}
+function put(store,obj,preserveTs){ return withDataLock(()=>putUnlocked(store,obj,preserveTs)); }
 // Records that this id was genuinely, deliberately deleted, so a union-based merge against a
 // remote copy that hasn't learned about the deletion yet won't silently bring it back. Pruned to
 // the last 10 years - in practice this never expires, which is deliberate: a two-person plot with
@@ -751,7 +828,7 @@ for(const it of (items||[])) if(it && it.id) await recordTombstone(it.id);
 }
 async function del(store,id){
 await recordTombstone(id);
-return new Promise((res,rej)=>{ const r=txStore(store,'readwrite').delete(id); r.onsuccess=()=>res(); r.onerror=rej; });
+return withDataLock(()=>new Promise((res,rej)=>{ const r=txStore(store,'readwrite').delete(id); r.onsuccess=()=>res(); r.onerror=rej; }));
 }
 function clearStore(name){ return new Promise((res,rej)=>{ const r=txStore(name,'readwrite').clear(); r.onsuccess=()=>res(); r.onerror=rej; }); }
 function getMeta(key,fallback){ return new Promise((res)=>{ const r=txStore('meta').get(key); r.onsuccess=()=>res(r.result?r.result.value:fallback); r.onerror=()=>res(fallback); }); }
@@ -1969,11 +2046,29 @@ function blockTouchScroll(el){
 el.addEventListener('touchmove', (e)=>{ if(e.touches.length===1) e.preventDefault(); }, {passive:false});
 }
 const plotNameEl = document.getElementById('plotName');
-plotNameEl.addEventListener('blur', async ()=>{
-const val = plotNameEl.textContent.trim() || 'My Plot';
-plotNameEl.textContent = val; await setMeta('plotName', val); document.title = val;
-});
-plotNameEl.addEventListener('keydown',(e)=>{ if(e.key==='Enter'){ e.preventDefault(); plotNameEl.blur(); } });
+// The name used to be typed straight into the heading itself. On the iPad that kind of in-place
+// editing is unreliable - the cursor kept jumping back to the first letter and nothing could be
+// deleted. A tap now opens an ordinary text box, the same as renaming a bed, which the iPad
+// keyboard handles properly; it also shows the whole name however long it is.
+function openRenamePlot(){
+const current = STATE.settings.plotName || 'My Plot';
+openModal(`<h3>Rename your plot</h3>
+<div class="form-row"><div><label>Plot name</label><input type="text" id="mPlotName" value="${escapeAttr(current)}" maxlength="80"></div></div>
+<div class="btn-row"><button class="btn" id="mPlotNameSave">Save</button><button class="btn secondary" id="mPlotNameCancel">Cancel</button></div>`);
+const input = document.getElementById('mPlotName');
+const save = async ()=>{
+const val = input.value.trim() || 'My Plot';
+await setMeta('plotName', val);
+plotNameEl.textContent = val; document.title = val;
+closeModal();
+};
+document.getElementById('mPlotNameSave').addEventListener('click', save);
+document.getElementById('mPlotNameCancel').addEventListener('click', closeModal);
+input.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); save(); } });
+input.focus();
+}
+plotNameEl.addEventListener('click', openRenamePlot);
+plotNameEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); openRenamePlot(); } });
 /* ======================= UNDO / REDO ======================= */
 let undoStack=[], redoStack=[], lastSnapshot=null, restoring=false;
 // Whichever of the three "drag a crop's box around" screens (a bed, a container, a structure's
@@ -3509,6 +3604,17 @@ const baseBg = customColor ? `${customColor}30` : fallbackBg;
 const borderCol = customColor || fallbackBorder;
 return `background:${showHatch?compostHatchLayers():''}${baseBg}; border-color:${borderCol};`;
 }
+// First-run screens: someone who's been invited to share a plot shouldn't build one of their own
+// first - this takes them straight to the box where the invite code goes.
+function wireJoinInstead(){
+const btn = document.getElementById('onbJoinInstead'); if(!btn) return;
+btn.addEventListener('click', async ()=>{
+if(!STATE.settings.onboardingAcked){ await setMeta('onboardingAcked', true); STATE.settings.onboardingAcked = true; }
+goToTab('setup'); renderAll();
+const box = document.getElementById('joinCodeInput');
+if(box){ box.scrollIntoView({block:'center'}); box.focus(); }
+});
+}
 function renderMap(){
 const area = document.getElementById('mapArea');
 if(!STATE.settings.onboardingAcked){
@@ -3527,7 +3633,13 @@ area.innerHTML = `<h2 style="margin-bottom:2px;">Before you start</h2>
 <p class="muted" style="margin:4px 0 0;">Setup → "Keep a backup." Doing this once, before planting, gives you a clean copy to always get back to. Keep that first file to one side from your regular, ongoing backups.</p>
 </div>
 <p class="muted" style="margin-bottom:16px;">You don't need to remember all of this — it's here again any time under the "Help" tab.</p>
+<div class="tray-card" style="margin-bottom:16px; border:2px solid var(--leaf);">
+<strong>Joining someone else's plot?</strong>
+<p class="muted" style="margin:4px 0 8px;">Don't set up a plot here — tap below, then paste the invite code they sent you into "Received an invitation?"</p>
+<button class="btn secondary" id="onbJoinInstead">Join their plot instead</button>
+</div>
 <button class="btn big" id="onbAck">Got it — let's set up my plot</button>`;
+wireJoinInstead();
 document.getElementById('onbAck').addEventListener('click', async ()=>{
 await setMeta('onboardingAcked', true); STATE.settings.onboardingAcked = true;
 renderMap();
@@ -3535,11 +3647,17 @@ renderMap();
 return;
 }
 if(!STATE.settings.plotShape){
-area.innerHTML = `<p class="muted" style="margin-bottom:12px;">Let's set up your plot first.</p>
+area.innerHTML = `<div class="tray-card" style="margin-bottom:16px; border:2px solid var(--leaf);">
+<strong>Joining someone else's plot?</strong>
+<p class="muted" style="margin:4px 0 8px;">Don't set up a plot here — tap below, then paste the invite code they sent you into "Received an invitation?"</p>
+<button class="btn secondary" id="onbJoinInstead">Join their plot instead</button>
+</div>
+<p class="muted" style="margin-bottom:12px;">Let's set up your plot first.</p>
 <div class="form-row"><div><label>Your name</label><input type="text" id="onbName" placeholder="e.g. Dave" value="${escapeAttr(STATE.settings.gardenerName||'')}"></div></div>
 <div class="form-row"><div><label>Width (metres)</label><input type="number" onfocus="this.select()" step="0.1" id="onbWidth" placeholder="e.g. 10"></div>
 <div><label>Depth (metres)</label><input type="number" onfocus="this.select()" step="0.1" id="onbDepth" placeholder="e.g. 6"></div></div>
 <button class="btn" id="onbCreate">Create my plot</button>`;
+wireJoinInstead();
 document.getElementById('onbCreate').addEventListener('click', async ()=>{
 const name = document.getElementById('onbName').value.trim();
 if(!name){ toast('Add your name first'); document.getElementById('onbName').focus(); return; }
@@ -7919,10 +8037,47 @@ renderAll();
 lastSnapshot = snapshotState();
 if(supa && !applyingRemote && !restoring) schedulePush();
 }
+// The same payload as buildSyncPayload, but read straight from storage - used while merging an
+// incoming update, where storage (not whatever a screen happens to hold) is the true current state.
+// Everything kept in its own list that's shared between gardeners - Planning Ahead (its plans and
+// the sketched changes on its map) included, so every gardener plans against the same picture.
+const SYNCED_ITEM_STORES = ['crops','beds','features','trays','tasks','harvests','wishlist','planningItems','planningChanges'];
+async function buildSyncPayloadFromStorage(){
+const out = {};
+for(const s of SYNCED_ITEM_STORES) out[s] = await getAll(s);
+const allNotes = await getAll('notes');
+out.notes = allNotes.filter(n=>n.shared);
+const metaRows = await getAll('meta');
+const meta = {};
+for(const row of metaRows) if(SHARED_META_KEYS.includes(row.key)) meta[row.key] = row.value;
+out.meta = meta;
+Object.defineProperty(out, 'allNotes', {value: allNotes, enumerable: false});
+return out;
+}
+function writeAllStores(m, privateNotesKept, clearStamps){
+const stores = [...SYNCED_ITEM_STORES,'notes','meta'];
+return new Promise((res,rej)=>{
+const tx = db.transaction(stores, 'readwrite');
+tx.oncomplete = ()=>res(); tx.onerror = ()=>rej(tx.error); tx.onabort = ()=>rej(tx.error);
+for(const s of SYNCED_ITEM_STORES){
+// A store the incoming copy doesn't carry at all (an older app version that didn't share it
+// yet) is left exactly as it is here, rather than being emptied.
+if(!Array.isArray(m[s])) continue;
+const st = tx.objectStore(s); st.clear();
+for(const item of m[s]) st.put(item);
+}
+const ns = tx.objectStore('notes'); ns.clear();
+for(const n of privateNotesKept) ns.put(n);
+for(const n of (m.notes||[])) ns.put(n);
+const ms = tx.objectStore('meta');
+if(m.meta) for(const k of SHARED_META_KEYS) if(m.meta[k]!==undefined) ms.put({key:k, value:m.meta[k]});
+if(clearStamps) ms.put({key:'syncStamps', value:null});
+});
+}
 function buildSyncPayload(){
 const meta = {};
 for(const k of SHARED_META_KEYS) meta[k] = STATE.settings[k];
-return { crops:STATE.crops, beds:STATE.beds, features:STATE.features, trays:STATE.trays, tasks:STATE.tasks, harvests:STATE.harvests, wishlist:STATE.wishlist, notes:STATE.notes.filter(n=>n.shared), meta };
+return { crops:STATE.crops, beds:STATE.beds, features:STATE.features, trays:STATE.trays, tasks:STATE.tasks, harvests:STATE.harvests, wishlist:STATE.wishlist, planningItems:STATE.planningItems, planningChanges:STATE.planningChanges, notes:STATE.notes.filter(n=>n.shared), meta };
 }
 // Combines two lists of the same kind of item (matched by their own id) into one - where both
 // sides have the same id, keeps whichever was genuinely touched more recently (_ts, stamped
@@ -7992,7 +8147,7 @@ const rLog = rs.lists[k]||{}, lLog = ls.lists[k]||{};
 const rMap = settingListMap(rm[k]), lMap = settingListMap(lm[k]);
 const result = [];
 const seen = new Set();
-for(const key of [...lMap.keys(), ...rMap.keys()]){
+for(const key of [...rMap.keys(), ...lMap.keys()]){
 if(seen.has(key)) continue; seen.add(key);
 const ra = rLog[key], la = lLog[key];
 const latest = !ra ? la : !la ? ra : (la.at >= ra.at ? la : ra);
@@ -8035,7 +8190,7 @@ const mergedTombstones = Array.from(tombstoneMap.values());
 const tombstoned = new Set(mergedTombstones.map(t=>t.id));
 const merged = { meta: { ...(remotePayload.meta||{}), ...(localPayload.meta||{}), tombstones: mergedTombstones } };
 mergeSharedSettings(merged.meta, remotePayload.meta||{}, localPayload.meta||{});
-for(const store of ['crops','tasks','harvests','wishlist','notes']) merged[store] = mergeItemListById(remotePayload[store], localPayload[store], tombstoned);
+for(const store of ['crops','tasks','harvests','wishlist','planningItems','planningChanges','notes']) merged[store] = mergeItemListById(remotePayload[store], localPayload[store], tombstoned);
 for(const store of ['beds','features','trays']) merged[store] = mergeContainerLikeList(remotePayload[store], localPayload[store], tombstoned);
 return merged;
 }
@@ -8080,17 +8235,30 @@ try{
 // shared plot, not blending it with whatever unrelated data already happened to be on this
 // device. Merging is only for an already-connected device catching up on a live update, where
 // a local, not-yet-pushed change must not simply vanish because an update arrived first.
-const merged = isJoin ? payload : mergePayloads(payload, buildSyncPayload());
-for(const store of ['crops','beds','features','trays','tasks','harvests','wishlist']){
-await clearStore(store);
-for(const item of (merged[store]||[])) await put(store, item, true);
+// Merged and written while holding the same queue local saves use, against what's actually
+// stored at that moment (not the screen's in-memory copy), and written in one all-or-nothing
+// step - so a save made at the same instant is either already included, or waits and is then
+// applied on top. Previously a save landing mid-update could be wiped by it.
+// The sharing server hands data back with its fields rearranged into its own order, so the old
+// check - comparing the text of the two copies - always saw a difference, even when nothing had
+// changed. Every incoming copy was then pushed straight back, which came back again, and so on:
+// roughly once a second, forever, refreshing the screen each time (which is what kept throwing
+// the cursor back to the start of the plot name while typing). Copies are now compared by
+// content, ignoring field order and the internal "changed at" stamps, and an update that
+// changes nothing here is simply ignored - no rewrite, no screen refresh, nothing sent back.
+let unchangedHere = false;
+const merged = await withDataLock(async ()=>{
+const local = await buildSyncPayloadFromStorage();
+const m = isJoin ? payload : mergePayloads(payload, local);
+if(!isJoin && stableJSON(m)===stableJSON(local)){ unchangedHere = true; return m; }
+const privateNotesKept = local.allNotes.filter(n=>!n.shared);
+await writeAllStores(m, privateNotesKept, isJoin && (!m.meta || m.meta.syncStamps===undefined));
+return m;
+});
+if(unchangedHere){
+if(!isJoin && stableJSON(merged)!==stableJSON(payload)) schedulePush();
+return;
 }
-const privateNotesKept = (await getAll('notes')).filter(n=>!n.shared);
-await clearStore('notes');
-for(const n of privateNotesKept) await put('notes', n, true);
-for(const n of (merged.notes||[])) await put('notes', n, true);
-if(merged.meta) for(const k of SHARED_META_KEYS) if(merged.meta[k]!==undefined) await setMeta(k, merged.meta[k]);
-if(isJoin && (!merged.meta || merged.meta.syncStamps===undefined)) await setMeta('syncStamps', null);
 await loadAll();
 // A modal open right now means someone may be actively typing into a form - a full re-render
 // at that exact moment can destroy and recreate the very input they're focused on, silently
@@ -8102,7 +8270,7 @@ lastSnapshot = snapshotState();
 // if the merge genuinely rescued a local change the incoming update didn't already carry,
 // push the merged result back so the other device(s) get it too - not applicable on a clean
 // join, where the result always exactly matches what was received, nothing to push back
-if(!isJoin && JSON.stringify(merged) !== JSON.stringify(payload)) schedulePush();
+if(!isJoin && stableJSON(merged) !== stableJSON(payload)) schedulePush();
 } finally { applyingRemote = false; }
 }
 async function connectSync(url, key, code, isOwner){
@@ -8130,13 +8298,18 @@ STATE.settings.syncCode = code;
 try{
 const { data, error } = await supa.from('plots').select('data, updated_at').eq('code', code).maybeSingle();
 if(error) throw error;
+// Turning sharing on picks a brand-new code - if that code somehow already belongs to another
+// plot, stop rather than taking that plot on; the caller simply picks another code.
+if(isOwner && isGenuinelyNew && data && data.data){ const err = new Error('That code is already in use'); err.codeTaken = true; throw err; }
 if(data && data.data) await applyRemotePayload(data.data, data.updated_at, isGenuinelyNew);
 else if(isOwner) await pushNow();
 else await retryFindRemotePlot(code, 0, isGenuinelyNew);
 }catch(e){
 // Put the in-memory code back as it was, so the next attempt still sees this as a first join.
 STATE.settings.syncCode = previousCode;
-subscribeSync(code); throw e;
+// (Never listen in on a code that turned out to belong to another plot.)
+if(!e.codeTaken) subscribeSync(code);
+throw e;
 }
 await setMeta('syncUrl', url); await setMeta('syncKey', key); await setMeta('syncCode', code);
 // Re-assert in memory as well: applyRemotePayload() above reloads state from storage, which
@@ -8186,9 +8359,17 @@ if(payload.new && payload.new.data) applyRemotePayload(payload.new.data, payload
 })
 .subscribe();
 }
+// A plot's sharing code used to be one of 12 words plus a two-digit number - only about a
+// thousand possibilities, so two plots could easily end up with the same code (and the second
+// to turn sharing on would have been handed the first one's plot), and anyone could guess one.
+// Now a word plus eight random letters/digits: billions of possibilities, from the browser's
+// secure random source. Codes already in use keep working exactly as before.
 function randomCode(){
 const words = ['willow','bramble','meadow','harvest','furrow','trowel','robin','clover','acorn','thistle','orchard','hazel'];
-return words[Math.floor(Math.random()*words.length)] + '-' + Math.floor(Math.random()*90+10);
+const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789';
+const bytes = new Uint8Array(9); crypto.getRandomValues(bytes);
+let tail = ''; for(let i=1;i<9;i++) tail += alphabet[bytes[i] % alphabet.length];
+return words[bytes[0] % words.length] + '-' + tail;
 }
 function renderStructureList(){
 const wrap = document.getElementById('structureList');
@@ -8250,9 +8431,14 @@ body.innerHTML = `${nameField}
 <button class="btn secondary" id="btnJoin">Join their plot</button>`;
 document.getElementById('btnStartSharing').addEventListener('click', async ()=>{
 if(!requireGardenerName()) return;
-const code = randomCode();
 try{
-await connectSync(SHARED_SYNC_URL, SHARED_SYNC_KEY, code, true);
+let code = null;
+for(let attempt=0; attempt<5 && !code; attempt++){
+const candidate = randomCode();
+try{ await connectSync(SHARED_SYNC_URL, SHARED_SYNC_KEY, candidate, true); code = candidate; }
+catch(e){ if(!e.codeTaken) throw e; }
+}
+if(!code) throw new Error('could not find a free code - please try again');
 await afterChange();
 openInviteScreen(code);
 }catch(e){ toast('Could not set up sharing: ' + (e.message || 'unknown problem')); }
