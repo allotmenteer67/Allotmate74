@@ -702,7 +702,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.03.2';
+const APP_VERSION = '2026.10.05.1';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -4120,7 +4120,7 @@ return `<div class="form-row">
 ${logRows}
 <div class="form-row" style="margin-top:6px;"><div><label>Date</label><input type="date" id="mLogDate" value="${todayISO()}"></div><div><label>Added</label><input type="text" id="mLogNote" placeholder="e.g. Horse manure"></div></div>
 <div class="btn-row" style="margin-bottom:14px;">
-<button type="button" class="btn small secondary" id="mLogAdd">+ Add to log</button>
+<button type="button" class="btn small" id="mLogAdd">+ Add to log</button>
 <button type="button" class="btn small secondary" id="mNewBatch">Start a new batch</button>
 </div>
 <div class="form-row"><div><label>Reason for delay (optional)</label><input type="text" id="mUseAfterReason" placeholder="e.g. lots of woodchip, slow to break down" value="${escapeAttr(batch.useAfterReason||'')}"></div></div>
@@ -4192,7 +4192,7 @@ return `<div class="form-row">
 <div class="row-heading">What went in</div>
 ${logRows}
 <div class="form-row" style="margin-top:6px;"><div><label>Date</label><input type="date" id="mLogDate" value="${todayISO()}"></div><div><label>Added</label><input type="text" id="mLogNote" placeholder="e.g. Horse manure"></div></div>
-<button type="button" class="btn small secondary" id="mLogAdd" style="margin-bottom:14px;">+ Add to log</button>`;
+<button type="button" class="btn small" id="mLogAdd" style="margin-bottom:14px;">+ Add to log</button>`;
 }
 function wireCompostBatchEdit(batch, obj, storeKind, onDone){
 document.getElementById('mBatchStart').addEventListener('change', async ()=>{
