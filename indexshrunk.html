@@ -157,6 +157,11 @@ details.more-toggle summary::-webkit-details-marker{display:none;}
 details.more-toggle summary::marker{display:none; content:'';}
 .treatments-box{border:1.5px solid var(--line); border-radius:var(--radius); padding:10px 12px; margin-top:12px; background:var(--card);}
 .timing-row{display:flex; align-items:center; gap:8px; margin-top:8px; font-size:17px; flex-wrap:wrap;} .timing-row input{width:70px;}
+/* Each timing on a crop's screen sits in its own box, its label above its number, so the three
+don't run together and it's clear which number belongs to which. */
+.timing-box{border:1.5px solid var(--line); border-radius:8px; background:var(--card); padding:8px 12px 10px; margin-top:8px;}
+.timing-box label{display:block; margin:0 0 6px; font-weight:700; font-size:17px;}
+.timing-val{display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:17px;} .timing-val input[type=number]{width:90px; flex:0 0 auto;}
 .timing-target{color:var(--leaf); font-weight:700;}
 .form-row{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;}
 .form-row > div{flex:1; min-width:140px;}
@@ -276,6 +281,15 @@ body > *:not(#printView){display:none !important;}
 #printView h2{font-size:19px; margin:16px 0 8px; border-bottom:1px solid #000; padding-bottom:4px;}
 #printView .print-meta{font-size:15px; color:#333; margin-bottom:10px;}
 #printView .print-shop-item{font-size:16px; padding:3px 0; border-bottom:1px dotted #999;}
+#printView .pp-head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4mm;}
+#printView .pp-head h1{font-size:20px; margin:0; color:#000;}
+#printView .pp-head .print-meta{margin:0; font-size:12px;}
+#printView .pp-legend{font-family:Karla, sans-serif; font-size:11px; margin-top:2mm; color:#000;}
+#printView .pp-keys{font-family:Karla, sans-serif; font-size:11px; margin-top:2mm; columns:2; column-gap:6mm; color:#000;}
+#printView .pp-key{display:block; break-inside:avoid; padding:0.6mm 0;}
+#printView .pp-notes{margin-top:3mm; border:0.3mm solid #000; min-height:22mm; background-image:repeating-linear-gradient(to bottom, transparent 0, transparent 6.5mm, #999 6.5mm, #999 6.8mm); background-position:0 6mm;}
+#printView .pp-notes-h{font-family:Karla, sans-serif; font-size:11px; font-weight:700; padding:1mm 2mm; color:#000;}
+html, body{background:#fff !important;}
 }
 </style>
 </head>
@@ -473,6 +487,7 @@ body > *:not(#printView){display:none !important;}
 <div id="planningMapArea"></div>
 <p class="tiny-muted" id="planningPlaceHint" style="display:none; margin:8px 0; color:var(--leaf); font-weight:700;">Tap where on the plot →</p>
 <button class="btn small secondary" id="planningSketchNew" style="margin-top:8px;">+ Sketch a new bed or structure</button>
+<button class="btn small secondary" id="planningPrintBtn" style="margin-top:8px;">🖨️ Print this plan</button>
 <div style="display:flex; gap:16px; font-family:-apple-system,sans-serif; font-size:15px; color:var(--soil); margin-top:8px; flex-wrap:wrap;">
 <div style="display:flex; align-items:center; gap:5px;"><span style="width:14px; height:14px; border-radius:50%; background:var(--leaf); display:inline-block; border:2px dashed #fff;"></span>Planned crop</div>
 <div style="display:flex; align-items:center; gap:5px;"><span style="width:14px; height:14px; border-radius:50%; background:var(--brick); display:inline-block; border:2px dashed #fff;"></span>Date clash</div>
@@ -544,6 +559,7 @@ body > *:not(#printView){display:none !important;}
 <button class="btn" id="btnPrintPlotLayout">🖨️ Print plot layout</button>
 <button class="btn secondary" id="btnPrintShoppingList">🖨️ Print shopping list</button>
 <button class="btn secondary" id="btnPrintTaskList">🖨️ Print task list</button>
+<button class="btn secondary" id="btnPrintPlanning">🖨️ Print planning ahead</button>
 </div>
 </section>
 <section class="panel">
@@ -702,7 +718,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.09.3';
+const APP_VERSION = '2026.10.09.5';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -3037,6 +3053,134 @@ renderPrintView('shopping');
 window.print();
 });
 document.getElementById('btnPrintTaskList').addEventListener('click', ()=> openPrintTaskSelector());
+document.getElementById('btnPrintPlanning').addEventListener('click', printPlanningAhead);
+document.getElementById('planningPrintBtn').addEventListener('click', printPlanningAhead);
+// ---- Planning Ahead print ----
+// One sheet for two gardeners to point at and agree over: the plot drawn to scale, each bed showing
+// what's planned for it (with planting month) and, in smaller italic writing, what's in it now and
+// when that's expected to be ready - so it's clear when the bed will actually be free. Sketched
+// changes are dashed; boxes too small to write in (crates, tubs) get a numbered circle and a line in
+// a short key underneath; a ruled Notes box is left for pen. Black and white only, so a clash is
+// marked with a symbol rather than a colour. Landscape for a wide plot.
+function planningPrintNowLines(o){
+const today = todayISO();
+return (o.plantings||[]).filter(p=>p.active).map(p=>{
+const crop = cropById(p.cropId);
+if(!crop || crop.name==='Path') return null;
+if(crop.name==='Fallow') return `now: Fallow${p.date?` since ${monthYearLabel(p.date)}`:''}`;
+let when = '';
+if(p.harvestDue) when = p.harvestDue <= today ? ', ready now' : `, ready ${new Date(p.harvestDue+'T00:00:00').toLocaleDateString('en-GB', p.harvestDue.slice(0,4)===today.slice(0,4) ? {month:'short'} : {month:'short', year:'numeric'})}`;
+return `now: ${crop.name}${when}`;
+}).filter(Boolean).reduce((acc, t)=>{
+// Several identical plantings (four strawberry plants put in separately) read as one line, "×4".
+const hit = acc.find(a=>a.t===t); if(hit) hit.n++; else acc.push({t, n:1}); return acc;
+}, []).map(a=> a.n>1 ? a.t.replace(/^now: ([^,]+)/, `now: $1 ×${a.n}`) : a.t);
+}
+function renderPlanningPrint(reserveMm){
+reserveMm = reserveMm || 62;
+const el = document.getElementById('printView');
+const bounds = getShapeBounds();
+const landscape = bounds.width >= bounds.height;
+const pageW = landscape ? 273 : 186, pageH = landscape ? 186 : 273;   // A4 inside 12mm margins
+const mapMaxH = pageH - reserveMm;   // room left for the heading, the key and the notes
+const scale = Math.min(pageW / bounds.width, mapMaxH / bounds.height);
+const svgW = bounds.width*scale, svgH = bounds.height*scale;
+const X = v=>(v-bounds.minX)*scale, Y = v=>(v-bounds.minY)*scale;
+let shapes = `<polygon points="${bounds.pts.map(p=>`${X(p.x)},${Y(p.y)}`).join(' ')}" fill="none" stroke="#000" stroke-width="0.5"/>`;
+const keyRows = []; let keyN = 0; let anyClash = false;
+const monthOf = d=> d ? new Date(d+'T00:00:00').toLocaleDateString('en-GB',{month:'short'}) : '';
+const objs = [...STATE.beds.map(b=>({...b, _kind:'beds'})), ...STATE.features.filter(f=>f.type!=='tree').map(f=>({...f, _kind:'features'}))];
+for(const o of objs){
+const x=X(o.x), y=Y(o.y), w=o.w*scale, h=o.h*scale;
+const name = o._kind==='beds' ? (o.name||'Bed') : (o.label || (FEATURE_TYPES[o.type]||{label:o.type}).label);
+const planned = (STATE.planningItems||[]).filter(it=>(it.plannedBeds||[]).some(p=>p.bedId===o.id)).map(it=>{
+const clash = !!(planningClashForBed(it, o)) || planningDiseaseClashForBed(it, o).length>0;
+if(clash) anyClash = true;
+return (clash?'⚠ ':'') + it.name + (it.plantingDate ? ` (${monthOf(it.plantingDate)})` : '');
+});
+const nowLines = planningPrintNowLines(o);
+const isPath = o.type==='path' || o.type==='fence';
+shapes += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="#000" stroke-width="${isPath?0.25:0.4}"/>`;
+if(isPath) continue;
+if(w >= 20 && h >= 8){
+shapes += `<text x="${x+1.2}" y="${y+3}" font-size="2.5" font-weight="700" fill="#000">${escapeHTML(name.length>Math.floor((w-2.4)/1.3)?name.slice(0,Math.floor((w-2.4)/1.3)-1)+'…':name)}</text>`;
+// Each line wraps if it needs to; a crowded box gets smaller writing before anything is cut,
+// down to a size still readable on paper. What's planned always comes first; "now" lines
+// are the first to be shortened if there still isn't room.
+const wrapAt = (t, f)=>{
+const max = Math.max(4, Math.floor((w-2.4)/(f*0.52)));
+const out = []; let cur = '';
+for(const word of t.split(' ')){
+const next = cur ? cur+' '+word : word;
+if(next.length <= max) cur = next; else { if(cur) out.push(cur); cur = word.length>max ? word.slice(0,max-1)+'…' : word; }
+}
+if(cur) out.push(cur);
+return out;
+};
+const room = f=> Math.max(1, Math.floor((h-4)/(f*1.2)));
+const build = (f, nowSet)=> [...planned.flatMap(t=>wrapAt(t,f).map(s=>({s, now:false}))), ...nowSet.flatMap(t=>wrapAt(t,f).map(s=>({s, now:true})))];
+let fs = 3.4;
+while(fs > 2.4 && build(fs, nowLines).length > room(fs)) fs = Math.round((fs-0.2)*10)/10;
+let out = build(fs, nowLines);
+const maxLines = room(fs);
+if(out.length > maxLines && nowLines.length > 1){
+// Squeeze what's there now onto one line before touching the plans.
+out = build(fs, ['now: ' + nowLines.map(t=>t.replace(/^now: /,'')).join('; ')]);
+}
+if(out.length > maxLines){
+// Still too much for this box even in small writing: show what fits, and put the whole
+// lot in the key underneath under a number, so nothing planned is ever left off the sheet.
+keyN++;
+const bits = [...planned, ...nowLines];
+keyRows.push(`<span class="pp-key"><b>${keyN}</b> ${escapeHTML(name)}: ${bits.map(escapeHTML).join(' · ')}</span>`);
+out = [...out.slice(0, Math.max(0, maxLines-1)), {s:`… all of it in the key, ${keyN}`, now:false}];
+shapes += `<circle cx="${x+w-2.6}" cy="${y+2.6}" r="2.1" fill="#fff" stroke="#000" stroke-width="0.3"/><text x="${x+w-2.6}" y="${y+3.5}" font-size="2.5" font-weight="700" text-anchor="middle" fill="#000">${keyN}</text>`;
+}
+out.forEach((ln,i)=>{
+const f = ln.now ? Math.max(2.3, fs-0.4) : fs;
+shapes += `<text x="${x+1.2}" y="${y+3.6+(i+1)*fs*1.15}" font-size="${f}" ${ln.now?'font-style="italic" fill="#333"':'fill="#000"'}>${escapeHTML(ln.s)}</text>`;
+});
+} else {
+keyN++;
+const cx = x+w/2, cy = y+h/2;
+shapes += `<circle cx="${cx}" cy="${cy}" r="2.1" fill="#fff" stroke="#000" stroke-width="0.3"/><text x="${cx}" y="${cy+0.9}" font-size="2.5" font-weight="700" text-anchor="middle" fill="#000">${keyN}</text>`;
+const bits = [...planned, ...nowLines];
+keyRows.push(`<span class="pp-key"><b>${keyN}</b> ${escapeHTML(name)}${bits.length?': '+bits.map(escapeHTML).join(' · '):''}</span>`);
+}
+}
+for(const c of (STATE.planningChanges||[])){
+const x=X(c.x), y=Y(c.y), w=c.w*scale, h=c.h*scale;
+const typeLabel = c.type==='bed' ? 'Bed' : (FEATURE_TYPES[c.type]?FEATURE_TYPES[c.type].label:c.type);
+const label = `${c.label||typeLabel} (${c.kind==='change'?'proposed':'sketched'})`;
+shapes += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="#000" stroke-width="0.6" stroke-dasharray="1.6 1"/>`;
+shapes += `<text x="${x+w/2}" y="${y+h/2+1}" font-size="2.6" font-style="italic" text-anchor="middle" fill="#000">${escapeHTML(label)}</text>`;
+}
+const svg = `<svg viewBox="0 0 ${svgW} ${svgH}" style="width:100%; max-width:${svgW}mm; height:auto; display:block; margin:0 auto;">${shapes}</svg>`;
+const legend = ['Dashed outline = sketched change, not built yet', '<i>Italic</i> = what\'s in it now, and when it should be ready', anyClash?'⚠ = rotation or timing clash to talk about':'', keyRows.length?'Numbered circles = listed in full below':''].filter(Boolean).join(' &nbsp;·&nbsp; ');
+// Everything has to stay on the one sheet: if the key has grown long, draw the plot a little
+// smaller to make room for it (key entries sit two to a row; a long one takes two lines).
+const keyLinesPerColumn = Math.ceil(keyRows.reduce((n,r)=> n + Math.ceil(r.replace(/<[^>]+>/g,'').length/(landscape?70:48)), 0) / 2);
+const needMm = 14 + 7 + keyLinesPerColumn*5.4 + 30;
+if(needMm > reserveMm && reserveMm < 150) return renderPlanningPrint(Math.ceil(needMm));
+el.innerHTML = `<div class="pp-head"><h1>${escapeHTML(STATE.settings.plotName||'My Plot')} — planning ahead</h1>
+<div class="print-meta">Printed ${new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</div></div>
+${svg}
+<div class="pp-legend">${legend}</div>
+${keyRows.length?`<div class="pp-keys">${keyRows.join('')}</div>`:''}
+<div class="pp-notes"><div class="pp-notes-h">Notes</div></div>`;
+return landscape;
+}
+// Turns the page sideways for a wide plot while this sheet prints, then puts the normal page back.
+function printPlanningAhead(){
+if(!STATE.settings.plotShape){ toast('Set up your plot first'); return; }
+const landscape = renderPlanningPrint();
+let pageStyle = document.getElementById('ppPageStyle');
+if(!pageStyle){ pageStyle = document.createElement('style'); pageStyle.id = 'ppPageStyle'; document.head.appendChild(pageStyle); }
+pageStyle.textContent = landscape ? '@media print{@page{size:A4 landscape; margin:12mm;}}' : '';
+const restore = ()=>{ pageStyle.textContent = ''; window.removeEventListener('afterprint', restore); };
+window.addEventListener('afterprint', restore);
+window.print();
+}
 function renderComingUp(){
 const wrap = document.getElementById('comingUpList');
 const occs = expandTaskOccurrences(14).filter(o=>!o.done);
@@ -6696,9 +6840,9 @@ openModal(`<h3>Edit ${escapeHTML(c.name)}</h3>
 ${spots.length?`<label>Growing in</label><div class="btn-row" style="flex-wrap:wrap; margin-bottom:10px;">${spots.map(s=>`<button type="button" class="btn small secondary" data-jump="${s.id}|${s.kind}">${escapeHTML(s.name)}</button>`).join('')}</div>`:''}
 <div class="form-row"><div><label>Name</label><input type="text" id="mName" value="${escapeAttr(c.name)}"></div></div>
 <div class="row-heading" style="margin-top:14px;">Sowing &amp; harvest timings</div>
-<div class="timing-row"><input type="number" onfocus="this.select()" id="mSowToPot" value="${c.sowToPotOn??''}" placeholder="—"> days from sowing to planting out${sowToPotTarget?` <span class="timing-target">(${sowToPotTarget})</span>`:''}</div>
-<div class="timing-row"><input type="number" onfocus="this.select()" id="mTransToHarvest" value="${c.transplantToHarvest??''}" placeholder="—"> days from planting out to harvest${(c.sowToPotOn!=null && c.transplantToHarvest!=null)?` <span class="timing-target">(${transTarget})</span>`:''}</div>
-<div class="timing-row"><input type="number" onfocus="this.select()" id="mDirectToHarvest" value="${c.directSowToHarvest??''}" placeholder="—"> days from direct sowing to harvest${directTarget?` <span class="timing-target">(${directTarget})</span>`:''}</div>
+<div class="timing-box"><label for="mSowToPot">Sowing to planting out</label><div class="timing-val"><input type="number" onfocus="this.select()" id="mSowToPot" value="${c.sowToPotOn??''}" placeholder="—"> days${sowToPotTarget?` <span class="timing-target">(${sowToPotTarget})</span>`:''}</div></div>
+<div class="timing-box"><label for="mTransToHarvest">Planting out to harvest</label><div class="timing-val"><input type="number" onfocus="this.select()" id="mTransToHarvest" value="${c.transplantToHarvest??''}" placeholder="—"> days${(c.sowToPotOn!=null && c.transplantToHarvest!=null)?` <span class="timing-target">(${transTarget})</span>`:''}</div></div>
+<div class="timing-box"><label for="mDirectToHarvest">Direct sowing to harvest</label><div class="timing-val"><input type="number" onfocus="this.select()" id="mDirectToHarvest" value="${c.directSowToHarvest??''}" placeholder="—"> days${directTarget?` <span class="timing-target">(${directTarget})</span>`:''}</div></div>
 <div class="row-heading" style="margin-top:14px;">Treatments used</div>
 ${groupsHTML}
 ${issues.length?`<label style="margin-top:10px;">Common issues for this crop (tap to add to notes)</label><div class="swatch-row" id="issueChipRow" style="flex-wrap:wrap;">${issues.map(i=>`<button type="button" class="btn small secondary" data-issue="${escapeAttr(i)}">${escapeHTML(i)}</button>`).join('')}</div>`:''}
