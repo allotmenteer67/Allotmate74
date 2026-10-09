@@ -759,7 +759,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.09.1';
+const APP_VERSION = '2026.10.09.3';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -2958,7 +2958,7 @@ function renderPlacingBanner(){
   const el = document.getElementById('placingBanner');
   if(bedPickerMode){
     el.innerHTML = `<div class="alert placing">
-      <span style="flex:1;">📍 Tap a bed or container to pick it.</span>
+      <span style="flex:1;">📍 Tap a bed or container to pick it. Double-tap to zoom in.</span>
       <button class="btn small secondary" id="btnCancelBedPicker">Cancel</button></div>`;
     document.getElementById('btnCancelBedPicker').addEventListener('click', cancelBedPicker);
     document.getElementById('alertsBox').innerHTML='';
@@ -2975,7 +2975,7 @@ function renderPlacingBanner(){
   }
   if(!placingMode){ el.innerHTML=''; return; }
   el.innerHTML = `<div class="alert placing">
-    <span style="flex:1;">🌱 Tap a bed or container to plant ${escapeHTML(placingMode.crop?placingMode.crop.name:'this')} out.</span>
+    <span style="flex:1;">🌱 Tap a bed or container to plant ${escapeHTML(placingMode.crop?placingMode.crop.name:'this')} out. Double-tap to zoom in.</span>
     <button class="btn small secondary" id="btnCancelPlacing">Cancel</button></div>`;
   document.getElementById('btnCancelPlacing').addEventListener('click', cancelPlacement);
   document.getElementById('alertsBox').innerHTML='';
@@ -3967,11 +3967,12 @@ function renderMap(){
 }
 function onCanvasBackgroundClick(e){
   if(outlineEditing) return;
-  if(placingMode) return;
   if(backdrop.classList.contains('open')) return;
   if(!document.getElementById('view-map').classList.contains('active')) return;
   if(e.target.closest('.mapObj')) return;
   const wrapEl = document.getElementById('mapWrap');
+  // While picking somewhere, a double-tap on empty ground still zooms in; a single tap there does nothing.
+  if(mapIsPicking()){ handleMapTap(wrapEl, e.clientX, e.clientY, ()=>{}); return; }
   const canvasEl = e.currentTarget;
   handleMapTap(wrapEl, e.clientX, e.clientY, ()=>{
     const bounds = getShapeBounds();
@@ -3990,24 +3991,67 @@ function siblingMapRectsOf(el){
   });
   return rects;
 }
+// While picking somewhere (planting out, or choosing a bed/container for something), nothing on
+// the map can be dragged, so every box behaves like a locked one: the map can be scrolled from
+// anywhere and double-tap zooms in, and only a clean single tap picks. Picking used to fire the
+// instant a finger touched a box, which made zooming impossible and meant a finger landing on a
+// box to scroll the map picked it - hopeless with small crates and containers packed close together.
+function mapIsPicking(){ return !!(placingMode || bedPickerMode); }
+function pickMapObj(el){
+  if(bedPickerMode){
+    const kind = el.dataset.kind==='bed' ? 'beds' : 'features';
+    const target = plantableById(kind, el.dataset.id);
+    const onPick = bedPickerMode.onPick;
+    bedPickerMode = null;
+    if(target) onPick(target, kind);
+    return;
+  }
+  if(placingMode){
+    if(el.dataset.kind==='bed') askPlantHere(el.dataset.id, 'beds');
+    else if(el.dataset.type==='container' || el.dataset.type==='basket') askPlantHere(el.dataset.id, 'features');
+  }
+}
+// Names what was actually tapped before planting into it - with small crates packed close
+// together it's easy to land on the neighbour. "No" just closes this question: the map is left
+// exactly as it was (same zoom, same place, still planting out), ready for another tap, rather
+// than starting the whole plant-out over again.
+function askPlantHere(targetId, kind){
+  const target = plantableById(kind, targetId);
+  if(!target || !placingMode) return;
+  const targetName = target.name || target.label || ((FEATURE_TYPES[target.type] && FEATURE_TYPES[target.type].label) || 'this container');
+  const cropName = placingMode.crop ? placingMode.crop.name : 'this';
+  const portion = placingMode.portion || {};
+  const what = (portion.partial && portion.count) ? `${portion.count} of the ${cropName}` : cropName;
+  openModal(`<h3>Plant it here?</h3>
+    <p>Plant ${escapeHTML(what)} out in <strong>${escapeHTML(targetName)}</strong>?</p>
+    <div class="btn-row"><button class="btn big" id="mPlantHereYes">Yes, plant it here</button>
+    <button class="btn big secondary" id="mPlantHereNo">No, back to the map</button></div>`);
+  document.getElementById('mPlantHereYes').addEventListener('click', ()=>{
+    closeModal();
+    if(placingMode) confirmPlacement(targetId, kind);
+  });
+  document.getElementById('mPlantHereNo').addEventListener('click', closeModal);
+}
 function wireMapObj(el, bounds){
-  if(el.dataset.locked==='1'){ el.style.touchAction = 'pan-x pan-y'; }
+  const panOnly = el.dataset.locked==='1' || mapIsPicking();
+  if(panOnly){ el.style.touchAction = 'pan-x pan-y'; }
   else { blockTouchScroll(el); }
   el.addEventListener('pointerdown', (e)=>{
     if(!e.isPrimary) return;
-    if(el.dataset.locked!=='1') e.preventDefault();
+    if(!panOnly) e.preventDefault();
     e.stopPropagation();
-    if(bedPickerMode){
-      const kind = el.dataset.kind==='bed' ? 'beds' : 'features';
-      const target = plantableById(kind, el.dataset.id);
-      const onPick = bedPickerMode.onPick;
-      bedPickerMode = null;
-      if(target) onPick(target, kind);
-      return;
-    }
-    if(placingMode){
-      if(el.dataset.kind==='bed') confirmPlacement(el.dataset.id, 'beds');
-      else if(el.dataset.type==='container' || el.dataset.type==='basket') confirmPlacement(el.dataset.id, 'features');
+    if(mapIsPicking()){
+      const pointerId = e.pointerId;
+      const wrapEl = document.getElementById('mapWrap');
+      function onPickUp(ev){
+        if(ev.pointerId!==pointerId) return;
+        document.removeEventListener('pointerup', onPickUp);
+        document.removeEventListener('pointercancel', onPickUp);
+        if(ev.type==='pointercancel') return;   // the finger scrolled the map rather than tapping
+        handleMapTap(wrapEl, ev.clientX, ev.clientY, ()=>{ if(mapIsPicking()) pickMapObj(el); });
+      }
+      document.addEventListener('pointerup', onPickUp);
+      document.addEventListener('pointercancel', onPickUp);
       return;
     }
     if(movingFeature){
