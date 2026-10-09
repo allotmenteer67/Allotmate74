@@ -702,7 +702,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.05.1';
+const APP_VERSION = '2026.10.09.1';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -835,6 +835,7 @@ STATE.settings.tombstones = STATE.settings.tombstones.filter(t=>{
 const when = tombstoneTime(t);
 return isNaN(when) ? true : when >= cutoff;
 });
+STATE.settings.tombstones = STATE.settings.tombstones.filter(t=>t.id!==id);
 STATE.settings.tombstones.push({id, deletedAt: Date.now()});
 await setMeta('tombstones', STATE.settings.tombstones);
 }
@@ -1982,7 +1983,7 @@ document.body.style.position='fixed'; document.body.style.top=(-scrollY_before_m
 }
 document.getElementById('mCloseBtn').addEventListener('click', closeOrBack);
 document.getElementById('mHomeBtn').addEventListener('click', goHome);
-// Undo/redo refresh the screen in place via currentDetailReopen (see restoreSnapshot) - they
+// Undo/redo refresh the screen in place (see refreshOpenScreenAfterUndo) - they
 // must not also close the modal themselves, which is what was actually sending undo back to
 // the front page: closing it reveals whatever tab sits behind it, which is usually My Plot,
 // giving the appearance of a jump home even though nothing had navigated there.
@@ -1992,6 +1993,7 @@ document.getElementById('mRedoBtn').addEventListener('click', performRedo);
 function closeModal(){
 if(pendingFlashTimeout){ clearTimeout(pendingFlashTimeout); pendingFlashTimeout = null; }
 currentDetailReopen = null;
+currentScreenReopen = null;
 backdrop.classList.remove('open'); modalContent.innerHTML='';
 document.body.style.position=''; document.body.style.top=''; document.body.style.left=''; document.body.style.right='';
 window.scrollTo(0, scrollY_before_modal);
@@ -2101,36 +2103,135 @@ let undoStack=[], redoStack=[], lastSnapshot=null, restoring=false;
 // leaving stale references sitting there, or leaving the screen for undo/redo to navigate away
 // from - is what actually keeps you where you were.
 let currentDetailReopen = null;
+// The most recent screen opened that can simply be drawn again from scratch (see the list at the
+// end of this file) - undo/redo redraw it from the fresh data, and if nothing redrawable is open,
+// fall back to the bed/container/structure screen above, or close the screen as a last resort,
+// so nothing is ever left showing (and able to save back) what was just undone.
+let currentScreenReopen = null;
+function refreshOpenScreenAfterUndo(){
+if(!backdrop.classList.contains('open')) return;
+if(currentScreenReopen) currentScreenReopen();
+else if(currentDetailReopen) currentDetailReopen();
+else closeModal();
+}
+const UNDO_STORES = ['crops','beds','features','trays','tasks','harvests','wishlist','planningItems','planningChanges','costs','notes'];
+const UNDO_CONTAINER_STORES = ['beds','features','trays'];
 function snapshotState(){
-return JSON.parse(JSON.stringify({crops:STATE.crops, beds:STATE.beds, features:STATE.features, trays:STATE.trays, tasks:STATE.tasks, harvests:STATE.harvests, wishlist:STATE.wishlist, planningItems:STATE.planningItems, planningChanges:STATE.planningChanges, costs:STATE.costs}));
+const out = {};
+for(const store of UNDO_STORES) out[store] = STATE[store]||[];
+return JSON.parse(JSON.stringify(out));
 }
-async function restoreSnapshot(snap){
-restoring = true;
-try{
-for(const store of ['crops','beds','features','trays','tasks','harvests','wishlist','planningItems','planningChanges','costs']){
-await clearStore(store);
-for(const item of (snap[store]||[])) await put(store, item);
+// Each undo step remembers what everything looked like just before and just after one change,
+// and undoing reverses only the things that change actually touched - put back exactly as they
+// were - rather than winding the whole plot back to an old copy. Winding the whole plot back was
+// why an undo didn't stay undone: an open screen still held the pre-undo version, and a sync
+// partner's copy still had the undone item, so the next save or sync simply put it back. And an
+// old whole-plot copy would also have quietly wiped anything another gardener added in between.
+// Anything removed by an undo or redo is recorded as deleted, and anything brought back has that
+// deletion record cleared, so a synced copy on another device can't reverse it again.
+function undoItemMap(list){ const m = new Map(); for(const it of (list||[])) if(it && it.id) m.set(it.id, it); return m; }
+function undoNestedIds(item){
+const ids = [];
+for(const n of NESTED_LISTS) for(const it of ((item && item[n])||[])){
+if(it && it.id) ids.push(it.id);
+for(const e of ((it && it.contentsLog)||[])) if(e && e.id) ids.push(e.id);
 }
+return ids;
+}
+async function applyUndoStep(from, to){
+const removed = [], restored = [];
+for(const store of UNDO_STORES){
+const fromMap = undoItemMap(from[store]), toMap = undoItemMap(to[store]);
+const ids = new Set([...fromMap.keys(), ...toMap.keys()]);
+for(const id of ids){
+const f = fromMap.get(id), t = toMap.get(id);
+if(sameItem(f, t)) continue;
+const curList = STATE[store]||[];
+const cur = curList.find(x=>x && x.id===id);
+if(!t){
+// this step created it - undoing removes it again
+if(cur){ removed.push(id, ...undoNestedIds(cur)); await withDataLock(()=>new Promise((res,rej)=>{ const r=txStore(store,'readwrite').delete(id); r.onsuccess=()=>res(); r.onerror=rej; })); }
+continue;
+}
+const target = structuredClone(t);
+if(f && !cur) continue;   // changed by this step but deleted since (e.g. by another gardener) - leave it deleted
+if(!f){
+// this step deleted it - put it back as it was
+restored.push(id, ...undoNestedIds(target));
+await put(store, target);
+continue;
+}
+if(!UNDO_CONTAINER_STORES.includes(store)){ await put(store, target); continue; }
+// A bed, container or tray: change back only the fields and the crops/records inside it
+// that this step changed, leaving anything else (e.g. another gardener's newer crop) alone.
+const next = structuredClone(cur);
+for(const k of new Set([...Object.keys(f), ...Object.keys(t)])){
+if(k==='_ts' || NESTED_LISTS.includes(k)) continue;
+if(sameItem(f[k], t[k])) continue;
+if(k in t) next[k] = structuredClone(t[k]); else delete next[k];
+}
+for(const n of NESTED_LISTS){
+const fm = undoItemMap(f[n]), tm = undoItemMap(t[n]);
+let list = Array.isArray(next[n]) ? next[n] : [];
+for(const nid of new Set([...fm.keys(), ...tm.keys()])){
+const fi = fm.get(nid), ti = tm.get(nid);
+if(sameItem(fi, ti)) continue;
+if(!ti){
+const gone = list.find(x=>x && x.id===nid);
+if(gone) removed.push(nid, ...((gone.contentsLog||[]).map(e=>e && e.id).filter(Boolean)));
+list = list.filter(x=>!(x && x.id===nid));
+} else {
+const idx = list.findIndex(x=>x && x.id===nid);
+if(idx>=0) list[idx] = structuredClone(ti); else list.push(structuredClone(ti));
+restored.push(nid, ...((ti.contentsLog||[]).map(e=>e && e.id).filter(Boolean)));
+}
+}
+if(list.length || Array.isArray(next[n])) next[n] = list;
+}
+await put(store, next);
+}
+}
+await setUndoTombstones(removed, restored);
+}
+// Marks ids as deleted, or clears an earlier deletion record for ids an undo/redo brought back.
+// A cleared record is kept as a dated "brought back" entry rather than just dropped, so the newer
+// of "deleted" and "brought back" wins when two devices' records are combined.
+async function setUndoTombstones(removedIds, restoredIds){
+if(!removedIds.length && !restoredIds.length) return;
+const list = STATE.settings.tombstones = STATE.settings.tombstones || [];
+const now = Date.now();
+const tombstonedNow = new Set(list.filter(t=>t && !t.revived).map(t=>t.id));
+const byId = new Map(list.map(t=>[t.id, t]));
+for(const id of removedIds) byId.set(id, {id, deletedAt: now});
+for(const id of restoredIds) if(tombstonedNow.has(id) && !removedIds.includes(id)) byId.set(id, {id, deletedAt: now, revived: true});
+STATE.settings.tombstones = Array.from(byId.values());
+await setMeta('tombstones', STATE.settings.tombstones);
+}
+async function finishUndoRedo(){
 await loadAll(); renderAll();
-// If a bed/container/structure screen is open, refresh it against the data just swapped in
-// rather than leaving it showing objects from before the swap - see currentDetailReopen above.
-if(currentDetailReopen) currentDetailReopen();
+// Whatever screen is open was drawn from the data as it was before the undo - redraw it fresh
+// so it can't show, or save back, the version just undone. See refreshOpenScreenAfterUndo.
+refreshOpenScreenAfterUndo();
 lastSnapshot = snapshotState();
-} finally { restoring = false; }
-if(supa) schedulePush();
 }
 async function performUndo(){
 if(undoStack.length===0){ toast('Nothing to undo'); return; }
-redoStack.push(snapshotState());
-const prev = undoStack.pop();
-await restoreSnapshot(prev);
+const step = undoStack.pop();
+redoStack.push(step);
+restoring = true;
+try{ await applyUndoStep(step.after, step.before); await finishUndoRedo(); }
+finally { restoring = false; }
+if(supa) schedulePush();
 toast('Undone');
 }
 async function performRedo(){
 if(redoStack.length===0){ toast('Nothing to redo'); return; }
-undoStack.push(snapshotState());
-const next = redoStack.pop();
-await restoreSnapshot(next);
+const step = redoStack.pop();
+undoStack.push(step);
+restoring = true;
+try{ await applyUndoStep(step.before, step.after); await finishUndoRedo(); }
+finally { restoring = false; }
+if(supa) schedulePush();
 toast('Redone');
 }
 document.getElementById('btnUndo').addEventListener('click', performUndo);
@@ -2770,12 +2871,16 @@ await put('features', feat);
 await afterChange();
 toast('Moved');
 }
-async function confirmPlacement(bedId){
-const bed = bedById(bedId);
+// Planting out can land in a bed or in a container/basket - both hold plantings the same way, so
+// the same transplant does for either; only which screen to open afterwards differs.
+async function confirmPlacement(targetId, kind){
+kind = kind || 'beds';
+const target = plantableById(kind, targetId);
+if(!target) return;
 const {tray, planting, portion} = placingMode;
 placingMode = null;
-await doTransplant(tray, planting, bed, todayISO(), '', portion);
-openBedDetail(bedId);
+await doTransplant(tray, planting, target, todayISO(), '', portion, kind);
+if(kind==='features') openContainerDetail(targetId); else openBedDetail(targetId);
 }
 function renderPlacingBanner(){
 const el = document.getElementById('placingBanner');
@@ -2798,7 +2903,7 @@ return;
 }
 if(!placingMode){ el.innerHTML=''; return; }
 el.innerHTML = `<div class="alert placing">
-<span style="flex:1;">🌱 Tap a bed to plant ${escapeHTML(placingMode.crop?placingMode.crop.name:'this')} out.</span>
+<span style="flex:1;">🌱 Tap a bed or container to plant ${escapeHTML(placingMode.crop?placingMode.crop.name:'this')} out.</span>
 <button class="btn small secondary" id="btnCancelPlacing">Cancel</button></div>`;
 document.getElementById('btnCancelPlacing').addEventListener('click', cancelPlacement);
 document.getElementById('alertsBox').innerHTML='';
@@ -2980,16 +3085,18 @@ if(fits(px,py,tw,th) && fits(snappedPx,snappedPy,snappedTw,snappedTh)) return {p
 let maxY=0; for(const r of rects) maxY=Math.max(maxY, r.py+r.ph); // truly nothing free even shrunk — stack below everything as a genuine last resort, even if it runs past the bed's edge
 return {px:0, py:snapFine(maxY), pw:snapFine(iw), ph:snapFine(ih)};
 }
-async function doTransplant(tray, plantOutPlanting, bed, date, rowLabel, portion){
+async function doTransplant(tray, plantOutPlanting, bed, date, rowLabel, portion, kind){
+kind = kind || 'beds';
 const crop = cropById(plantOutPlanting.cropId);
+const bedName = bed.name || bed.label || ((FEATURE_TYPES[bed.type] && FEATURE_TYPES[bed.type].label) || 'container');
 const planting = {id:uid(), cropId:crop.id, date, method:'transplant', active:true, rowLabel:rowLabel||'', by:who(), fromLocation:tray.location};
-Object.assign(planting, nextFreeSlot(bed.w, bed.h, [...(bed.plantings||[]).filter(p=>p.active), ...hostedContainersAsOccupied(bed)], Math.min(bed.w/2,1.5), Math.min(bed.h/3,0.6), bed.shape));
+Object.assign(planting, nextFreeSlot(bed.w, bed.h, [...(bed.plantings||[]).filter(p=>p.active), ...(kind==='beds' ? hostedContainersAsOccupied(bed) : [])], Math.min(bed.w/2,1.5), Math.min(bed.h/3,0.6), bed.shape));
 if(crop.transplantToHarvest){
 planting.harvestDue = addDays(date, crop.transplantToHarvest);
-await put('tasks', {id:uid(), title:`Harvest the ${crop.name} from ${bed.name}${rowLabel?' '+rowLabel:''}`, dueDate:planting.harvestDue, recurrence:'none', done:false, doneDates:[], linkedPlantingId:planting.id, bedId:bed.id});
+await put('tasks', {id:uid(), title:`Harvest the ${crop.name} from ${bedName}${rowLabel?' '+rowLabel:''}`, dueDate:planting.harvestDue, recurrence:'none', done:false, doneDates:[], linkedPlantingId:planting.id, bedId:bed.id, plantableKind:kind});
 }
 bed.plantings = bed.plantings||[]; bed.plantings.push(planting);
-await put('beds', bed);
+await savePlantable(kind, bed);
 const full = !portion || !portion.partial;
 let plantingGone = full;
 if(!full && portion.count){
@@ -3010,7 +3117,7 @@ await del('trays', tray.id);
 await put('trays', tray);
 }
 await afterChange();
-toast(`Planted in ${bed.name}`);
+toast(`Planted in ${bedName}`);
 }
 /* ======================= PICTURE (drag crops/trays onto a bed/greenhouse tier) ======================= */
 function pointInPolygon(x, y, poly){
@@ -3752,7 +3859,8 @@ const showHatch = isComposting && Math.min(w,h) >= COMPOST_HATCH_MIN_PX;
 const featFallbackBg = o.type==='container' ? '#EFE7DA' : (o.type==='basket' ? '#F3ECD9' : '#EAF0E2');
 const featFallbackBorder = o.type==='container' ? 'var(--soil)' : (o.type==='basket' ? 'var(--mustard)' : 'var(--leaf-light)');
 const featBg = mapObjBackgroundCSS(showHatch, o.color, featFallbackBg, featFallbackBorder) + (o.round ? ' border-radius:50%;' : '');
-html += `<div class="mapObj type-${o.type}" data-kind="feature" data-type="${o.type}" data-id="${o.id}" data-locked="${o.locked?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${featBg}">
+const featEligible = (placingMode && (o.type==='container'||o.type==='basket')) ? ' placeable' : '';
+html += `<div class="mapObj type-${o.type}${featEligible}" data-kind="feature" data-type="${o.type}" data-id="${o.id}" data-locked="${o.locked?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${featBg}">
 ${lockBadge}${overdueBadge}<span class="icon">${iconHTML}</span><span class="lbl">${escapeHTML(o.label||info.label)}</span></div>`;
 }
 }
@@ -3813,7 +3921,8 @@ if(target) onPick(target, kind);
 return;
 }
 if(placingMode){
-if(el.dataset.kind==='bed') confirmPlacement(el.dataset.id);
+if(el.dataset.kind==='bed') confirmPlacement(el.dataset.id, 'beds');
+else if(el.dataset.type==='container' || el.dataset.type==='basket') confirmPlacement(el.dataset.id, 'features');
 return;
 }
 if(movingFeature){
@@ -4223,6 +4332,9 @@ await put(storeKind, obj); await afterChange(); onDone();
 }));
 }
 function openCompostBatchDetail(batch, obj, storeKind, backFn){
+obj = plantableById(storeKind, obj.id);
+batch = obj && (obj.compostBatches||[]).find(b=>b.id===batch.id);
+if(!batch){ backFn(); return; }
 openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${escapeHTML(compostBatchLabel(batch))}</h3>
 ${compostBatchEditHTML(batch)}
 <button type="button" class="btn danger" id="mDelBatch" style="margin-top:10px;">Delete this batch</button>
@@ -4336,6 +4448,8 @@ openUsedOnSpot(kind, objId, plantingId||undefined);
 // than buried in the planter's general Edit form - reachable from a button right next to Edit,
 // and it's also where a problem traced back to the current batch would show up.
 function openCompostScreen(obj, storeKind, backFn){
+obj = plantableById(storeKind, obj.id);
+if(!obj){ goHome(); return; }
 const toggleHTML = `<div class="toggle-row"><span>Composting underneath</span><label class="switch"><input type="checkbox" id="mComposting" ${obj.composting?'checked':''}><span class="slider"></span></label></div>`;
 const fieldsHTML = obj.composting ? compostFieldsHTML(obj) + compostUsedOnHTML(currentCompostBatch(obj).id) : '';
 openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Composting</h3>${toggleHTML}${fieldsHTML}`, true);
@@ -4352,6 +4466,8 @@ wireCompostUsedOn();
 }
 }
 function openFeatureDetail(feat){
+feat = feat && featureById(feat.id);
+if(!feat){ goHome(); return; }
 const info = FEATURE_TYPES[feat.type];
 const featSwatches = BED_COLORS.map(c=>`<div class="swatch ${c===feat.color?'picked':''}" data-c="${c}" style="background:${c};"></div>`).join('');
 const roundToggle = feat.type==='container' ? `<div class="toggle-row"><span>Round</span><label class="switch"><input type="checkbox" id="mRound" ${feat.round?'checked':''}><span class="slider"></span></label></div>` : '';
@@ -5253,6 +5369,7 @@ document.addEventListener('pointerup', onUp, {once:true});
 });
 }
 function openStructureDetail(feat, highlightTrayId){
+feat = feat && featureById(feat.id);
 if(!feat){ goHome(); return; }
 const featId = feat.id;
 currentDetailReopen = ()=>{ const f = featureById(featId); if(f) openStructureDetail(f, highlightTrayId); else goHome(); };
@@ -8041,8 +8158,9 @@ renderCropList();
 const SHARED_META_KEYS = [...SHARED_SINGLE_KEYS, ...SHARED_LIST_KEYS, 'tombstones', 'lastEditedBy', 'lastEditedAt', 'syncStamps'];
 let supa = null, syncChannel = null, pushTimer = null, applyingRemote = false, lastKnownRemoteUpdatedAt = null, renderPending = false;
 async function afterChange(){
-if(!restoring && !applyingRemote){
-if(lastSnapshot){ undoStack.push(lastSnapshot); if(undoStack.length>30) undoStack.shift(); redoStack=[]; }
+const isLocalEdit = !restoring && !applyingRemote;
+const before = lastSnapshot;
+if(isLocalEdit){
 // Stamped on every genuine local change (not a remote update landing, not undo/redo's own
 // internal restore) so "last edited by" in Share reflects who actually changed something,
 // rather than just whoever's device happens to sync last for unrelated reasons.
@@ -8055,6 +8173,7 @@ await setMeta('lastEditedAt', new Date().toISOString());
 await loadAll();
 renderAll();
 lastSnapshot = snapshotState();
+if(isLocalEdit && before){ undoStack.push({before, after:lastSnapshot}); if(undoStack.length>30) undoStack.shift(); redoStack=[]; }
 if(supa && !applyingRemote && !restoring) schedulePush();
 }
 // The same payload as buildSyncPayload, but read straight from storage - used while merging an
@@ -8207,7 +8326,7 @@ const tw = tombstoneTime(t), ew = existing ? tombstoneTime(existing) : NaN;
 if(!existing || isNaN(ew) || isNaN(tw) || tw >= ew) tombstoneMap.set(t.id, t);
 }
 const mergedTombstones = Array.from(tombstoneMap.values());
-const tombstoned = new Set(mergedTombstones.map(t=>t.id));
+const tombstoned = new Set(mergedTombstones.filter(t=>!t.revived).map(t=>t.id));
 const merged = { meta: { ...(remotePayload.meta||{}), ...(localPayload.meta||{}), tombstones: mergedTombstones } };
 mergeSharedSettings(merged.meta, remotePayload.meta||{}, localPayload.meta||{});
 for(const store of ['crops','tasks','harvests','wishlist','planningItems','planningChanges','costs','notes']) merged[store] = mergeItemListById(remotePayload[store], localPayload[store], tombstoned);
@@ -9187,6 +9306,15 @@ closeModal();
 joinFromInvite(su, sk, sc, sn);
 });
 }
+// Screens that can be drawn again from scratch after an undo/redo. Each is wrapped so opening it
+// remembers how to open it again; every one of them looks its bed/crop/tray up fresh when it runs.
+// Forms that are part-way through being filled in (adding a treatment, harvesting, sowing...) are
+// deliberately left off - after an undo those go back to the screen they were opened from.
+['openEditTask','openEditNote','openObjectDetail','openCompostBatchDetail','openUsedOnSpot','openCompostScreen','openFeatureDetail','openContainerDetail','openBedDetail','openPlantingInfo','openEditTrayDetails','openEditPlanting','openTreeDetail','openStructureDetail','openTrayOrPlanting','openTrayInfo','openTrayPlantingInfo','openChangeTier','openSowIntoContainer','openEditWishlistItem','openEditCrop','openHistoryDetail','openRemovedHistoryDetail','openProblemDetail','openGhostDetail','openPlanningMapBedDetail'].forEach(name=>{
+const orig = window[name];
+if(typeof orig!=='function') return;
+window[name] = function(...args){ currentScreenReopen = ()=>orig(...args); return orig(...args); };
+});
 (async function init(){
 db = await openDB();
 await loadAll();
