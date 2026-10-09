@@ -775,7 +775,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.09.5';
+const APP_VERSION = '2026.10.09.9';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -1225,15 +1225,55 @@ const KNOWN_CROPS = [
   {name:'Swede', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:130, tender:false, repeatHarvest:false, words:['swede'], varieties:[], underCoverMonth:4, directSowMonth:5},
   {name:'Turnip', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:55, tender:false, repeatHarvest:false, words:['turnip'], varieties:[], underCoverMonth:3, directSowMonth:4},
   {name:'Kohlrabi', family:'Brassicas', sowToPotOn:21, transplantToHarvest:60, directSowToHarvest:65, tender:false, repeatHarvest:false, words:['kohlrabi'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Leek', family:'Alliums', sowToPotOn:70, transplantToHarvest:120, directSowToHarvest:120, tender:false, repeatHarvest:false, words:['leek'], varieties:['Musselburgh','Tornado',"Chef's White"], underCoverMonth:2, directSowMonth:4},
-  {name:'Onion', family:'Alliums', sowToPotOn:56, transplantToHarvest:110, directSowToHarvest:120, tender:false, repeatHarvest:false, words:['onion'], varieties:['Stuttgarter','Sturon','Red Baron','Elista','Walla Walla','Senshyu'], underCoverMonth:1, directSowMonth:3},
-  {name:'Garlic', family:'Alliums', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:240, tender:false, repeatHarvest:false, words:['garlic'], varieties:['Solent Wight','Germidour'], underCoverMonth:10, directSowMonth:10},
+  // Varieties: SimplySeed's leek range added. Direct sowing to harvest was 120, the same as planting out
+  // to harvest, which can't be right for a crop sown in place in spring - sellers give 4-6 months
+  // (Marshalls) to 30-32 weeks (Suttons) overall. Those differ by more than two weeks, so checked
+  // further: RHS says leeks reach maturity after about six months - 180.
+  {name:'Leek', family:'Alliums', sowToPotOn:70, transplantToHarvest:120, directSowToHarvest:180, tender:false, repeatHarvest:false, words:['leek'], varieties:['Musselburgh','Tornado',"Chef's White",'Tempest','Winter Giant','Zermatt'], underCoverMonth:2, directSowMonth:4},
+  // Spring-planted sets and seed-raised onions: RHS gives a harvest of July to October; sets go in
+  // March-April, so roughly 150 days from planting a set (140 from planting out a seed-raised plant).
+  // Varieties from SimplySeed's spring onion-set range added alongside the existing ones. 'Senshyu' moved
+  // to Autumn Onion below - it's a Japanese overwintering onion, so the spring timing gave it a
+  // harvest reminder months out.
+  {name:'Onion', group:'onion', family:'Alliums', sowToPotOn:56, transplantToHarvest:140, directSowToHarvest:150, tender:false, repeatHarvest:false, words:['onion'], varieties:['Stuttgarter','Sturon','Red Baron','Elista','Walla Walla','Centurion','Snowball','Stuttgart Giant','Turbo','Julia','Rijnsburger','Kosma','Ruby Red','Hybound','Fasto','Exhibition','Paris Silverskin','Simane'], underCoverMonth:1, directSowMonth:3},
+  // Overwintering (Japanese) onion sets: planted September to November, ready in June and July (RHS),
+  // so roughly 250 days from planting. A separate crop because a single onion timing can't cover both -
+  // an autumn set given the spring figure would get its harvest reminder in the middle of winter.
+  // Its words never include plain 'onion', so 'Onion Sturon' still matches Onion, not this.
+  // Overwintering onions can also be raised from seed (SimplySeed's Toughball, sown in August): RHS says
+  // sow indoors in late summer and plant out in early autumn - so about 6 weeks to planting out, then
+  // roughly 260 days to a June/July harvest.
+  {name:'Autumn Onion', group:'onion', family:'Alliums', sowToPotOn:42, transplantToHarvest:260, directSowToHarvest:250, tender:false, repeatHarvest:false, words:['autumn onion','overwintering onion','japanese onion','winter onion'], varieties:['Autumn Champion','Radar','Red Winter','Senshyu','Snowball','Yellow Winter','Toughball'], underCoverMonth:8, directSowMonth:10},
+  // Autumn-planted garlic: RHS says ready from late spring to early summer.
+  {name:'Garlic', group:'garlic', family:'Alliums', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:240, tender:false, repeatHarvest:false, words:['garlic'], varieties:['Solent Wight','Germidour','Ashmoor White','Autumn Early','Garland Purple','Carcassonne Wight','Provence Wight'], underCoverMonth:10, directSowMonth:10},
+  // Spring-planted garlic: planted January to March (RHS, Suttons, Dobies), ready from mid-summer to early
+  // autumn (RHS), July-August (Rocket Gardens), June-August (Suttons) - they cluster on July/August, so
+  // roughly 160 days from a mid-February planting. A separate crop for the same reason as Autumn Onion:
+  // the autumn figure would put a spring clove's harvest reminder in November. Varieties are the
+  // SimplySeed ones they say can be spring planted.
+  {name:'Spring Garlic', group:'garlic', family:'Alliums', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:160, tender:false, repeatHarvest:false, words:['spring garlic','spring planted garlic','spring planting garlic'], varieties:['Solent Wight','Provence Wight'], underCoverMonth:null, directSowMonth:2},
   {name:'Elephant Garlic', family:'Alliums', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:270, tender:false, repeatHarvest:false, words:['elephant garlic'], varieties:[], underCoverMonth:10, directSowMonth:10},
   {name:'Lettuce', family:'Other', sowToPotOn:21, transplantToHarvest:45, directSowToHarvest:50, tender:true, repeatHarvest:true, words:['lettuce','salad leaves'], varieties:['Little Gem','Lollo Rosso',"Webbs Wonderful",'Bright and Spicy','Mesclun Mixed'], underCoverMonth:2, directSowMonth:3},
   {name:'Beetroot', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:60, tender:true, repeatHarvest:false, words:['beetroot','beet'], varieties:['Boltardy','Chioggia',"Burpee's Golden"], underCoverMonth:3, directSowMonth:4},
   {name:'Carrot', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:75, tender:false, repeatHarvest:false, words:['carrot'], varieties:['Nantes','Chantenay','Autumn King'], underCoverMonth:3, directSowMonth:3},
   {name:'Parsnip', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:130, tender:false, repeatHarvest:false, words:['parsnip'], varieties:['Tender and True','Gladiator'], underCoverMonth:3, directSowMonth:3},
-  {name:'Potato', family:'Solanaceae', sowToPotOn:null, transplantToHarvest:110, directSowToHarvest:null, tender:true, repeatHarvest:false, words:['potato','maris piper','king edward','charlotte','desiree','rooster','jersey royal'], varieties:['Maris Piper','King Edward','Charlotte','Desiree','Rooster','Jersey Royal','Vivaldi','Pink Fir Apple'], underCoverMonth:2, directSowMonth:3},
+  // POTATOES - split by type, because one timing can't fit them all (first earlies are ready weeks
+  // before maincrops). Sources, weeks from planting to harvest: RHS (as quoted by the Yorkshire Post)
+  // first 10-12 / second 14-16 / maincrop 16-22; SimplySeed 10-12 / 13-14 / 15-18; Homes & Gardens
+  // (RHS Harlow Carr) 10 / 13 / 20; Real Homes 10-12 / - / 15-20. First earlies agree: 11 weeks.
+  // Second earlies cluster 13-15: 14 weeks. Maincrop cluster 16-20: 18 weeks. Planting months from
+  // RHS: first earlies late March, second earlies early-mid April, maincrop mid-late April.
+  // Each type lists SimplySeed's varieties for it (salad varieties filed under their real type:
+  // Charlotte, Nicola, Jazzy, Anya are second earlies, Pink Fir Apple a maincrop, Rocket and Swift
+  // first earlies). The 'group' field lets a plain "Potato Charlotte" find the right type by itself
+  // - see matchCropWithConfidence.
+  // Plain Potato is for a variety the app doesn't know: an in-between figure. It previously had no
+  // direct-planting timing at all, so a potato planted straight into a bed got no harvest reminder.
+  // Its old variety words stay so "Maris Piper" typed on its own is still recognised as a potato.
+  {name:'Potato', group:'potato', family:'Solanaceae', sowToPotOn:null, transplantToHarvest:110, directSowToHarvest:110, tender:true, repeatHarvest:false, words:['potato','maris piper','king edward','charlotte','desiree','rooster','jersey royal'], varieties:[], underCoverMonth:null, directSowMonth:4},
+  {name:'First Early Potato', group:'potato', family:'Solanaceae', sowToPotOn:null, transplantToHarvest:77, directSowToHarvest:77, tender:true, repeatHarvest:false, words:['first early potato','first earlies'], varieties:['Arran Pilot','Caledonian Pearl','Casablanca','Duke of York','Red Duke of York','Foremost','Pentland Javelin','Premiere','Rocket','Swift'], underCoverMonth:null, directSowMonth:3},
+  {name:'Second Early Potato', group:'potato', family:'Solanaceae', sowToPotOn:null, transplantToHarvest:98, directSowToHarvest:98, tender:true, repeatHarvest:false, words:['second early potato','second earlies'], varieties:['Charlotte','Nicola','Jazzy','Anya','Kestrel','Marfona','Vivaldi','Wilja','Estima','Acoustic','Gemson','International Kidney','Jersey Royal','Harry','Sally','Sagitta'], underCoverMonth:null, directSowMonth:4},
+  {name:'Maincrop Potato', group:'potato', family:'Solanaceae', sowToPotOn:null, transplantToHarvest:126, directSowToHarvest:126, tender:true, repeatHarvest:false, words:['maincrop potato','maincrop potatoes'], varieties:['Maris Piper','King Edward','Desiree','Rooster','Pink Fir Apple','Cara','Picasso','Sarpo Mira','Axona','Heidi Red','Java','Orla','Marvel','Setanta','Valor','Victory'], underCoverMonth:null, directSowMonth:4},
   {name:'Spinach', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:40, tender:false, repeatHarvest:true, words:['spinach'], varieties:[], underCoverMonth:2, directSowMonth:3},
   {name:'Chard', family:'Other', sowToPotOn:21, transplantToHarvest:55, directSowToHarvest:60, tender:false, repeatHarvest:true, words:['chard'], varieties:[], underCoverMonth:3, directSowMonth:4},
   {name:'Radish', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:28, tender:false, repeatHarvest:false, words:['radish'], varieties:[], underCoverMonth:2, directSowMonth:3},
@@ -1281,8 +1321,17 @@ const KNOWN_CROPS = [
   {name:'Sweet William', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['sweet william'], varieties:[], underCoverMonth:5, directSowMonth:5},
   {name:'Nigella', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:false, words:['nigella','love-in-a-mist'], varieties:[], underCoverMonth:3, directSowMonth:4},
   {name:'Poppy', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['poppy'], varieties:[], underCoverMonth:3, directSowMonth:3},
-  {name:'Spring Onion', family:'Alliums', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:false, words:['spring onion','salad onion','scallion'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Shallot', family:'Alliums', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:false, words:['shallot'], varieties:[], underCoverMonth:2, directSowMonth:3},
+  // Was on the shared placeholder timings (45 days). Which? Gardening: early sowings ready in about
+  // 10-12 weeks, early summer sowings in as little as 8, so 70 days direct. RHS: sow indoors in March in
+  // modules for planting out later in spring, or outdoors from March. Varieties from SimplySeed.
+  {name:'Spring Onion', family:'Alliums', sowToPotOn:28, transplantToHarvest:49, directSowToHarvest:70, tender:false, repeatHarvest:false, words:['spring onion','salad onion','scallion'], varieties:['White Lisbon','Ishikura','Marksman','Ramrod','Tipika','Apache','Lilia'], underCoverMonth:3, directSowMonth:3},
+  // Shallots were on placeholder timings (45 days). RHS: sets planted early to mid-spring, seed sown
+  // indoors in late winter and planted out in spring, ripening mid to late summer - roughly 130 days
+  // from planting a set, 120 from planting out a seed-raised clump, 8 weeks from sowing to planting out.
+  {name:'Shallot', group:'shallot', family:'Alliums', sowToPotOn:56, transplantToHarvest:120, directSowToHarvest:130, tender:false, repeatHarvest:false, words:['shallot'], varieties:['Golden Gourmet','Red Sun','Matador'], underCoverMonth:2, directSowMonth:3},
+  // Autumn-planting shallot sets: planted mid-September to mid-October for an early summer harvest,
+  // roughly 270 days. Separate for the same reason as Autumn Onion.
+  {name:'Autumn Shallot', group:'shallot', family:'Alliums', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:270, tender:false, repeatHarvest:false, words:['autumn shallot','overwintering shallot','winter shallot'], varieties:['Yellow Moon'], underCoverMonth:null, directSowMonth:10},
   {name:'Rocket', family:'Brassicas', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:true, words:['rocket','arugula'], varieties:[], underCoverMonth:3, directSowMonth:4},
   {name:'Mizuna', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:40, tender:false, repeatHarvest:true, words:['mizuna'], varieties:[], underCoverMonth:2, directSowMonth:3},
   {name:'Marrow', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:true, words:['marrow'], varieties:[], underCoverMonth:4, directSowMonth:5},
@@ -1321,7 +1370,7 @@ function wordCloseness(word, token){
   return d<=maxDist ? word.length - d*0.5 : 0;
 }
 const CROP_ICONS = {
-  'Potato':'🥔','Tomato':'🍅','Carrot':'🥕','Onion':'🧅','Garlic':'🧄','Cabbage':'🥬','Broccoli / Calabrese':'🥦','Purple Sprouting Broccoli':'🥦',
+  'Potato':'🥔','First Early Potato':'🥔','Second Early Potato':'🥔','Maincrop Potato':'🥔','Tomato':'🍅','Carrot':'🥕','Onion':'🧅','Garlic':'🧄','Cabbage':'🥬','Broccoli / Calabrese':'🥦','Purple Sprouting Broccoli':'🥦',
   'Sweetcorn':'🌽','Cucumber':'🥒','Strawberry':'🍓','Apple':'🍎','Pear':'🍐','Cherry':'🍒','Chilli':'🌶️','Sweet Pepper':'🫑',
   'Aubergine':'🍆','Squash':'🎃','Pumpkin':'🎃','Sweet Potato':'🍠','Melon':'🍈','Pea':'🫛','Broad Bean':'🫘','French Bean':'🫘','Runner Bean':'🫘',
   'Lettuce':'🥬','Spinach':'🥬','Kale':'🥬','Chard':'🥬','Rocket':'🥬','Pak Choi':'🥬',
@@ -1335,7 +1384,7 @@ const CROP_ICONS = {
   // (Rocket/Pak Choi sharing Lettuce's 🥬, Zinnia/Marigold/Calendula/Aster sharing Cosmos's 🌼) -
   // never a guess at a "perfect" one-off icon for each, since several of these have no close visual
   // emoji match anyway (e.g. Rhubarb, Asparagus).
-  'Leek':'🧅','Shallot':'🧅','Spring Onion':'🧅',
+  'Leek':'🧅','Shallot':'🧅','Spring Onion':'🧅','Autumn Onion':'🧅','Autumn Shallot':'🧅','Spring Garlic':'🧄',
   'Brussels Sprout':'🥦','Cauliflower':'🥦','Kohlrabi':'🥦','Swede':'🥦','Turnip':'🥦',
   'Courgette':'🥒','Marrow':'🥒',
   'Asparagus Pea':'🫛',
@@ -1407,6 +1456,9 @@ function withinCompanionTier(tier, locationIdA, locationIdB){
 }
 const CROP_ISSUES = {
   'Potato': ['Blight','Slugs','Scab','Wireworm'],
+  'First Early Potato': ['Blight','Slugs','Scab','Wireworm'],
+  'Second Early Potato': ['Blight','Slugs','Scab','Wireworm'],
+  'Maincrop Potato': ['Blight','Slugs','Scab','Wireworm'],
   'Tomato': ['Blight','Blossom End Rot','Whitefly','Aphids'],
   'Chilli': ['Aphids','Whitefly','Blossom End Rot'],
   'Sweet Pepper': ['Aphids','Whitefly','Blossom End Rot'],
@@ -1423,8 +1475,10 @@ const CROP_ISSUES = {
   'Carrot': ['Carrot Fly','Aphids'],
   'Parsnip': ['Carrot Fly','Canker'],
   'Onion': ['Onion Fly','White Rot'],
+  'Autumn Onion': ['Onion Fly','White Rot'],
   'Elephant Garlic': ['White Rot','Rust'],
   'Garlic': ['White Rot','Rust'],
+  'Spring Garlic': ['White Rot','Rust'],
   'Leek': ['Leek Moth','Rust','Onion Fly'],
   'Pea': ['Pea Moth','Powdery Mildew','Aphids'],
   'Broad Bean': ['Blackfly (Aphids)','Chocolate Spot'],
@@ -1487,6 +1541,7 @@ const CROP_ISSUES = {
   'Poppy': ['Aphids'],
   'Spring Onion': ['Onion Fly'],
   'Shallot': ['Onion Fly','Downy Mildew'],
+  'Autumn Shallot': ['Onion Fly','Downy Mildew'],
   'Rocket': ['Flea Beetle'],
   'Marrow': ['Slugs','Powdery Mildew'],
   'Asparagus Pea': ['Aphids'],
@@ -1531,7 +1586,31 @@ function matchCropWithConfidence(typed){
   if(bestScore<=0) return {crop:null, confident:false};
   // A confident match is an exact/near-exact word, not just close enough by typo-distance
   const confident = bestScore >= bestWordLen - 0.5;
+  if(confident && best.group){
+    const sib = groupSiblingByVariety(best, lower);
+    if(sib) return {crop:sib, confident:true};
+  }
   return {crop:best, confident};
+}
+// Some crops come as sibling types with different timings (Potato / First Early / Second Early /
+// Maincrop; Onion / Autumn Onion; Shallot / Autumn Shallot; Garlic / Spring Garlic), marked with the
+// same 'group'. So the app takes the strain rather than the gardener needing to know which type a
+// variety is, a name like "Potato Charlotte" or "Onion Senshyu" is steered to the sibling whose
+// variety list holds that exact variety. Whole-word matches only - no typo-guessing here - and only
+// when exactly one sibling lists it: a variety sold as both (Snowball onions, Solent Wight garlic)
+// stays with whichever type was typed.
+function groupSiblingByVariety(best, lower){
+  const owners = new Set();
+  for(const k of KNOWN_CROPS){
+    if(k.group!==best.group) continue;
+    for(const v of (k.varieties||[])){
+      const vl = v.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if(new RegExp(`(^|[^a-z])${vl}($|[^a-z])`).test(lower)) owners.add(k);
+    }
+  }
+  if(owners.size!==1) return null;
+  const only = [...owners][0];
+  return only===best ? null : only;
 }
 function nextMonthFirstISO(month){
   const todayStr = todayISO();
@@ -1676,7 +1755,20 @@ async function findOrCreateCrop(typedRaw){
   const typed = (typedRaw||'').trim();
   if(!typed) return null;
   const existing = findExistingCrop(typed);
-  if(existing) return existing;
+  if(existing){
+    // A crop saved before the built-in list had a timing for it (e.g. every potato planted straight
+    // into a bed, which used to get no harvest reminder) gets the built-in figure filled in - only
+    // where its own record is blank, never overwriting a figure it already has or has learned.
+    const mm = matchCrop(existing.name);
+    if(mm){
+      let filled = false;
+      for(const f of ['sowToPotOn','transplantToHarvest','directSowToHarvest']){
+        if(existing[f]==null && mm[f]!=null){ existing[f] = mm[f]; filled = true; }
+      }
+      if(filled) await put('crops', existing);
+    }
+    return existing;
+  }
   const m = matchCrop(typed);
   const rec = {id:uid(), name:typed, family:m?m.family:'Other', sowToPotOn:m?m.sowToPotOn:null, transplantToHarvest:m?m.transplantToHarvest:null, directSowToHarvest:m?m.directSowToHarvest:null, tender: m?m.tender:null, repeatHarvest: (m && m.repeatHarvest!=null) ? m.repeatHarvest : null, addedBy:who(), color:colorForCropName(typed)};
   await put('crops', rec); STATE.crops.push(rec);
@@ -1714,13 +1806,16 @@ function wireCropAutocomplete(inputEl, boxEl){
     const val = inputEl.value.trim().toLowerCase();
     if(val.length<2){ boxEl.innerHTML=''; return; }
     const matches = [];
+    // Plain crop names first, then varieties. Only 8 suggestions show, and with longer variety lists
+    // (SimplySeed) typing "onion" would otherwise fill all 8 with "Onion <variety>" and push plain
+    // "Onion", "Autumn Onion" and "Spring Onion" off the list altogether.
+    for(const k of KNOWN_CROPS){ if(k.name.toLowerCase().includes(val)) matches.push(k.name); }
     for(const k of KNOWN_CROPS){
       for(const v of (k.varieties||[])){
         const full = `${k.name} ${v}`;
         if(full.toLowerCase().includes(val)) matches.push(full);
       }
     }
-    for(const k of KNOWN_CROPS){ if(k.name.toLowerCase().includes(val) && !matches.some(m=>m.toLowerCase()===k.name.toLowerCase())) matches.push(k.name); }
     for(const c of STATE.crops){ if(c.name.toLowerCase().includes(val) && !matches.includes(c.name)) matches.push(c.name); }
     const uniq = [...new Set(matches)].filter(m=>!isExcludedCrop(m)).slice(0,8);
     boxEl.innerHTML = uniq.map(m=>`<button type="button" class="btn small secondary" style="margin:3px 4px 0 0;">${escapeHTML(m)}</button>`).join('');
