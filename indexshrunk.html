@@ -718,7 +718,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.09.9';
+const APP_VERSION = '2026.10.09.13';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -1157,15 +1157,75 @@ const KNOWN_CROPS = [
 {name:'French Bean', family:'Legumes', sowToPotOn:21, transplantToHarvest:60, directSowToHarvest:65, tender:true, repeatHarvest:true, words:['french bean','bean','beans'], varieties:['Blue Lake','Montano','Harrison'], underCoverMonth:4, directSowMonth:5},
 {name:'Pea', family:'Legumes', sowToPotOn:14, transplantToHarvest:60, directSowToHarvest:65, tender:false, repeatHarvest:true, words:['pea','peas','mangetout'], varieties:['Kelvedon Wonder','Hurst Green Shaft','Mangetout'], underCoverMonth:2, directSowMonth:3},
 {name:'Broad Bean', family:'Legumes', sowToPotOn:21, transplantToHarvest:90, directSowToHarvest:100, tender:false, repeatHarvest:true, words:['broad bean','broad beans'], varieties:['Aquadulce','The Sutton','Long Pod'], underCoverMonth:2, directSowMonth:3},
-{name:'Cabbage', family:'Brassicas', sowToPotOn:28, transplantToHarvest:80, directSowToHarvest:null, tender:false, repeatHarvest:false, words:['cabbage'], varieties:['January King','Red Drumhead','Savoy','Sweetheart','Summer Jewel'], underCoverMonth:3, directSowMonth:4},
-{name:'Broccoli / Calabrese', family:'Brassicas', sowToPotOn:28, transplantToHarvest:65, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['broccoli','calabrese'], varieties:[], underCoverMonth:3, directSowMonth:4},
-{name:'Purple Sprouting Broccoli', family:'Brassicas', sowToPotOn:63, transplantToHarvest:215, directSowToHarvest:245, tender:false, repeatHarvest:true, words:['purple sprouting broccoli','purple sprouting','sprouting broccoli','psb'], varieties:['Early','Rudolph','Red Arrow','Purple Rain'], underCoverMonth:4, directSowMonth:4},
-{name:'Cauliflower', family:'Brassicas', sowToPotOn:35, transplantToHarvest:85, directSowToHarvest:null, tender:false, repeatHarvest:false, words:['cauliflower'], varieties:['All Year Round','Freedom'], underCoverMonth:2, directSowMonth:4},
-{name:'Kale', family:'Brassicas', sowToPotOn:28, transplantToHarvest:60, directSowToHarvest:65, tender:false, repeatHarvest:true, words:['kale'], varieties:[], underCoverMonth:3, directSowMonth:4},
-{name:'Brussels Sprout', family:'Brassicas', sowToPotOn:28, transplantToHarvest:150, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['brussels sprout','sprouts'], varieties:[], underCoverMonth:3, directSowMonth:4},
-{name:'Swede', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:130, tender:false, repeatHarvest:false, words:['swede'], varieties:[], underCoverMonth:4, directSowMonth:5},
-{name:'Turnip', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:55, tender:false, repeatHarvest:false, words:['turnip'], varieties:[], underCoverMonth:3, directSowMonth:4},
-{name:'Kohlrabi', family:'Brassicas', sowToPotOn:21, transplantToHarvest:60, directSowToHarvest:65, tender:false, repeatHarvest:false, words:['kohlrabi'], varieties:[], underCoverMonth:3, directSowMonth:4},
+// BRASSICAS (SimplySeed batch, version 2026.10.09.10). Varieties are SimplySeed's cabbage, calabrese,
+// broccoli, cauliflower, Brussels sprout, kale, kohl rabi, swede and turnip ranges; existing ones kept.
+//
+// CABBAGES - split by type, the same way as potatoes and onions, because one timing can't cover a
+// cabbage sown in March for August and one sown in July to stand through winter into spring. The
+// 'group' lets "Cabbage Tundra" or "Cabbage Wheelers Imperial" find the right type by itself.
+// Summer/autumn cabbage (the plain one): RHS - sow late winter to mid-spring for mid-late summer, or
+// mid-spring to early summer for autumn; move outdoors after about five weeks. Kings (Lodero): sow
+// March-May, harvest August-October, about 5 months. Gardening Etc: most cabbages about 20 weeks.
+// Was 28 + 80 (108 days in all), which those sources put about a month early. They cluster on
+// 20-21 weeks from sowing: 35 to plant out + 110, or 145 sown in place (there was no figure for
+// sowing in place, so that got no harvest reminder). Kalibos, Kilaton, Lodero and Guard (a storage
+// white) are autumn types filed here. SimplySeed calls Stonehead a winter cabbage while it is usually
+// sold as a summer one - kept here (owner agreed, 9 Oct).
+{name:'Cabbage', group:'cabbage', family:'Brassicas', sowToPotOn:35, transplantToHarvest:110, directSowToHarvest:145, tender:false, repeatHarvest:false, words:['cabbage'], varieties:['Red Drumhead','Sweetheart','Summer Jewel','SummerJewel','Guard','Kalibos','Kilaton','Lodero','Regency','Stonehead'], underCoverMonth:3, directSowMonth:4},
+// Winter cabbage (including savoys): RHS - sow April-June, harvest through winter; RHS gives Tundra
+// October-February; Kings: sow May-July, ready in November and holds until spring. A mid-May sowing
+// planted out five weeks later and cut from mid-November is about 150 days from planting out (185
+// sown in place). January King and Savoy moved here from plain Cabbage.
+{name:'Winter Cabbage', group:'cabbage', family:'Brassicas', sowToPotOn:35, transplantToHarvest:150, directSowToHarvest:185, tender:false, repeatHarvest:false, words:['winter cabbage','savoy cabbage','savoy'], varieties:['January King','Savoy','Tundra','Cordesa','Rigoletto'], underCoverMonth:5, directSowMonth:5},
+// Spring cabbage / spring greens: RHS - sow in July, transplant no later than early autumn, ready from
+// mid-spring. Kings (Winter Jewel): sow June-August, plant out July-September, harvest April-June the
+// following year. Mid-July sowing: about 7 weeks to planting out, then about 225 days to mid-April
+// (280 sown in place). Despite its name, Winterjewel is a spring cabbage (RHS plant profile).
+// Regency is sold for both summer heads and spring greens, so it's listed under both and stays
+// with whichever type is typed.
+{name:'Spring Cabbage', group:'cabbage', family:'Brassicas', sowToPotOn:49, transplantToHarvest:225, directSowToHarvest:280, tender:false, repeatHarvest:false, words:['spring cabbage','spring greens'], varieties:['Wheelers Imperial','Winterjewel','Winter Jewel','Regency'], underCoverMonth:7, directSowMonth:7},
+// Chinese cabbage (Chinese leaves): RHS - mature heads after eight to ten weeks, sow outdoors June to
+// August; Garden Organic 8-10 weeks. 65 days sown in place; module-raised about four weeks then 40.
+// In the cabbage group only so "Cabbage Wong Bok" finds it.
+{name:'Chinese Cabbage', group:'cabbage', family:'Brassicas', sowToPotOn:28, transplantToHarvest:40, directSowToHarvest:65, tender:false, repeatHarvest:false, words:['chinese cabbage','chinese leaves','chinese leaf','napa cabbage'], varieties:['Scarvita','Wong Bok'], underCoverMonth:5, directSowMonth:6},
+// Calabrese: RHS - ready three or four months after a spring sowing; GIY Ireland 3-4 months, planted
+// out 4-6 weeks after sowing; Van Meuwen about 5 weeks; Marshalls 8-12 weeks. They cluster on about
+// 15 weeks: 35 + 70, or 105 sown in place (previously no figure for that). In the 'broccoli' group
+// with Purple Sprouting Broccoli so "Broccoli Rudolph" (SimplySeed's own naming) finds the sprouting
+// type rather than calabrese.
+{name:'Broccoli / Calabrese', group:'broccoli', family:'Brassicas', sowToPotOn:35, transplantToHarvest:70, directSowToHarvest:105, tender:false, repeatHarvest:true, words:['broccoli','calabrese'], varieties:['Blue Finn','Delistem','Ironman','Marathon','Monclano','Sun King'], underCoverMonth:3, directSowMonth:4},
+// Sprouting broccoli: timings unchanged. Burbank is a white sprouting broccoli, grown the same way.
+{name:'Purple Sprouting Broccoli', group:'broccoli', family:'Brassicas', sowToPotOn:63, transplantToHarvest:215, directSowToHarvest:245, tender:false, repeatHarvest:true, words:['purple sprouting broccoli','purple sprouting','sprouting broccoli','psb','white sprouting broccoli','white sprouting'], varieties:['Early','Rudolph','Red Arrow','Purple Rain','Purple Sprouting Early','Burbank','Mendocino','Red Fire','Santee'], underCoverMonth:4, directSowMonth:4},
+// CAULIFLOWERS - split in two, as RHS groups them: faster summer/autumn types and slow
+// winter/spring ones. Summer/autumn: RHS - summer types ready in four or five months, autumn types
+// sown mid-late spring; allotment-garden.org 20-26 weeks from sowing. They overlap at about 20
+// weeks: 35 + 105 (was 35 + 85), or 140 sown in place (previously no figure). Clipper is a summer type
+// sown in October and overwintered as a young plant, so its planting-out reminder will come early;
+// the harvest date from planting out is right. Romanesco is grown the same way.
+{name:'Cauliflower', group:'cauliflower', family:'Brassicas', sowToPotOn:35, transplantToHarvest:105, directSowToHarvest:140, tender:false, repeatHarvest:false, words:['cauliflower','romanesco'], varieties:['All Year Round','Freedom','Clapton','Clipper','Hipster','MultiHead','Optimist','Tangeline','Minaret','Navona'], underCoverMonth:2, directSowMonth:4},
+// Winter (spring-heading) cauliflower: RHS - sow late spring to early summer, six months or more to
+// mature; RHS gives Aalsmeer March-April. Promesse de Fleurs: Aalsmeer 40-46 weeks from sowing. A
+// mid-May sowing planted out six weeks later and cut in mid-March is about 260 days from planting
+// out (300 sown in place). Redoubtable is a Roscoff (overwintering) type.
+{name:'Winter Cauliflower', group:'cauliflower', family:'Brassicas', sowToPotOn:42, transplantToHarvest:260, directSowToHarvest:300, tender:false, repeatHarvest:false, words:['winter cauliflower','spring cauliflower','overwintering cauliflower'], varieties:['Aalsmeer','Redoubtable'], underCoverMonth:5, directSowMonth:5},
+// Kale: RHS and Gardeners' World - young plants ready to move 6-8 weeks after sowing (Vital Seeds
+// 4-6); was 28, now 42 where they meet. Harvest timing unchanged.
+{name:'Kale', family:'Brassicas', sowToPotOn:42, transplantToHarvest:60, directSowToHarvest:65, tender:false, repeatHarvest:true, words:['kale','borecole','cavolo nero'], varieties:['Nero di Toscana','Red Ruble','Dwarf Green Curled','Winterbor','Sunbor'], underCoverMonth:3, directSowMonth:4},
+// Brussels sprouts: RHS school crop sheet - harvest 26-31 weeks after sowing; Vital Seeds -
+// transplant about 6 weeks after sowing. Was 28 + 150 (178 days); now 42 + 160 (about 29 weeks).
+// Kalettes (flower sprouts) are a sprout-kale cross grown the same way.
+{name:'Brussels Sprout', family:'Brassicas', sowToPotOn:42, transplantToHarvest:160, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['brussels sprout','brussel sprout','sprouts','kalettes','flower sprout'], varieties:['Bosworth','Cryptus','Evesham Special','Maximus','Ruby Crunch','Trafalgar','Kalettes'], underCoverMonth:3, directSowMonth:4},
+// Swede: Suttons and others - 20-24 weeks from sowing; RHS and Garden Focused - a late-May sowing is
+// ready from early autumn (about 19-20 weeks). Was 130; now 145 where they cluster.
+{name:'Swede', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:145, tender:false, repeatHarvest:false, words:['swede'], varieties:['Best of All','Gowrie','Marian'], underCoverMonth:4, directSowMonth:5},
+// Turnip: timing unchanged.
+{name:'Turnip', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:55, tender:false, repeatHarvest:false, words:['turnip'], varieties:['Purple Top Milan','Silky Sweet','Tokyo Cross'], underCoverMonth:3, directSowMonth:4},
+// Kohl rabi: RHS - full size after about twelve weeks, baby from six; Medwyn's about ten weeks;
+// SimplySeed 50-70 days; Sow Seeds 7-8 weeks. Best picked young (golf to tennis ball), so they
+// cluster on about ten weeks: 70 sown in place (was 65). RHS - indoors, germinates in about two weeks
+// and is ready to plant out three to four weeks later: 35 + 42 (was 21 + 60). 'kohl rabi' (two
+// words, as SimplySeed and RHS write it) now matches too.
+{name:'Kohlrabi', family:'Brassicas', sowToPotOn:35, transplantToHarvest:42, directSowToHarvest:70, tender:false, repeatHarvest:false, words:['kohlrabi','kohl rabi'], varieties:['Delicacy Purple','Delicacy White'], underCoverMonth:3, directSowMonth:4},
 // Varieties: SimplySeed's leek range added. Direct sowing to harvest was 120, the same as planting out
 // to harvest, which can't be right for a crop sown in place in spring - sellers give 4-6 months
 // (Marshalls) to 30-32 weeks (Suttons) overall. Those differ by more than two weeks, so checked
@@ -1194,10 +1254,41 @@ const KNOWN_CROPS = [
 // SimplySeed ones they say can be spring planted.
 {name:'Spring Garlic', group:'garlic', family:'Alliums', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:160, tender:false, repeatHarvest:false, words:['spring garlic','spring planted garlic','spring planting garlic'], varieties:['Solent Wight','Provence Wight'], underCoverMonth:null, directSowMonth:2},
 {name:'Elephant Garlic', family:'Alliums', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:270, tender:false, repeatHarvest:false, words:['elephant garlic'], varieties:[], underCoverMonth:10, directSowMonth:10},
-{name:'Lettuce', family:'Other', sowToPotOn:21, transplantToHarvest:45, directSowToHarvest:50, tender:true, repeatHarvest:true, words:['lettuce','salad leaves'], varieties:['Little Gem','Lollo Rosso',"Webbs Wonderful",'Bright and Spicy','Mesclun Mixed'], underCoverMonth:2, directSowMonth:3},
-{name:'Beetroot', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:60, tender:true, repeatHarvest:false, words:['beetroot','beet'], varieties:['Boltardy','Chioggia',"Burpee's Golden"], underCoverMonth:3, directSowMonth:4},
-{name:'Carrot', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:75, tender:false, repeatHarvest:false, words:['carrot'], varieties:['Nantes','Chantenay','Autumn King'], underCoverMonth:3, directSowMonth:3},
-{name:'Parsnip', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:130, tender:false, repeatHarvest:false, words:['parsnip'], varieties:['Tender and True','Gladiator'], underCoverMonth:3, directSowMonth:3},
+// LEAVES AND SALADS (SimplySeed batch, version 2026.10.09.13): SimplySeed's lettuce, premium lettuce,
+// salad leaf, oriental and spinach ranges. LETTUCE - split three ways (group 'lettuce'), because a
+// hearting lettuce, a cut-and-come-again leaf mix and an overwintering lettuce are ready months apart.
+// Hearting: Kings - butterheads about 10 weeks, cos/crisp about 14, Little Gem 10-12; Seed Pantry
+// Little Gem 10-12; Suttons 10-14; RHS up to three months. Was 50 - well short. They cluster on about
+// 11 weeks: 77 sown in place, or 28 + 49 from a tray.
+{name:'Lettuce', group:'lettuce', family:'Other', sowToPotOn:28, transplantToHarvest:49, directSowToHarvest:77, tender:true, repeatHarvest:true, words:['lettuce'], varieties:['Little Gem',"Webbs Wonderful",'All Year Round','Lobjoits Green','Marvel of Four Seasons','Saladin','Emocion','Faro','Florine Red','Matrioska','Moon Red','Donovan','Frillice','Sally'], underCoverMonth:2, directSowMonth:3},
+// Loose-leaf lettuces and salad-leaf mixes, picked as cut-and-come-again: RHS - first leaves about a
+// month after sowing; Seedaholic (oriental mix) 3-4 weeks. 30. Lollo Rosso, Bright and Spicy and
+// Mesclun Mixed moved here from Lettuce.
+{name:'Salad Leaves', group:'lettuce', family:'Other', sowToPotOn:21, transplantToHarvest:14, directSowToHarvest:30, tender:true, repeatHarvest:true, words:['salad leaves','salad leaf','mixed leaves','baby leaf','babyleaf','mesclun','cut and come again','loose leaf lettuce','loose-leaf lettuce'], varieties:['Lollo Rosso','Lollo Rossa','Red Salad Bowl','Vizir','Bright and Spicy','Mesclun Mixed','Babyleaf Lettuce Batavia Mixed','Babyleaf Lettuce Crispy Mixed','Babyleaf Lettuce Oakleaf Mixed','Frilly Leaf Mixed','Mustard Mixed','Oriental Mixed'], underCoverMonth:2, directSowMonth:3},
+// Overwintering lettuce: Kings - sow August-September, harvest March-May the following year; RHS
+// (Arctic King) sow August-October, harvest March-May; Which? - sow August or early September for
+// winter and spring. A mid-August sowing cut in late March is about 225 days.
+{name:'Winter Lettuce', group:'lettuce', family:'Other', sowToPotOn:42, transplantToHarvest:185, directSowToHarvest:225, tender:false, repeatHarvest:true, words:['winter lettuce'], varieties:['Arctic King','Artic King'], underCoverMonth:9, directSowMonth:8},
+// ROOTS (SimplySeed batch, version 2026.10.09.11): SimplySeed's beetroot, carrot, parsnip and radish
+// ranges; existing varieties kept.
+// Beetroot: RHS school crop sheet - roots ready 9-13 weeks after sowing; David Domoney 7-13; East of
+// England grow guide 8-10. Was 60; they cluster on about 10 weeks - 70.
+{name:'Beetroot', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:70, tender:true, repeatHarvest:false, words:['beetroot','beet'], varieties:['Boltardy','Chioggia',"Burpee's Golden",'Burpees Golden','Avalanche','Cylindra','Pablo'], underCoverMonth:3, directSowMonth:4},
+// CARROTS - split like potatoes, because early carrots are ready weeks before maincrops. RHS: about
+// 90 days, 12-16 weeks; early types sown February-March under cloches, main season April to early
+// July. Early types: Gardening Etc about 10 weeks, Gardening Direct 12, Van Meuwen from 9 - 11 weeks
+// (77). Maincrop: Gardening Etc 14-16 weeks, Gardening Direct and Garden Focused 16 - 16 weeks (112).
+// Plain Carrot (was 75) takes RHS's 90 days and holds the second-early Nantes types (Early Nantes,
+// Norwich, Octavo, Resistafly) and the varieties sold for either.
+{name:'Carrot', group:'carrot', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:90, tender:false, repeatHarvest:false, words:['carrot'], varieties:['Nantes','Chantenay','Early Nantes','Chatenay Red Core','Chantenay Red Core','Norwich','Octavo','Resistafly','Flyaway','Sugarsnax','Purple Sun','White Satin','Yellowstone'], underCoverMonth:3, directSowMonth:4},
+{name:'Early Carrot', group:'carrot', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:77, tender:false, repeatHarvest:false, words:['early carrot','early carrots'], varieties:['Paris Market Atlas','Amsterdam Forcing'], underCoverMonth:2, directSowMonth:3},
+// 'Autumn King' moved here from plain Carrot.
+{name:'Maincrop Carrot', group:'carrot', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:112, tender:false, repeatHarvest:false, words:['maincrop carrot','maincrop carrots'], varieties:['Autumn King','Autumn King 2','Anina'], underCoverMonth:null, directSowMonth:5},
+// Parsnip: Kings - sow mid-March to mid-May, lift from September; Ferme de Sainte Marthe about 5
+// months; RHS and Gardeners' World - ready from autumn after a spring sowing; David Domoney at least 16
+// weeks (a minimum); Suttons 32-36 weeks for full maturity (an outlier). Was 130; now 150 (about 5
+// months) where they cluster. RHS: sow outdoors only - the tap root doesn't transplant.
+{name:'Parsnip', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:150, tender:false, repeatHarvest:false, words:['parsnip'], varieties:['Tender and True','Gladiator','White Spear'], underCoverMonth:3, directSowMonth:4},
 // POTATOES - split by type, because one timing can't fit them all (first earlies are ready weeks
 // before maincrops). Sources, weeks from planting to harvest: RHS (as quoted by the Yorkshire Post)
 // first 10-12 / second 14-16 / maincrop 16-22; SimplySeed 10-12 / 13-14 / 15-18; Homes & Gardens
@@ -1215,9 +1306,22 @@ const KNOWN_CROPS = [
 {name:'First Early Potato', group:'potato', family:'Solanaceae', sowToPotOn:null, transplantToHarvest:77, directSowToHarvest:77, tender:true, repeatHarvest:false, words:['first early potato','first earlies'], varieties:['Arran Pilot','Caledonian Pearl','Casablanca','Duke of York','Red Duke of York','Foremost','Pentland Javelin','Premiere','Rocket','Swift'], underCoverMonth:null, directSowMonth:3},
 {name:'Second Early Potato', group:'potato', family:'Solanaceae', sowToPotOn:null, transplantToHarvest:98, directSowToHarvest:98, tender:true, repeatHarvest:false, words:['second early potato','second earlies'], varieties:['Charlotte','Nicola','Jazzy','Anya','Kestrel','Marfona','Vivaldi','Wilja','Estima','Acoustic','Gemson','International Kidney','Jersey Royal','Harry','Sally','Sagitta'], underCoverMonth:null, directSowMonth:4},
 {name:'Maincrop Potato', group:'potato', family:'Solanaceae', sowToPotOn:null, transplantToHarvest:126, directSowToHarvest:126, tender:true, repeatHarvest:false, words:['maincrop potato','maincrop potatoes'], varieties:['Maris Piper','King Edward','Desiree','Rooster','Pink Fir Apple','Cara','Picasso','Sarpo Mira','Axona','Heidi Red','Java','Orla','Marvel','Setanta','Valor','Victory'], underCoverMonth:null, directSowMonth:4},
-{name:'Spinach', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:40, tender:false, repeatHarvest:true, words:['spinach'], varieties:[], underCoverMonth:2, directSowMonth:3},
-{name:'Chard', family:'Other', sowToPotOn:21, transplantToHarvest:55, directSowToHarvest:60, tender:false, repeatHarvest:true, words:['chard'], varieties:[], underCoverMonth:3, directSowMonth:4},
-{name:'Radish', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:28, tender:false, repeatHarvest:false, words:['radish'], varieties:[], underCoverMonth:2, directSowMonth:3},
+// Spinach: RHS - baby leaves in a month, mature leaves in two; SimplySeed 4-6 weeks. 40 kept.
+{name:'Spinach', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:40, tender:false, repeatHarvest:true, words:['spinach'], varieties:['Harp','Monterey','Santa Cruz'], underCoverMonth:2, directSowMonth:3},
+// Chard: RHS treats perpetual spinach (leaf beet) as chard, so it's here. Perpetual spinach 8-10
+// weeks (Plantura), 8 (a gardening magazine on Issuu), 4-6 picking young (Seedaholic); Swiss chard 10-12 (Plantura). 60 kept.
+{name:'Chard', family:'Other', sowToPotOn:21, transplantToHarvest:55, directSowToHarvest:60, tender:false, repeatHarvest:true, words:['chard','swiss chard','perpetual spinach','leaf beet','spinach beet'], varieties:['Bright Lights','Everglade'], underCoverMonth:3, directSowMonth:4},
+// RADISHES - salad radishes and winter/oriental (mooli) radishes are grown quite differently, so split.
+// Salad: RHS 4-6 weeks (early sowings 6-8); SimplySeed 20-30 days; Kings about 4 weeks - 28 kept.
+// Blue Moon is sold both as a 4-6 week radish and as a 60-day Asian type - left here.
+// Family: radishes are brassicas (RHS radish crop sheet), so they rotate with the cabbage family -
+// changed from Roots on 9 Oct at the owner's request.
+{name:'Radish', group:'radish', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:28, tender:false, repeatHarvest:false, words:['radish'], varieties:['Cherry Belle','French Breakfast','Albena','Diana','Duo','Pink Beauty','Blue Moon'], underCoverMonth:2, directSowMonth:3},
+// Winter and oriental radishes: RHS - sow winter radishes in July or August; Low Impact - oriental
+// radishes ready about 8 weeks after sowing; Van Meuwen (Dragon) from 50 days; True Leaf most about
+// 60 days. 60, sown in July. Red Meat is the watermelon radish, Panter a black winter radish,
+// Minowase (April Cross) a mooli.
+{name:'Winter Radish', group:'radish', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:60, tender:false, repeatHarvest:false, words:['winter radish','mooli','daikon','black radish','watermelon radish'], varieties:['China Rose','Panter','Red Meat','Minowase','April Cross'], underCoverMonth:null, directSowMonth:7},
 {name:'Strawberry', family:'Other', sowToPotOn:null, transplantToHarvest:60, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['strawberry','strawberries'], varieties:['Cambridge Favourite','Elsanta'], underCoverMonth:3, directSowMonth:3},
 {name:'Rhubarb', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['rhubarb'], varieties:[], underCoverMonth:2, directSowMonth:3},
 {name:'Celery', family:'Other', sowToPotOn:70, transplantToHarvest:120, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['celery'], varieties:[], underCoverMonth:3, directSowMonth:5},
@@ -1273,12 +1377,34 @@ const KNOWN_CROPS = [
 // Autumn-planting shallot sets: planted mid-September to mid-October for an early summer harvest,
 // roughly 270 days. Separate for the same reason as Autumn Onion.
 {name:'Autumn Shallot', group:'shallot', family:'Alliums', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:270, tender:false, repeatHarvest:false, words:['autumn shallot','overwintering shallot','winter shallot'], varieties:['Yellow Moon'], underCoverMonth:null, directSowMonth:10},
-{name:'Rocket', family:'Brassicas', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:true, words:['rocket','arugula'], varieties:[], underCoverMonth:3, directSowMonth:4},
-{name:'Mizuna', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:40, tender:false, repeatHarvest:true, words:['mizuna'], varieties:[], underCoverMonth:2, directSowMonth:3},
+// Rocket: RHS - start picking four to six weeks after sowing; Suttons 4-6; Plants of Distinction about
+// four. Was 21 + 35 / 45 (a shared placeholder); now 35 sown in place, or 21 + 21.
+{name:'Rocket', family:'Brassicas', sowToPotOn:21, transplantToHarvest:21, directSowToHarvest:35, tender:false, repeatHarvest:true, words:['rocket','arugula','wild rocket','salad rocket'], varieties:['Dragons Fire','Uber'], underCoverMonth:3, directSowMonth:4},
+// Mizuna, mibuna and mustard leaves: Sow Seeds - baby leaves in about 3 weeks; Seedaholic 3-4 weeks;
+// RHS - whole rosettes after six to eight weeks. First picking as cut-and-come-again leaves: 30 (was
+// 40), or 21 + 14 from a tray (previously none).
+{name:'Mizuna', family:'Brassicas', sowToPotOn:21, transplantToHarvest:14, directSowToHarvest:30, tender:false, repeatHarvest:true, words:['mizuna'], varieties:['Red Empire'], underCoverMonth:2, directSowMonth:3},
+{name:'Mibuna', family:'Brassicas', sowToPotOn:21, transplantToHarvest:14, directSowToHarvest:30, tender:false, repeatHarvest:true, words:['mibuna'], varieties:[], underCoverMonth:2, directSowMonth:3},
+{name:'Mustard Leaves', family:'Brassicas', sowToPotOn:21, transplantToHarvest:14, directSowToHarvest:30, tender:false, repeatHarvest:true, words:['mustard leaves','mustard greens','mustard'], varieties:['Red Lace'], underCoverMonth:2, directSowMonth:3},
+// Land cress (American cress): Sow Seeds - 7-8 weeks to begin cropping; sow February-August, or
+// August-September to overwinter. 50.
+{name:'Land Cress', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:50, tender:false, repeatHarvest:true, words:['land cress','landcress','american cress','american land cress'], varieties:[], underCoverMonth:null, directSowMonth:3},
+// Lamb's lettuce (corn salad): Sow Seeds - about 50 days, sow mid-August to September; Kings - sow
+// August-October, harvest November-January; Ferme de Sainte Marthe - sow August-October, harvest
+// September-March. 60, sown in August.
+{name:"Lamb's Lettuce", family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:60, tender:false, repeatHarvest:true, words:["lamb's lettuce",'lambs lettuce','corn salad','mache'], varieties:['Verte de Cambrai'], underCoverMonth:null, directSowMonth:8},
+// Endive: RHS - whole heads about three months after sowing, leaves from about a month; Kings 10-12
+// weeks. 80 sown in place, or 28 + 52. RHS - don't sow too early, it bolts after cold.
+{name:'Endive', family:'Other', sowToPotOn:28, transplantToHarvest:52, directSowToHarvest:80, tender:false, repeatHarvest:false, words:['endive','frisee','escarole'], varieties:['Primafine'], underCoverMonth:4, directSowMonth:5},
+// Radicchio (red chicory): Vital Seeds - about 4 months to full heads, sow June-July; Thompson &
+// Morgan - June-July for full-sized heads. 120, or 28 + 92.
+{name:'Radicchio', family:'Other', sowToPotOn:28, transplantToHarvest:92, directSowToHarvest:120, tender:false, repeatHarvest:false, words:['radicchio','red chicory'], varieties:['Rossa di Verona'], underCoverMonth:6, directSowMonth:6},
 {name:'Marrow', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:true, words:['marrow'], varieties:[], underCoverMonth:4, directSowMonth:5},
 {name:'Florence Fennel', family:'Other', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:false, words:['florence fennel','bulb fennel'], varieties:[], underCoverMonth:4, directSowMonth:5},
 {name:'Asparagus Pea', family:'Legumes', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:true, words:['asparagus pea'], varieties:[], underCoverMonth:4, directSowMonth:5},
-{name:'Pak Choi', family:'Brassicas', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:false, words:['pak choi','bok choi','pak choy'], varieties:[], underCoverMonth:4, directSowMonth:5},
+// Pak choi: RHS - semi-mature or full-sized heads in 45-75 days. Was 45 (a shared placeholder); now 55,
+// toward the early end since it's often cut young.
+{name:'Pak Choi', family:'Brassicas', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:55, tender:false, repeatHarvest:false, words:['pak choi','bok choi','pak choy'], varieties:['Goku','Mei Qing Choi','Red','Colour Crunch'], underCoverMonth:4, directSowMonth:5},
 {name:'Cress', family:'Other', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:true, words:['cress'], varieties:[], underCoverMonth:3, directSowMonth:3},
 {name:'Alyssum', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['alyssum'], varieties:[], underCoverMonth:3, directSowMonth:4},
 {name:'Aquilegia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['aquilegia','columbine'], varieties:[], underCoverMonth:3, directSowMonth:5},
@@ -1311,10 +1437,10 @@ const d = levenshtein(word, token);
 return d<=maxDist ? word.length - d*0.5 : 0;
 }
 const CROP_ICONS = {
-'Potato':'🥔','First Early Potato':'🥔','Second Early Potato':'🥔','Maincrop Potato':'🥔','Tomato':'🍅','Carrot':'🥕','Onion':'🧅','Garlic':'🧄','Cabbage':'🥬','Broccoli / Calabrese':'🥦','Purple Sprouting Broccoli':'🥦',
+'Potato':'🥔','First Early Potato':'🥔','Second Early Potato':'🥔','Maincrop Potato':'🥔','Tomato':'🍅','Carrot':'🥕','Onion':'🧅','Garlic':'🧄','Cabbage':'🥬','Winter Cabbage':'🥬','Spring Cabbage':'🥬','Chinese Cabbage':'🥬','Broccoli / Calabrese':'🥦','Purple Sprouting Broccoli':'🥦',
 'Sweetcorn':'🌽','Cucumber':'🥒','Strawberry':'🍓','Apple':'🍎','Pear':'🍐','Cherry':'🍒','Chilli':'🌶️','Sweet Pepper':'🫑',
 'Aubergine':'🍆','Squash':'🎃','Pumpkin':'🎃','Sweet Potato':'🍠','Melon':'🍈','Pea':'🫛','Broad Bean':'🫘','French Bean':'🫘','Runner Bean':'🫘',
-'Lettuce':'🥬','Spinach':'🥬','Kale':'🥬','Chard':'🥬','Rocket':'🥬','Pak Choi':'🥬',
+'Lettuce':'🥬','Winter Lettuce':'🥬','Salad Leaves':'🥬','Mibuna':'🥬','Mustard Leaves':'🥬','Land Cress':'🥬',"Lamb's Lettuce":'🥬','Endive':'🥬','Radicchio':'🥬','Spinach':'🥬','Kale':'🥬','Chard':'🥬','Rocket':'🥬','Pak Choi':'🥬',
 'Raspberry':'🫐','Blueberry':'🫐','Blackberry':'🫐','Gooseberry':'🫐','Blackcurrant':'🫐',
 'Basil':'🌿','Parsley':'🌿','Coriander':'🌿','Chives':'🌿','Mint':'🌿','Rosemary':'🌿','Thyme':'🌿','Sage':'🌿','Dill':'🌿','Oregano / Marjoram':'🌿','Fennel (herb)':'🌿','Tarragon':'🌿',
 'Sunflower':'🌻','Dahlia':'🌺','Cosmos':'🌼','Zinnia':'🌼','Marigold':'🌼','Calendula':'🌼','Aster':'🌼','Sweet Pea':'🌸','Nasturtium':'🌸',
@@ -1326,13 +1452,13 @@ const CROP_ICONS = {
 // never a guess at a "perfect" one-off icon for each, since several of these have no close visual
 // emoji match anyway (e.g. Rhubarb, Asparagus).
 'Leek':'🧅','Shallot':'🧅','Spring Onion':'🧅','Autumn Onion':'🧅','Autumn Shallot':'🧅','Spring Garlic':'🧄',
-'Brussels Sprout':'🥦','Cauliflower':'🥦','Kohlrabi':'🥦','Swede':'🥦','Turnip':'🥦',
+'Brussels Sprout':'🥦','Cauliflower':'🥦','Winter Cauliflower':'🥦','Kohlrabi':'🥦','Swede':'🥦','Turnip':'🥦',
 'Courgette':'🥒','Marrow':'🥒',
 'Asparagus Pea':'🫛',
 'Celeriac':'🥬','Celery':'🥬','Cress':'🥬',
 'Fig':'🍑','Plum':'🍑',
 'Florence Fennel':'🌿','Globe Artichoke':'🌿','Asparagus':'🌱','Rhubarb':'🌱',
-'Beetroot':'🥕','Parsnip':'🥕','Radish':'🥕',
+'Beetroot':'🥕','Parsnip':'🥕','Radish':'🥕','Winter Radish':'🥕','Early Carrot':'🥕','Maincrop Carrot':'🥕',
 'Elephant Garlic':'🧄','Mizuna':'🥬','Loganberry':'🫐',
 // Ornamental flowers with no edible-crop family to borrow from - grouped onto Cosmos's 🌼 the same
 // way Zinnia/Marigold/Calendula/Aster already are, rather than inventing many one-off icons.
@@ -1405,15 +1531,21 @@ const CROP_ISSUES = {
 'Sweet Pepper': ['Aphids','Whitefly','Blossom End Rot'],
 'Aubergine': ['Whitefly','Aphids','Red Spider Mite'],
 'Cabbage': ['Cabbage White Caterpillar','Clubroot','Aphids','Flea Beetle'],
+'Winter Cabbage': ['Cabbage White Caterpillar','Clubroot','Aphids','Flea Beetle'],
+'Spring Cabbage': ['Cabbage White Caterpillar','Clubroot','Aphids','Flea Beetle'],
+'Chinese Cabbage': ['Flea Beetle','Cabbage White Caterpillar','Clubroot','Slugs'],
 'Broccoli / Calabrese': ['Cabbage White Caterpillar','Clubroot','Aphids','Flea Beetle'],
 'Purple Sprouting Broccoli': ['Cabbage White Caterpillar','Clubroot','Aphids','Flea Beetle'],
 'Cauliflower': ['Cabbage White Caterpillar','Clubroot','Aphids','Flea Beetle'],
+'Winter Cauliflower': ['Cabbage White Caterpillar','Clubroot','Aphids','Flea Beetle'],
 'Kale': ['Cabbage White Caterpillar','Aphids','Flea Beetle'],
 'Brussels Sprout': ['Cabbage White Caterpillar','Clubroot','Aphids'],
 'Swede': ['Clubroot','Flea Beetle'],
 'Turnip': ['Flea Beetle','Clubroot'],
 'Kohlrabi': ['Flea Beetle','Clubroot'],
 'Carrot': ['Carrot Fly','Aphids'],
+'Early Carrot': ['Carrot Fly','Aphids'],
+'Maincrop Carrot': ['Carrot Fly','Aphids'],
 'Parsnip': ['Carrot Fly','Canker'],
 'Onion': ['Onion Fly','White Rot'],
 'Autumn Onion': ['Onion Fly','White Rot'],
@@ -1432,10 +1564,16 @@ const CROP_ISSUES = {
 'Melon': ['Powdery Mildew','Whitefly'],
 'Sweetcorn': ['Slugs','Frit Fly'],
 'Lettuce': ['Slugs','Aphids','Downy Mildew'],
+'Winter Lettuce': ['Slugs','Aphids','Downy Mildew'],
+'Salad Leaves': ['Slugs','Aphids','Downy Mildew'],
+"Lamb's Lettuce": ['Slugs','Aphids'],
+'Endive': ['Slugs','Aphids'],
+'Radicchio': ['Slugs','Aphids'],
 'Beetroot': ['Leaf Miner','Aphids'],
 'Spinach': ['Downy Mildew','Aphids','Leaf Miner'],
 'Chard': ['Downy Mildew','Aphids','Leaf Miner'],
 'Radish': ['Flea Beetle','Slugs'],
+'Winter Radish': ['Flea Beetle','Slugs'],
 'Celery': ['Celery Fly','Slugs'],
 'Celeriac': ['Celery Fly','Slugs'],
 'Sweet Potato': ['Aphids','Wireworm'],
@@ -1487,6 +1625,9 @@ const CROP_ISSUES = {
 'Marrow': ['Slugs','Powdery Mildew'],
 'Asparagus Pea': ['Aphids'],
 'Mizuna': ['Flea Beetle','Slugs'],
+'Mibuna': ['Flea Beetle','Slugs'],
+'Mustard Leaves': ['Flea Beetle','Slugs'],
+'Land Cress': ['Flea Beetle','Slugs'],
 'Pak Choi': ['Flea Beetle','Cabbage White Caterpillar'],
 'Lupin': ['Aphids'],
 'Wallflower': ['Flea Beetle','Clubroot'],
@@ -1534,7 +1675,9 @@ if(sib) return {crop:sib, confident:true};
 return {crop:best, confident};
 }
 // Some crops come as sibling types with different timings (Potato / First Early / Second Early /
-// Maincrop; Onion / Autumn Onion; Shallot / Autumn Shallot; Garlic / Spring Garlic), marked with the
+// Maincrop; Onion / Autumn Onion; Shallot / Autumn Shallot; Garlic / Spring Garlic; Cabbage / Winter /
+// Spring / Chinese Cabbage; Cauliflower / Winter Cauliflower; Calabrese / Sprouting Broccoli; Carrot / Early / Maincrop;
+// Radish / Winter Radish; Lettuce / Salad Leaves / Winter Lettuce), marked with the
 // same 'group'. So the app takes the strain rather than the gardener needing to know which type a
 // variety is, a name like "Potato Charlotte" or "Onion Senshyu" is steered to the sibling whose
 // variety list holds that exact variety. Whole-word matches only - no typo-guessing here - and only
@@ -1706,6 +1849,10 @@ let filled = false;
 for(const f of ['sowToPotOn','transplantToHarvest','directSowToHarvest']){
 if(existing[f]==null && mm[f]!=null){ existing[f] = mm[f]; filled = true; }
 }
+// Radish moved from Roots to Brassicas (9 Oct) for rotation. A radish record saved before then
+// still says Roots, so it's corrected when next used. Only this one known change - other
+// families on saved records are left exactly as they are.
+if(mm.group==='radish' && existing.family==='Roots'){ existing.family = 'Brassicas'; filled = true; }
 if(filled) await put('crops', existing);
 }
 return existing;
