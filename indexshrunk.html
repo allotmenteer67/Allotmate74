@@ -749,7 +749,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.10.4';
+const APP_VERSION = '2026.10.10.8';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -1457,7 +1457,9 @@ const KNOWN_CROPS = [
 {name:'Celtuce', family:'Other', sowToPotOn:28, transplantToHarvest:35, directSowToHarvest:63, tender:false, repeatHarvest:false, words:['celtuce','stem lettuce','asparagus lettuce'], varieties:[], underCoverMonth:3, directSowMonth:4},
 // Luffa: recognised so it isn't mistaken for something else; a long-season greenhouse crop with no
 // reliable UK timing found, so no harvest reminder.
-{name:'Luffa', family:'Cucurbits', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['luffa','loofah'], varieties:[], underCoverMonth:3, directSowMonth:null},
+// Luffa (10 Oct 2026), grown for sponges: sown late Mar/Apr and ready mid-Sept (Natural History Museum guide, ~165 days), 150-200 days
+// to mature (Marshalls), RHS plants: sow Mar-Apr, plant out after frost. Young fruits can be eaten from July, well before that.
+{name:'Luffa', family:'Cucurbits', sowToPotOn:56, transplantToHarvest:110, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['luffa','loofah'], varieties:[], underCoverMonth:3, directSowMonth:null},
 {name:'Raspberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['raspberry','raspberries'], varieties:['Glen Ample','Autumn Bliss'], underCoverMonth:11, directSowMonth:11},
 {name:'Blackberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['blackberry','blackberries'], varieties:[], underCoverMonth:11, directSowMonth:11},
 {name:'Loganberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['loganberry','loganberries'], varieties:[], underCoverMonth:11, directSowMonth:11},
@@ -1503,11 +1505,15 @@ const KNOWN_CROPS = [
 {name:'Lemon Balm', family:null, sowToPotOn:42, transplantToHarvest:42, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['lemon balm'], varieties:[], underCoverMonth:3, directSowMonth:5},
 // The rest of SimplySeed's herbs - named so they're recognised (Welsh onion would otherwise get
 // onion timings, garlic chives garlic ones), but no harvest reminder yet: no reliable figure found.
-{name:'Sorrel', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['sorrel'], varieties:['Red Veined'], underCoverMonth:3, directSowMonth:4},
-{name:'Lemon Grass', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['lemon grass','lemongrass'], varieties:[], underCoverMonth:2, directSowMonth:null},
-{name:'Anise', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['anise','aniseed'], varieties:[], underCoverMonth:4, directSowMonth:5},
-{name:'Par-Cel', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['par-cel','parcel','par cel','leaf celery'], varieties:[], underCoverMonth:3, directSowMonth:4},
-{name:'Welsh Onion', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['welsh onion'], varieties:[], underCoverMonth:3, directSowMonth:4},
+// Timings below set 10 Oct 2026 from UK sources. Sorrel: first harvest 10-12 weeks from sowing (Garden Organic 12 weeks, others 10-11).
+// Lemon grass: ~5 months from sowing to culms (Garden Organic); sown Feb/Mar, out in early summer (RHS). Anise: sown in place, seed ripe ~120 days
+// (RHS: dislikes transplanting; indoors only in pots). Par-cel: ~85 days from sowing to first cut (Seedaholic, Johnny's). Welsh onion: sow Mar,
+// first pickings from June (Gardeners' World); plants raised under cover go out after about six weeks.
+{name:'Sorrel', family:null, sowToPotOn:42, transplantToHarvest:35, directSowToHarvest:77, tender:false, repeatHarvest:true, words:['sorrel'], varieties:['Red Veined'], underCoverMonth:3, directSowMonth:4},
+{name:'Lemon Grass', family:null, sowToPotOn:84, transplantToHarvest:70, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['lemon grass','lemongrass'], varieties:[], underCoverMonth:2, directSowMonth:null},
+{name:'Anise', family:null, sowToPotOn:35, transplantToHarvest:85, directSowToHarvest:120, tender:false, repeatHarvest:true, words:['anise','aniseed'], varieties:[], underCoverMonth:4, directSowMonth:5},
+{name:'Par-Cel', family:null, sowToPotOn:56, transplantToHarvest:29, directSowToHarvest:85, tender:false, repeatHarvest:true, words:['par-cel','parcel','par cel','leaf celery'], varieties:[], underCoverMonth:3, directSowMonth:4},
+{name:'Welsh Onion', family:null, sowToPotOn:42, transplantToHarvest:48, directSowToHarvest:90, tender:false, repeatHarvest:true, words:['welsh onion'], varieties:[], underCoverMonth:3, directSowMonth:4},
 {name:'Sunflower', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:false, words:['sunflower'], varieties:[], underCoverMonth:4, directSowMonth:5},
 {name:'Sweet Pea', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['sweet pea','sweetpea'], varieties:[], underCoverMonth:2, directSowMonth:4},
 {name:'Cosmos', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['cosmos'], varieties:[], underCoverMonth:3, directSowMonth:5},
@@ -1571,7 +1577,9 @@ const KNOWN_CROPS = [
 // Pak choi: RHS - semi-mature or full-sized heads in 45-75 days. Was 45 (a shared placeholder); now 55,
 // toward the early end since it's often cut young.
 {name:'Pak Choi', family:'Brassicas', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:55, tender:false, repeatHarvest:false, words:['pak choi','bok choi','pak choy','bok choy'], varieties:['Goku','Mei Qing Choi','Red','Colour Crunch'], underCoverMonth:4, directSowMonth:5},
-{name:'Cress', family:'Other', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:true, words:['cress'], varieties:[], underCoverMonth:3, directSowMonth:3},
+// Cress timings (10 Oct 2026): UK sources cluster at 1-3 weeks from sowing (Gardening Express 5-7 days, Kings Seeds
+// 'Sprint' 7-10 days, a school sow-and-grow guide 1-2 weeks, Fothergills 2-3 weeks), so 14 days. Direct sown, never planted out.
+{name:'Cress', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:14, tender:false, repeatHarvest:true, words:['cress'], varieties:[], directSowMonth:3},
 {name:'Alyssum', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['alyssum'], varieties:[], underCoverMonth:3, directSowMonth:4},
 {name:'Aquilegia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['aquilegia','columbine'], varieties:[], underCoverMonth:3, directSowMonth:5},
 {name:'Aster', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['aster'], varieties:[], underCoverMonth:3, directSowMonth:5},
@@ -1846,7 +1854,21 @@ let tied = [];
 for(const k of KNOWN_CROPS){
 for(const w of k.words){
 let score = lower.includes(w) ? w.length + 0.5 : 0;
-if(!exactOnly) for(const t of tokens) score = Math.max(score, wordCloseness(w, t));
+if(!exactOnly){
+for(const t of tokens) score = Math.max(score, wordCloseness(w, t));
+// A crop name of several words ("runner bean", "broad bean") was only ever compared against single
+// typed words, so one slip like "Runner beens" fell through to French Bean ('beans' is one letter off).
+// Compare it with the same number of typed words in a row instead.
+if(w.includes(' ')){
+const n = w.split(' ').length;
+for(let i=0; i+n<=tokens.length; i++){
+// Only a near-exact run (one slip at most) counts, so a loose guess at a long name can't
+// outrank a close match on a single word.
+const wc = wordCloseness(w, tokens.slice(i,i+n).join(' '));
+if(wc >= w.length - 0.5) score = Math.max(score, wc);
+}
+}
+}
 if(score>bestScore){ bestScore=score; best=k; bestWordLen=w.length; tied=[k]; }
 else if(exactOnly && score>0 && score===bestScore && !tied.includes(k)) tied.push(k);
 }
@@ -5250,7 +5272,35 @@ requireUnlock(async ()=>{ if(await confirmDialog('Remove this from your map?', (
 });
 }
 /* ---- Bed detail ---- */
-function treatmentsSectionHTML(obj, storeKind, filterMode, heading){
+// What to call the thing a "whole" treatment applies to - the bed, the tray, the container and so on.
+function treatmentNoun(obj, storeKind){
+if(storeKind==='beds') return 'bed';
+if(storeKind==='trays') return 'tray';
+const t = FEATURE_TYPES[obj.type];
+return t ? t.label.toLowerCase() : 'area';
+}
+// opts.cropName names the crop when this box is about one crop. The heading, the one-line hint and
+// the label above the quick-tap buttons all say whether a tap logs for the whole bed or one crop.
+function treatmentsSectionHTML(obj, storeKind, filterMode, heading, opts){
+opts = opts || {};
+const noun = treatmentNoun(obj, storeKind);
+const isBedwide = filterMode==='bedwide';
+const isArray = Array.isArray(filterMode);
+const forOneCrop = (typeof filterMode==='string' && !isBedwide) || (isArray && filterMode.length===1);
+const cropName = opts.cropName || 'this crop';
+let boxHeading = heading;
+let hint = '';
+let buttonLabel = `Log for the whole ${noun}`;
+if(isBedwide){
+boxHeading = boxHeading || `Whole ${noun}: feed & treatments`;
+hint = `Applies to everything in this ${noun}. To log for one crop, tap the crop.`;
+} else if(forOneCrop){
+if(!boxHeading && opts.cropName) boxHeading = `${opts.cropName}: feed & treatments`;
+hint = isArray ? `Just ${cropName} here. Whole-${noun} treatments are marked.` : `Just this crop. Whole-${noun} treatments are marked.`;
+buttonLabel = `Log for ${cropName} only`;
+} else if(isArray){
+hint = `${cropName} is planted more than once here, so a tap logs for the whole ${noun}.`;
+}
 const all = obj.treatments||[];
 const filtered = filterMode===undefined ? all
 : filterMode==='bedwide' ? all.filter(t=>!t.plantingId)
@@ -5261,16 +5311,35 @@ const cutoff = addDays(todayISO(), -365);
 const recent = sorted.filter(t=>t.date>=cutoff);
 const older = sorted.filter(t=>t.date<cutoff);
 const sourceText = t => t.sourceKind==='bought' ? ' (bought in)' : t.sourceLabel ? ` (from ${escapeHTML(t.sourceLabel)})` : '';
-const rowHTML = t => `<div class="planting-row" style="cursor:pointer;" data-edittreatment="${t.id}"><span class="pname">${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}${sourceText(t)}${t.reason?' — '+escapeHTML(t.reason):''}${(filterMode && filterMode!=='bedwide' && !t.plantingId)?' <span class="tiny-muted">(whole bed)</span>':''}</span><span class="pdate">${dayLabel(t.date)}${t.by?' &middot; '+escapeHTML(t.by):''}</span></div>`;
+const rowHTML = t => `<div class="planting-row" style="cursor:pointer;" data-edittreatment="${t.id}"><span class="pname">${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}${sourceText(t)}${t.reason?' — '+escapeHTML(t.reason):''}${(filterMode && filterMode!=='bedwide' && !t.plantingId)?` <span class="tiny-muted">(whole ${noun})</span>`:''}</span><span class="pdate">${dayLabel(t.date)}${t.by?' &middot; '+escapeHTML(t.by):''}</span></div>`;
 const recentHTML = recent.map(rowHTML).join('');
 const olderHTML = older.length ? `<details class="timings more-toggle"><summary>+ Show ${older.length} more (older than a year)</summary><div style="margin-top:8px;">${older.map(rowHTML).join('')}</div></details>` : '';
 const presentTypes = new Set(filtered.map(t=>t.type));
 const typeButtons = TREATMENT_TYPES.map(t=>`<button class="btn small ${presentTypes.has(t)?'':'secondary'}" data-quicktreatment="${t}" title="${presentTypes.has(t)?'Already logged — tap to add another':'Tap to log this'}">${t}${presentTypes.has(t)?' ✓':''}</button>`).join('');
+// On a whole-bed box, treatments logged on single crops don't appear in the list, so say they exist
+// and let a tap open the crop.
+let singlesHTML = '';
+if(isBedwide){
+const per = {};
+(obj.treatments||[]).forEach(t=>{
+if(!t.plantingId) return;
+const pl = (obj.plantings||[]).find(x=>x.id===t.plantingId);
+if(!pl || !pl.active) return;
+const cr = cropById(pl.cropId);
+if(!cr || cr.name==='Fallow' || cr.name==='Path') return;
+(per[pl.id] = per[pl.id] || {id:pl.id, name:cr.name, n:0}).n++;
+});
+const list = Object.values(per);
+if(list.length) singlesHTML = `<div class="tiny-muted" style="margin-top:8px;">Also logged on single crops:</div><div class="swatch-row" style="flex-wrap:wrap; margin-top:4px;">${list.map(x=>`<button type="button" class="btn small secondary" data-opentreatplanting="${x.id}">${escapeHTML(x.name)} ${x.n} &rsaquo;</button>`).join('')}</div>`;
+}
 return `<div class="treatments-box">
-<div class="row-heading" style="margin-top:0;">${heading?escapeHTML(heading):'Feed &amp; treatments'}</div>
+<div class="row-heading" style="margin-top:0;">${boxHeading?escapeHTML(boxHeading):'Feed &amp; treatments'}</div>
+${hint?`<p class="tiny-muted" style="margin:0 0 6px;">${escapeHTML(hint)}</p>`:''}
 ${recentHTML || (older.length ? '' : '<p class="muted">Nothing logged yet.</p>')}
 ${olderHTML}
-<div class="swatch-row" style="flex-wrap:wrap; margin-top:8px;">${typeButtons}</div></div>`;
+${singlesHTML}
+<div class="tiny-muted" style="margin-top:10px;">${escapeHTML(buttonLabel)}</div>
+<div class="swatch-row" style="flex-wrap:wrap; margin-top:4px;">${typeButtons}</div></div>`;
 }
 function openContainerDetail(featId, highlightId){
 const feat = featureById(featId);
@@ -5554,7 +5623,7 @@ ${isNonGrowing?'':`<div class="planting-row"><span class="pname">Quantity</span>
 ${p.harvestDue?`<div class="planting-row"><span class="pname">Expected harvest</span><span class="pdate">${dayLabel(p.harvestDue)}</span></div>`:''}
 ${p.by?`<div class="planting-row"><span class="pname">${isNonGrowing?'Created by':'Planted by'}</span><span class="pdate">${escapeHTML(p.by)}</span></div>`:''}
 ${isFallow?`<div class="planting-row"><span class="pname">Notes</span><input type="text" class="inline-edit" id="mEditNotes" placeholder="e.g. covered with cardboard, or left bare" value="${escapeAttr(p.notes||'')}"></div>`:''}
-${isNonGrowing?'':treatmentsSectionHTML(bed,kind, p.id)}
+${isNonGrowing?'':treatmentsSectionHTML(bed,kind, p.id, undefined, {cropName: crop&&crop.name})}
 <div class="btn-row">
 ${isNonGrowing?'':'<button class="btn" id="mHarvest">Harvest this</button>'}
 <button class="btn secondary" id="mEditP">Edit details</button>
@@ -5859,6 +5928,7 @@ await put(storeKind, obj); await afterChange(); onDone();
 }
 function wireTreatmentRows(obj, storeKind, onDone, cropForSuggestions, plantingId, root){
 root = root || modalContent;
+root.querySelectorAll('[data-opentreatplanting]').forEach(el=>el.addEventListener('click', ()=> openPlantingInfo(obj.id, el.dataset.opentreatplanting, storeKind==='features' ? 'features' : 'beds')));
 root.querySelectorAll('[data-edittreatment]').forEach(el=>el.addEventListener('click', ()=> openAddTreatment(obj, storeKind, onDone, el.dataset.edittreatment, cropForSuggestions, plantingId)));
 root.querySelectorAll('[data-quicktreatment]').forEach(el=>el.addEventListener('click', async ()=>{
 // Every type, Compost included, logs instantly on tap - consistent with quick, on-site data
@@ -5872,7 +5942,7 @@ const type = el.dataset.quicktreatment;
 const rec = {id:uid(), type, date:todayISO(), notes:'', reason:'', by:who(), plantingId};
 obj.treatments.push(rec);
 await put(storeKind, obj); await afterChange(); onDone();
-toastWithAction('Logged', type==='Compost'?'Add source':'Add a reason', ()=> openAddTreatment(obj, storeKind, onDone, rec.id, cropForSuggestions, plantingId));
+toastWithAction(plantingId ? `Logged for ${cropForSuggestions && cropForSuggestions.name ? cropForSuggestions.name : 'this crop'}` : `Logged for the whole ${treatmentNoun(obj, storeKind)}`, type==='Compost'?'Add source':'Add a reason', ()=> openAddTreatment(obj, storeKind, onDone, rec.id, cropForSuggestions, plantingId));
 }));
 }
 function openDirectSow(bedId, presetName, kind){
@@ -6414,7 +6484,7 @@ ${crop && crop.sowToPotOn ? `<div class="toggle-row"><span>Stays here until harv
 ${potOnDue?`<div class="planting-row"><span class="pname">Plant out due</span><span class="pdate">${dayLabel(potOnDue)}</span></div>`:''}
 ${tray.createdBy?`<div class="planting-row"><span class="pname">Planted by</span><span class="pdate">${escapeHTML(tray.createdBy)}</span></div>`:''}
 ${tray.sizeLocked?`<p class="tiny-muted">🔒 Locked — size fixed. Still moveable.</p>`:''}
-${treatmentsSectionHTML(tray,'trays', p.id)}
+${treatmentsSectionHTML(tray,'trays', p.id, undefined, {cropName: crop&&crop.name})}
 <div class="btn-row">
 <button class="btn" id="mMove">Plant it out</button>
 <button class="btn secondary" id="mHarvest">Harvest straight from here</button>
@@ -7393,7 +7463,7 @@ const spots = whereIsCropNowDetailed(cropId);
 // second (or third) application of the same type, or a different one, is one tap away, and a
 // type already used shows a tick rather than looking untouched.
 const treatmentGroups = cropTreatmentGroups(cropId);
-const groupsHTML = treatmentGroups.map((g,i)=> `<div id="cropTreatGroup${i}" style="margin-top:10px;">${treatmentsSectionHTML(g.obj, g.storeKind, g.plantingIds, g.label)}</div>`).join('')
+const groupsHTML = treatmentGroups.map((g,i)=> `<div id="cropTreatGroup${i}" style="margin-top:10px;">${treatmentsSectionHTML(g.obj, g.storeKind, g.plantingIds, g.label, {cropName: c.name})}</div>`).join('')
 || '<p class="muted" style="margin-top:8px;">Nothing growing yet to log a treatment against.</p>';
 openModal(`<h3>Edit ${escapeHTML(c.name)}</h3>
 ${spots.length?`<label>Growing in</label><div class="btn-row" style="flex-wrap:wrap; margin-bottom:10px;">${spots.map(s=>`<button type="button" class="btn small secondary" data-jump="${s.id}|${s.kind}">${escapeHTML(s.name)}</button>`).join('')}</div>`:''}
