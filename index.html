@@ -775,7 +775,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.09.13';
+const APP_VERSION = '2026.10.09.19';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -1202,20 +1202,86 @@ function readDimensionField(id, originalM){
 const KNOWN_CROPS = [
   {name:'Fallow', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:false, words:['fallow'], varieties:[], underCoverMonth:null, directSowMonth:null},
   {name:'Path', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:false, words:['path'], varieties:[], underCoverMonth:null, directSowMonth:null},
-  {name:'Tomato', family:'Solanaceae', sowToPotOn:42, transplantToHarvest:65, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['tomato'], varieties:["Gardener's Delight",'Moneymaker','Sungold','Alicante','San Marzano','Ailsa Craig','Super Marmande','Endurance','Solito'], underCoverMonth:2, directSowMonth:5},
-  {name:'Chilli', family:'Solanaceae', sowToPotOn:56, transplantToHarvest:75, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['chilli','chili'], varieties:['Scotch Bonnet','Jalapeno','Cayenne','Padron'], underCoverMonth:1, directSowMonth:5},
-  {name:'Sweet Pepper', family:'Solanaceae', sowToPotOn:56, transplantToHarvest:75, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['sweet pepper','bell pepper','pepper','capsicum'], varieties:['California Wonder','Gypsy','Redstart'], underCoverMonth:1, directSowMonth:5},
-  {name:'Aubergine', family:'Solanaceae', sowToPotOn:56, transplantToHarvest:75, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['aubergine','eggplant'], varieties:['Black Beauty','Moneymaker','Bonica'], underCoverMonth:2, directSowMonth:5},
-  {name:'Courgette', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:50, directSowToHarvest:55, tender:true, repeatHarvest:true, words:['courgette','zucchini'], varieties:['Black Beauty','Defender'], underCoverMonth:4, directSowMonth:5},
-  {name:'Cucumber', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:55, directSowToHarvest:60, tender:true, repeatHarvest:true, words:['cucumber'], varieties:['Marketmore','Telegraph'], underCoverMonth:4, directSowMonth:5},
-  {name:'Squash', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:100, directSowToHarvest:105, tender:true, repeatHarvest:true, words:['squash'], varieties:['Butternut','Crown Prince','Spaghetti'], underCoverMonth:4, directSowMonth:5},
-  {name:'Pumpkin', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:115, directSowToHarvest:120, tender:true, repeatHarvest:true, words:['pumpkin'], varieties:['Jack of All Trades','Atlantic Giant'], underCoverMonth:4, directSowMonth:5},
-  {name:'Melon', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:90, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['melon','cantaloupe'], varieties:['Outdoor Wonder'], underCoverMonth:4, directSowMonth:5},
-  {name:'Sweetcorn', family:'Other', sowToPotOn:21, transplantToHarvest:75, directSowToHarvest:80, tender:true, repeatHarvest:true, words:['sweetcorn','maize','corn'], varieties:['Swift','Lark'], underCoverMonth:4, directSowMonth:5},
-  {name:'Runner Bean', family:'Legumes', sowToPotOn:21, transplantToHarvest:70, directSowToHarvest:75, tender:true, repeatHarvest:true, words:['runner bean','runner beans'], varieties:['Scarlet Emperor','Painted Lady'], underCoverMonth:4, directSowMonth:5},
-  {name:'French Bean', family:'Legumes', sowToPotOn:21, transplantToHarvest:60, directSowToHarvest:65, tender:true, repeatHarvest:true, words:['french bean','bean','beans'], varieties:['Blue Lake','Montano','Harrison'], underCoverMonth:4, directSowMonth:5},
-  {name:'Pea', family:'Legumes', sowToPotOn:14, transplantToHarvest:60, directSowToHarvest:65, tender:false, repeatHarvest:true, words:['pea','peas','mangetout'], varieties:['Kelvedon Wonder','Hurst Green Shaft','Mangetout'], underCoverMonth:2, directSowMonth:3},
-  {name:'Broad Bean', family:'Legumes', sowToPotOn:21, transplantToHarvest:90, directSowToHarvest:100, tender:false, repeatHarvest:true, words:['broad bean','broad beans'], varieties:['Aquadulce','The Sutton','Long Pod'], underCoverMonth:2, directSowMonth:3},
+  // TOMATOES, PEPPERS, CHILLIES, AUBERGINES (SimplySeed batch, version 2026.10.09.16): SimplySeed's ranges;
+  // existing varieties kept.
+  // Tomato: RHS - prick out after a couple of weeks, ready to plant out after about a month more; a
+  // February sowing takes until April to reach planting size (8 weeks), a late-March one about 6;
+  // Garden Focused (outdoors) - sow second week of March, plant out first week of May, first picking
+  // first week of August (about 20 weeks); Know Your Vegetables - 12 weeks to flowering plus 8 to
+  // ripe fruit. Vertical Veg says about 12 weeks in warm, sunny conditions (an outlier). Was 42 + 65
+  // (about 15 weeks); now 49 + 84 (19 weeks). Greenhouse crops will often beat this, and the app
+  // learns from real harvests. 'cherry tomato' etc. added so they don't land on the Cherry tree.
+  {name:'Tomato', family:'Solanaceae', sowToPotOn:49, transplantToHarvest:84, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['tomato','cherry tomato','plum tomato','beefsteak tomato'], varieties:["Gardener's Delight",'Gardeners Delight','Moneymaker','Sungold','Alicante','San Marzano','Ailsa Craig','Super Marmande','Endurance','Solito',"Anna's Multiflora",'Annas Multiflora','Apple','Baby Boomer','Barrys Crazy Cherry','Belandine','Berry Red','Berry Yellow','Big Mama','Black Beauty','Black Moon','Black Opal','Bliss','Bloody Butcher','Blue Beauty','Bountiful','Brads Atomic Grape','Brandy Boy','Buffalosun','Burlesque','Cedrino','Celano','Cherry Baby','Cherry Falls','Cherry Rapids','Cherry Sweetheart','Cocktail Crush','Consuelo','Crimson Crush','Crokini','Cuore di Bue','Fantasio','Golden Bumble Bee','Golden Sunrise','Gourmansun','Honey Delight','Honey Moon','Honeycomb','Hundreds and Thousands','Indigo Blue Berries','Indigo Rose','Katiebell','Knockout','Kumquat','Lizzano','Losetto','Luciebell','Maisey','Micro Tom','Microberry','Morello','Nagina','Orange Beauty','Orange Wellington','Orangeto','Paoline','Peardrops','Purple Bumble Bee','Rapunzel','Santa Victoria','Shirley','Sugar Gloss','Summer Frolic','Sunset','Supersweet 100','Sweet Aperitif','Sweet Million','Sweet Success','Totem','Tumbling Tom Red','Tumbling Tom Yellow','Tutti Frutti','Veranda Red','Vivacious','Y Ddraig Goch','Red Dragon','Yellow Mimi'], underCoverMonth:2, directSowMonth:5},
+  // CHILLIES AND SWEET PEPPERS (group 'pepper', so "Pepper Jalapeno" finds Chilli): RHS - February
+  // sowings take until April to reach planting size (at least 8 weeks); sweet peppers under glass sown
+  // mid-February to early March, picked from midsummer; Vertical Veg - chillies 20 weeks or more from
+  // sowing to fruiting. Was 56 + 75 (about 19 weeks); now 56 + 91 (21 weeks).
+  {name:'Chilli', group:'pepper', family:'Solanaceae', sowToPotOn:56, transplantToHarvest:91, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['chilli','chili','chilli pepper','hot pepper'], varieties:['Scotch Bonnet','Jalapeno','Cayenne','Padron','Apache','Armageddon','Biquinho Yellow','Bishops Crown','Buena Mulata','Carolina Reaper','Cayenne Red','Demon Red','Fresno','Gusto Purple','Habanero','Habanero Orange','Hot Lemon','Kilian','Kristian','Nadapeno','Orange Spice','Radiance Yellow','Reggae','Santana','Sizzler','Somborius','Srilanus','Toofan','Basket of Fire','Rocky'], underCoverMonth:1, directSowMonth:5},
+  {name:'Sweet Pepper', group:'pepper', family:'Solanaceae', sowToPotOn:56, transplantToHarvest:91, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['sweet pepper','bell pepper','pepper','capsicum'], varieties:['California Wonder','Gypsy','Redstart','Bright Star','Habanada','Hamik','Indired','Lemon Dream','Rafaelus','Snack Mixed','Star Mixed','Sweet Point Yellow','Sweetonia Chocolate','Tangerine Dream','Thor'], underCoverMonth:1, directSowMonth:5},
+  // Aubergine: RHS - needs at least five months from sowing to harvest, picking usually from August after
+  // a February sowing; Vertical Veg 20-24 weeks. Was 56 + 75 (about 19 weeks); now 56 + 105 (23 weeks).
+  {name:'Aubergine', family:'Solanaceae', sowToPotOn:56, transplantToHarvest:105, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['aubergine','eggplant'], varieties:['Black Beauty','Moneymaker','Bonica','Farmers Long','Green Knight','Meatball','White'], underCoverMonth:2, directSowMonth:5},
+  // SQUASH FAMILY (SimplySeed batch, version 2026.10.09.15): SimplySeed's courgette, marrow, squash, pumpkin,
+  // cucumber and melon ranges; existing varieties kept.
+  // Courgette: RHS school crop sheet - harvest from 9 weeks after sowing; Garden Organic 10-14 weeks
+  // (courgettes and marrows); SimplySeed - marrows in as little as 9 weeks. Raised in pots for about 4
+  // weeks: 28 + 35 (was 21 + 50); sown in place in late May, 60 (was 55).
+  {name:'Courgette', family:'Cucurbits', sowToPotOn:28, transplantToHarvest:35, directSowToHarvest:60, tender:true, repeatHarvest:true, words:['courgette','zucchini'], varieties:['Black Beauty','Defender','Ambassador','Atena','Colour Ball','Green Bush','Griller Mixed','Latino Romanesco','Safari','Senzace','Shooting Star','Sure Thing','Yellow Star','Tromboncino'], underCoverMonth:4, directSowMonth:5},
+  // Cucumber: Garden Organic - about 12 weeks to harvest; NParks - about 3 months. Was 21 + 55 / 60;
+  // now 28 + 56, or 80 sown outdoors in late May (RHS). 'gherkin' now matches too.
+  {name:'Cucumber', family:'Cucurbits', sowToPotOn:28, transplantToHarvest:56, directSowToHarvest:80, tender:true, repeatHarvest:true, words:['cucumber','gherkin'], varieties:['Marketmore','Telegraph','Baby','Burpless Tasty','Femspot','Honey Plus','Lemon','Louisa','Merlin','Mini Munch','Party Time','Passandra','Quick Snack','Snack','Vista','Adam','Picklebush'], underCoverMonth:4, directSowMonth:5},
+  // SQUASHES - winter and summer kinds grow very differently (group 'squash'). Winter squash: Plants of
+  // Distinction 80-120 days to full maturity; SD State Extension 80-115; Kitchen Garden - often not
+  // until October. 21 + 100 / 105 kept. Picked once, when the skin is hard, so no longer marked as
+  // repeat-harvest (was). 'Squash' on its own means winter squash, as before.
+  {name:'Squash', group:'squash', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:100, directSowToHarvest:105, tender:true, repeatHarvest:false, words:['squash','winter squash','butternut'], varieties:['Butternut','Crown Prince','Spaghetti','Autumn Gold','ButterBush','Essex','Hunter','Autumn Crown','ButterGem','Delicata','Golden Butta Bowl','Goldilocks','Grey Ghost','Heart of Gold','Jack Be Little','Mashed Potato','Musquee de Provence','Porcelain Princess','Turks Turban','Uchiki Kuri'], underCoverMonth:4, directSowMonth:5},
+  // Summer squash (patty pan, crookneck, Tromboncino): picked young like courgettes. Plants of
+  // Distinction - as early as 50 days after planting; garden.org - usually within 2 months of planting.
+  // Grown as courgettes (SimplySeed), so courgette timings.
+  {name:'Summer Squash', group:'squash', family:'Cucurbits', sowToPotOn:28, transplantToHarvest:35, directSowToHarvest:60, tender:true, repeatHarvest:true, words:['summer squash','patty pan','pattypan','crookneck'], varieties:['Custard Twinkle','Sunbeam','Zephyr','Tromboncino'], underCoverMonth:4, directSowMonth:5},
+  // Pumpkin: grown as winter squash, 21 + 115 / 120 kept; picked once (was marked repeat-harvest).
+  {name:'Pumpkin', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:115, directSowToHarvest:120, tender:true, repeatHarvest:false, words:['pumpkin'], varieties:['Jack of All Trades','Atlantic Giant','Aladdin','Challenger','Fireball','Gladiator','Mellow Yellow','Mini Mix','Pink Panther','Polar Bear','Warty Goblin'], underCoverMonth:4, directSowMonth:5},
+  // Melon: Suttons (Galia) 20-22 weeks sowing to cropping; Greenhouse Stores 60-90 days; SimplySeed - sow
+  // from the end of March. Was 21 + 90 (111 days); now 28 + 112 (20 weeks). Watermelons grown the same way.
+  {name:'Melon', family:'Cucurbits', sowToPotOn:28, transplantToHarvest:112, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['melon','cantaloupe','watermelon'], varieties:['Outdoor Wonder','Budgie','Champagne','Charmont','Galia','Lottie','Sugar Baby'], underCoverMonth:4, directSowMonth:5},
+  // SWEETCORN, CELERY, CELERIAC, FLORENCE FENNEL (SimplySeed batch, version 2026.10.09.17).
+  // Sweetcorn: RHS - sow indoors mid-April to early May, plant out May-June, harvest August-September
+  // (RHS plant pages for Lark and Ovation say the same); Plants of Distinction - sow April-May, harvest
+  // September-October. A late-April sowing planted out four weeks later and picked from mid-August is
+  // 28 + 84 (was 21 + 75); sown in place in late May, 100 (was 80). Minipop (baby corn) is picked
+  // earlier and Robust (popcorn) later, left to dry.
+  {name:'Sweetcorn', family:'Other', sowToPotOn:28, transplantToHarvest:84, directSowToHarvest:100, tender:true, repeatHarvest:true, words:['sweetcorn','maize','corn','popcorn','baby corn'], varieties:['Swift','Lark','Fiesta','6800R','Contrast','Incredible','Minipop','Mirai Gold','Moonshine','Northern Extra Sweet','Robust'], underCoverMonth:4, directSowMonth:5},
+  // PEAS AND BEANS (SimplySeed batch, version 2026.10.09.14): SimplySeed's pea, broad, French, runner bean
+  // and asparagus pea ranges; existing varieties kept.
+  // Runner bean: RHS - sow indoors mid-April to May or outdoors after frost, cropping from around
+  // midsummer; Charles Dowding 55-70 days to first pick; Suttons 12-16 weeks. 75 kept, between them.
+  {name:'Runner Bean', family:'Legumes', sowToPotOn:21, transplantToHarvest:70, directSowToHarvest:75, tender:true, repeatHarvest:true, words:['runner bean','runner beans'], varieties:['Scarlet Emperor','Painted Lady','Enorma','Equator','Firestorm','Jackpot','Moonlight','Tenderstar','White Lady'], underCoverMonth:4, directSowMonth:5},
+  // French bean: Charles Dowding 55-70 days to first pick; Low Impact 8-12 weeks; SimplySeed about 90 for
+  // dwarf types. Was 65; now 70 sown in place, 21 + 55 from a pot (was 21 + 60).
+  {name:'French Bean', family:'Legumes', sowToPotOn:21, transplantToHarvest:55, directSowToHarvest:70, tender:true, repeatHarvest:true, words:['french bean','bean','beans','climbing bean','dwarf bean','borlotti','borlotto'], varieties:['Blue Lake','Montano','Harrison','Borlotto Lingua di Fuoco','Celine','Cobra','Elba','Goldfield','Hunter','Sunshine','Tendergreen','Yard Long'], underCoverMonth:4, directSowMonth:5},
+  // PEAS - split like potatoes (group 'pea'). RHS - first earlies ready in about 12 weeks; Seedaholic -
+  // earlies about 12 weeks, second earlies 14, maincrops 16; GrowVeg - earlies about three months,
+  // maincrops up to a month longer. Was 14 + 60 / 65 (about 9 weeks), well short.
+  // Plain Pea holds earlies, second earlies, mangetout and sugar snaps: 13 weeks, 90 sown in place
+  // or 21 + 70. Meteor and Douce Provence are listed here and under Autumn Pea, so they keep
+  // whichever type is typed.
+  {name:'Pea', group:'pea', family:'Legumes', sowToPotOn:21, transplantToHarvest:70, directSowToHarvest:90, tender:false, repeatHarvest:true, words:['pea','peas','mangetout','mange tout','sugar snap','petit pois'], varieties:['Kelvedon Wonder','Hurst Green Shaft','Hurst Greenshaft','Mangetout','Early Onward','Johan','Sabrina','Snack Hero','Petit Provencal','Oregon Sugar Pod','Shiraz','Sweet Horizon','Lusaka','Purple Magnolia','Meteor','Douce Provence'], underCoverMonth:2, directSowMonth:3},
+  // Maincrop peas: 16 weeks (Seedaholic; GrowVeg). Alderman (tall maincrop) and Onward, which Early
+  // Onward beats by 8-10 days (Seedaholic).
+  {name:'Maincrop Pea', group:'pea', family:'Legumes', sowToPotOn:21, transplantToHarvest:91, directSowToHarvest:112, tender:false, repeatHarvest:true, words:['maincrop pea','maincrop peas'], varieties:['Alderman','Onward'], underCoverMonth:3, directSowMonth:4},
+  // Autumn-sown peas: SimplySeed - Meteor sown in November matures from late May; RHS - autumn sowings
+  // crop in May and June, or raise them in a cold frame and plant out in early spring. Mid-November
+  // to early June is about 200 days; in pots, about 4 months to planting out in mid-March, then 80.
+  {name:'Autumn Pea', group:'pea', family:'Legumes', sowToPotOn:120, transplantToHarvest:80, directSowToHarvest:200, tender:false, repeatHarvest:true, words:['autumn pea','autumn peas','overwintering pea'], varieties:['Meteor','Douce Provence'], underCoverMonth:10, directSowMonth:11},
+  // BROAD BEANS - spring- and autumn-sown (group 'broadbean'). Spring: RHS - sown February to April for
+  // summer harvests; Promesse de Fleurs - February-April sowings ready mid-June to August; Seedaholic
+  // 8-10 weeks (an outlier). 21 + 90 / 100 kept.
+  {name:'Broad Bean', group:'broadbean', family:'Legumes', sowToPotOn:21, transplantToHarvest:90, directSowToHarvest:100, tender:false, repeatHarvest:true, words:['broad bean','broad beans'], varieties:['Aquadulce','Super Aquadulce','The Sutton','Long Pod','Green Longpod','Duet','Red Epicure','Witkiem Manita'], underCoverMonth:2, directSowMonth:3},
+  // Autumn-sown: RHS - sow October-November (Aquadulce) for a harvest in May and June; SimplySeed -
+  // autumn sowings (Super Aquadulce, The Sutton) harvested from June. Mid-November to early June is
+  // about 200 days; pot-raised over winter, about 4 months then 80. Aquadulce, The Sutton and Witkiem
+  // Manita are listed under both, so they keep whichever type is typed.
+  {name:'Autumn Broad Bean', group:'broadbean', family:'Legumes', sowToPotOn:120, transplantToHarvest:80, directSowToHarvest:200, tender:false, repeatHarvest:true, words:['autumn broad bean','autumn broad beans','overwintering broad bean'], varieties:['Aquadulce','Super Aquadulce','The Sutton','Witkiem Manita'], underCoverMonth:10, directSowMonth:11},
   // BRASSICAS (SimplySeed batch, version 2026.10.09.10). Varieties are SimplySeed's cabbage, calabrese,
   // broccoli, cauliflower, Brussels sprout, kale, kohl rabi, swede and turnip ranges; existing ones kept.
   //
@@ -1383,11 +1449,43 @@ const KNOWN_CROPS = [
   {name:'Winter Radish', group:'radish', family:'Brassicas', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:60, tender:false, repeatHarvest:false, words:['winter radish','mooli','daikon','black radish','watermelon radish'], varieties:['China Rose','Panter','Red Meat','Minowase','April Cross'], underCoverMonth:null, directSowMonth:7},
   {name:'Strawberry', family:'Other', sowToPotOn:null, transplantToHarvest:60, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['strawberry','strawberries'], varieties:['Cambridge Favourite','Elsanta'], underCoverMonth:3, directSowMonth:3},
   {name:'Rhubarb', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['rhubarb'], varieties:[], underCoverMonth:2, directSowMonth:3},
-  {name:'Celery', family:'Other', sowToPotOn:70, transplantToHarvest:120, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['celery'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Celeriac', family:'Other', sowToPotOn:70, transplantToHarvest:150, directSowToHarvest:null, tender:true, repeatHarvest:false, words:['celeriac'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  // Celery (self-blanching): RHS - sow mid-March to early April, ready to plant out about ten weeks later,
+  // harvest from midsummer to autumn; Van Meuwen - harvest from August; Garden Organic - about 25 weeks
+  // for self-blanching. 70 to planting out kept; 120 after that (early October) was late - now 90.
+  {name:'Celery', family:'Other', sowToPotOn:70, transplantToHarvest:90, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['celery'], varieties:['Celebrity','Victoria'], underCoverMonth:3, directSowMonth:5},
+  // Celeriac: RHS - at least six months to mature, sow indoors, harvest from October to March. 70 + 150
+  // kept (mid-March sowing ready late October).
+  {name:'Celeriac', family:'Other', sowToPotOn:70, transplantToHarvest:150, directSowToHarvest:null, tender:true, repeatHarvest:false, words:['celeriac'], varieties:['Giant Prague','Prinz'], underCoverMonth:3, directSowMonth:5},
   {name:'Sweet Potato', family:'Other', sowToPotOn:null, transplantToHarvest:110, directSowToHarvest:null, tender:true, repeatHarvest:false, words:['sweet potato','sweetpotato'], varieties:[], underCoverMonth:4, directSowMonth:5},
   {name:'Asparagus', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['asparagus'], varieties:[], underCoverMonth:2, directSowMonth:3},
-  {name:'Globe Artichoke', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['globe artichoke','artichoke'], varieties:[], underCoverMonth:2, directSowMonth:4},
+  // ODDS AND ENDS (SimplySeed batch, version 2026.10.09.19): artichoke, oriental and miscellaneous pages.
+  // Globe artichoke: SimplySeed - sow March-May in modules, plant out in early summer, cropping usually
+  // starts in the second year. 365 after planting out kept; 56 to planting out added (was none).
+  {name:'Globe Artichoke', family:'Other', sowToPotOn:56, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['globe artichoke','artichoke'], varieties:['Green Globe','Violet de Provence'], underCoverMonth:3, directSowMonth:5},
+  // Jerusalem artichoke: RHS - grown from tubers planted late winter to mid-spring, harvested from late
+  // autumn; Rocket Gardens - lift once the foliage dies back in late autumn. Mid-March to mid-November is
+  // about 240 days. Previously "Jerusalem artichoke" went to Globe Artichoke.
+  {name:'Jerusalem Artichoke', family:'Other', sowToPotOn:null, transplantToHarvest:240, directSowToHarvest:240, tender:false, repeatHarvest:false, words:['jerusalem artichoke','sunchoke'], varieties:['Fuseau'], underCoverMonth:null, directSowMonth:3},
+  // Okra: RHS - sow March-April indoors, best kept in a greenhouse, harvest from midsummer. Early April to
+  // mid-July is about 112 days: 42 + 70.
+  {name:'Okra', family:'Other', sowToPotOn:42, transplantToHarvest:70, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['okra','bhindi',"ladies' fingers",'ladies fingers'], varieties:['Super Bhindi'], underCoverMonth:3, directSowMonth:null},
+  // Cucamelon: Sow Seeds and Johnsons - sow indoors April-May, harvest July-October (until frost). Late
+  // April to mid/late July is about 85 days: 35 + 50. Grown like cucumbers.
+  {name:'Cucamelon', family:'Cucurbits', sowToPotOn:35, transplantToHarvest:50, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['cucamelon','mouse melon'], varieties:[], underCoverMonth:4, directSowMonth:null},
+  // Cape gooseberry (physalis): Kings, Sow Seeds and Gardener's Dream - sow February-April under glass,
+  // harvest July-September; grown like tomatoes (Boma Garden Centre). Mid-March to late July: 56 + 77.
+  {name:'Cape Gooseberry', family:'Solanaceae', sowToPotOn:56, transplantToHarvest:77, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['cape gooseberry','physalis','golden berry'], varieties:[], underCoverMonth:3, directSowMonth:null},
+  // Salsify and scorzonera: Garden Organic - sow outdoors from April, harvest from October, average from 20
+  // weeks. Mid-April to early October is about 24 weeks: 168. Root crops for rotation (RHS rotation
+  // groups them with roots). Scorzonera is perennial; salsify biennial.
+  {name:'Salsify', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:168, tender:false, repeatHarvest:false, words:['salsify','oyster plant'], varieties:[], underCoverMonth:null, directSowMonth:4},
+  {name:'Scorzonera', family:'Roots', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:168, tender:false, repeatHarvest:false, words:['scorzonera','black salsify'], varieties:['Maxima'], underCoverMonth:null, directSowMonth:4},
+  // Celtuce (stem lettuce): Makkelijke Moestuin - leaves after 5 weeks, stems 8-10 weeks; Johnny's 55 days.
+  // 63 sown in place; module-raised 3-4 weeks (Johnny's), then 35.
+  {name:'Celtuce', family:'Other', sowToPotOn:28, transplantToHarvest:35, directSowToHarvest:63, tender:false, repeatHarvest:false, words:['celtuce','stem lettuce','asparagus lettuce'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  // Luffa: recognised so it isn't mistaken for something else; a long-season greenhouse crop with no
+  // reliable UK timing found, so no harvest reminder.
+  {name:'Luffa', family:'Cucurbits', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['luffa','loofah'], varieties:[], underCoverMonth:3, directSowMonth:null},
   {name:'Raspberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['raspberry','raspberries'], varieties:['Glen Ample','Autumn Bliss'], underCoverMonth:11, directSowMonth:11},
   {name:'Blackberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['blackberry','blackberries'], varieties:[], underCoverMonth:11, directSowMonth:11},
   {name:'Loganberry', family:'Other', sowToPotOn:null, transplantToHarvest:365, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['loganberry','loganberries'], varieties:[], underCoverMonth:11, directSowMonth:11},
@@ -1399,20 +1497,47 @@ const KNOWN_CROPS = [
   {name:'Plum', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['plum','damson','gage'], varieties:['Victoria'], underCoverMonth:11, directSowMonth:11},
   {name:'Cherry', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['cherry'], varieties:[], underCoverMonth:11, directSowMonth:11},
   {name:'Fig', family:'Other', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['fig'], underCoverMonth:3, directSowMonth:4},
-  {name:'Basil', family:null, sowToPotOn:42, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['basil'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Parsley', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['parsley'], varieties:[], underCoverMonth:3, directSowMonth:4},
-  {name:'Coriander', family:null, sowToPotOn:42, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['coriander','cilantro'], varieties:[], underCoverMonth:4, directSowMonth:4},
-  {name:'Chives', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['chive'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  // HERBS (SimplySeed batch, version 2026.10.09.18): SimplySeed's herb range. Annual herbs now get a first-
+  // picking date (they had none). Perennial herbs (mint, rosemary, thyme, sage, oregano, tarragon) are
+  // mostly bought as plants or cuttings and sources don't agree on a first picking from seed, so they
+  // still have no harvest reminder.
+  // Basil: Garden Organic school sheet - from 12 weeks; Dundee allotment and Spear & Jackson herb
+  // planners - about 3 months; Gardeners' World - about 6 weeks (an outlier). 42 + 42, or 84 sown
+  // outdoors after May (RHS).
+  {name:'Basil', family:null, sowToPotOn:42, transplantToHarvest:42, directSowToHarvest:84, tender:true, repeatHarvest:true, words:['basil'], varieties:['Batik','British','Cinnamon','Dark Red Opal','Greek','Lemon','Spicy Sabre','Sweet Genovese','Genovese'], underCoverMonth:3, directSowMonth:6},
+  // Parsley: Gardeners' World (flat leaf) - about 3 months; Dundee and Spear & Jackson - 3 months. 84 sown
+  // in place, or 42 + 42.
+  {name:'Parsley', family:null, sowToPotOn:42, transplantToHarvest:42, directSowToHarvest:84, tender:false, repeatHarvest:true, words:['parsley'], varieties:['Italian Giant','Moss Curled','Plain Leaf'], underCoverMonth:3, directSowMonth:4},
+  // Coriander: Gardeners' World 6-8 weeks; Garden Organic 8 weeks for leaf. 56. SimplySeed - doesn't
+  // transplant (bolts if the roots are disturbed), so sow in place; no pot-on figure. Hardy annual (RHS
+  // sows it outdoors from March), so no longer marked tender (was).
+  {name:'Coriander', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:56, tender:false, repeatHarvest:true, words:['coriander','cilantro'], varieties:['Cruiser'], underCoverMonth:null, directSowMonth:4},
+  // Chives: Garden Organic - from 12 weeks; Spear & Jackson - 3 months. 42 + 42 / 84. Garlic chives grown
+  // the same way - 'garlic chive' added so it doesn't land on Garlic.
+  {name:'Chives', family:null, sowToPotOn:42, transplantToHarvest:42, directSowToHarvest:84, tender:false, repeatHarvest:true, words:['chive','garlic chive'], varieties:[], underCoverMonth:3, directSowMonth:4},
   {name:'Mint', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['mint'], varieties:[], underCoverMonth:3, directSowMonth:4},
   {name:'Rosemary', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['rosemary'], varieties:[], underCoverMonth:3, directSowMonth:5},
   {name:'Thyme', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['thyme'], varieties:[], underCoverMonth:3, directSowMonth:5},
   {name:'Sage', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['sage'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Dill', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['dill'], varieties:[], underCoverMonth:4, directSowMonth:4},
+  // Dill: SimplySeed - ready in 6-8 weeks; Garden Organic - from 8 weeks. 56, sown in place.
+  {name:'Dill', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:56, tender:false, repeatHarvest:true, words:['dill'], varieties:['Compact'], underCoverMonth:4, directSowMonth:4},
   {name:'Oregano / Marjoram', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['oregano','marjoram'], varieties:[], underCoverMonth:3, directSowMonth:5},
-  {name:'Fennel (herb)', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['fennel'], varieties:[], underCoverMonth:4, directSowMonth:4},
+  {name:'Fennel (herb)', group:'fennel', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['fennel'], varieties:[], underCoverMonth:4, directSowMonth:4},
   {name:'Tarragon', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['tarragon'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  // Chervil: Gardeners' World - about 6 weeks; Garden Organic 6-8 weeks. 45, sown in place (RHS sows it
+  // outdoors from March).
+  {name:'Chervil', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:45, tender:false, repeatHarvest:true, words:['chervil'], varieties:['Curled'], underCoverMonth:null, directSowMonth:3},
+  // Lemon balm: Garden Organic - from 12 weeks. Perennial. 42 + 42.
+  {name:'Lemon Balm', family:null, sowToPotOn:42, transplantToHarvest:42, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['lemon balm'], varieties:[], underCoverMonth:3, directSowMonth:5},
+  // The rest of SimplySeed's herbs - named so they're recognised (Welsh onion would otherwise get
+  // onion timings, garlic chives garlic ones), but no harvest reminder yet: no reliable figure found.
+  {name:'Sorrel', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['sorrel'], varieties:['Red Veined'], underCoverMonth:3, directSowMonth:4},
+  {name:'Lemon Grass', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['lemon grass','lemongrass'], varieties:[], underCoverMonth:2, directSowMonth:null},
+  {name:'Anise', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['anise','aniseed'], varieties:[], underCoverMonth:4, directSowMonth:5},
+  {name:'Par-Cel', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['par-cel','parcel','par cel','leaf celery'], varieties:[], underCoverMonth:3, directSowMonth:4},
+  {name:'Welsh Onion', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['welsh onion'], varieties:[], underCoverMonth:3, directSowMonth:4},
   {name:'Sunflower', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:false, words:['sunflower'], varieties:[], underCoverMonth:4, directSowMonth:5},
-  {name:'Sweet Pea', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['sweet pea'], varieties:[], underCoverMonth:2, directSowMonth:4},
+  {name:'Sweet Pea', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['sweet pea','sweetpea'], varieties:[], underCoverMonth:2, directSowMonth:4},
   {name:'Cosmos', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['cosmos'], varieties:[], underCoverMonth:3, directSowMonth:5},
   {name:'Zinnia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['zinnia'], varieties:[], underCoverMonth:4, directSowMonth:5},
   {name:'Marigold', family:null, sowToPotOn:35, transplantToHarvest:null, directSowToHarvest:null, tender:true, repeatHarvest:true, words:['marigold','tagetes'], varieties:[], underCoverMonth:3, directSowMonth:5},
@@ -1458,12 +1583,22 @@ const KNOWN_CROPS = [
   // Radicchio (red chicory): Vital Seeds - about 4 months to full heads, sow June-July; Thompson &
   // Morgan - June-July for full-sized heads. 120, or 28 + 92.
   {name:'Radicchio', family:'Other', sowToPotOn:28, transplantToHarvest:92, directSowToHarvest:120, tender:false, repeatHarvest:false, words:['radicchio','red chicory'], varieties:['Rossa di Verona'], underCoverMonth:6, directSowMonth:6},
-  {name:'Marrow', family:'Cucurbits', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:true, words:['marrow'], varieties:[], underCoverMonth:4, directSowMonth:5},
-  {name:'Florence Fennel', family:'Other', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:false, words:['florence fennel','bulb fennel'], varieties:[], underCoverMonth:4, directSowMonth:5},
-  {name:'Asparagus Pea', family:'Legumes', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:true, words:['asparagus pea'], varieties:[], underCoverMonth:4, directSowMonth:5},
+  // Marrow: RHS - marrows are tender plants (this was wrongly marked not tender, so it got no frost
+  // warnings) and are courgettes grown on; Garden Organic 10-14 weeks; SimplySeed from 9 weeks. Was a
+  // 21/35/45 placeholder; now 28 + 49, or 77 sown in place (11 weeks).
+  {name:'Marrow', family:'Cucurbits', sowToPotOn:28, transplantToHarvest:49, directSowToHarvest:77, tender:true, repeatHarvest:true, words:['marrow'], varieties:['Bush Baby','Tiger Cross','Green Bush'], underCoverMonth:4, directSowMonth:5},
+  // Florence fennel: RHS - bulbs take three or four months (baby bulbs from about six weeks); GIY 14-16
+  // weeks; Gardeners' World about 14 weeks; Sow Seeds (Rondo) 70-80 days. Was a 21/35/45 placeholder;
+  // now 100 sown in place (June, as RHS and SimplySeed advise), or 21 + 80 from modules - it must be
+  // moved young (Sow Seeds). In the 'fennel' group so "Fennel Zefa Fino" finds the bulb, not the herb.
+  {name:'Florence Fennel', group:'fennel', family:'Other', sowToPotOn:21, transplantToHarvest:80, directSowToHarvest:100, tender:false, repeatHarvest:false, words:['florence fennel','bulb fennel'], varieties:['Sweet Florence','Zefa Fino'], underCoverMonth:5, directSowMonth:6},
+  // Asparagus pea: Runabergs 67 days; Green Harvest 56-77; Gardenate 8-11 weeks; Promesse de Fleurs - sow
+  // outdoors late May-June, pick from July. Was a 21/35/45 placeholder; now 65 sown in place, or 21 + 45.
+  // Needs warm soil and is cut by frost, so now marked tender (was not).
+  {name:'Asparagus Pea', family:'Legumes', sowToPotOn:21, transplantToHarvest:45, directSowToHarvest:65, tender:true, repeatHarvest:true, words:['asparagus pea','winged pea'], varieties:[], underCoverMonth:4, directSowMonth:5},
   // Pak choi: RHS - semi-mature or full-sized heads in 45-75 days. Was 45 (a shared placeholder); now 55,
   // toward the early end since it's often cut young.
-  {name:'Pak Choi', family:'Brassicas', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:55, tender:false, repeatHarvest:false, words:['pak choi','bok choi','pak choy'], varieties:['Goku','Mei Qing Choi','Red','Colour Crunch'], underCoverMonth:4, directSowMonth:5},
+  {name:'Pak Choi', family:'Brassicas', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:55, tender:false, repeatHarvest:false, words:['pak choi','bok choi','pak choy','bok choy'], varieties:['Goku','Mei Qing Choi','Red','Colour Crunch'], underCoverMonth:4, directSowMonth:5},
   {name:'Cress', family:'Other', sowToPotOn:21, transplantToHarvest:35, directSowToHarvest:45, tender:false, repeatHarvest:true, words:['cress'], varieties:[], underCoverMonth:3, directSowMonth:3},
   {name:'Alyssum', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['alyssum'], varieties:[], underCoverMonth:3, directSowMonth:4},
   {name:'Aquilegia', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['aquilegia','columbine'], varieties:[], underCoverMonth:3, directSowMonth:5},
@@ -1498,10 +1633,10 @@ function wordCloseness(word, token){
 const CROP_ICONS = {
   'Potato':'🥔','First Early Potato':'🥔','Second Early Potato':'🥔','Maincrop Potato':'🥔','Tomato':'🍅','Carrot':'🥕','Onion':'🧅','Garlic':'🧄','Cabbage':'🥬','Winter Cabbage':'🥬','Spring Cabbage':'🥬','Chinese Cabbage':'🥬','Broccoli / Calabrese':'🥦','Purple Sprouting Broccoli':'🥦',
   'Sweetcorn':'🌽','Cucumber':'🥒','Strawberry':'🍓','Apple':'🍎','Pear':'🍐','Cherry':'🍒','Chilli':'🌶️','Sweet Pepper':'🫑',
-  'Aubergine':'🍆','Squash':'🎃','Pumpkin':'🎃','Sweet Potato':'🍠','Melon':'🍈','Pea':'🫛','Broad Bean':'🫘','French Bean':'🫘','Runner Bean':'🫘',
+  'Aubergine':'🍆','Squash':'🎃','Summer Squash':'🎃','Pumpkin':'🎃','Sweet Potato':'🍠','Melon':'🍈','Pea':'🫛','Maincrop Pea':'🫛','Autumn Pea':'🫛','Broad Bean':'🫘','Autumn Broad Bean':'🫘','French Bean':'🫘','Runner Bean':'🫘',
   'Lettuce':'🥬','Winter Lettuce':'🥬','Salad Leaves':'🥬','Mibuna':'🥬','Mustard Leaves':'🥬','Land Cress':'🥬',"Lamb's Lettuce":'🥬','Endive':'🥬','Radicchio':'🥬','Spinach':'🥬','Kale':'🥬','Chard':'🥬','Rocket':'🥬','Pak Choi':'🥬',
   'Raspberry':'🫐','Blueberry':'🫐','Blackberry':'🫐','Gooseberry':'🫐','Blackcurrant':'🫐',
-  'Basil':'🌿','Parsley':'🌿','Coriander':'🌿','Chives':'🌿','Mint':'🌿','Rosemary':'🌿','Thyme':'🌿','Sage':'🌿','Dill':'🌿','Oregano / Marjoram':'🌿','Fennel (herb)':'🌿','Tarragon':'🌿',
+  'Basil':'🌿','Parsley':'🌿','Coriander':'🌿','Chives':'🌿','Mint':'🌿','Rosemary':'🌿','Thyme':'🌿','Sage':'🌿','Dill':'🌿','Oregano / Marjoram':'🌿','Fennel (herb)':'🌿','Tarragon':'🌿','Chervil':'🌿','Lemon Balm':'🌿','Sorrel':'🌿','Lemon Grass':'🌿','Anise':'🌿','Par-Cel':'🌿','Welsh Onion':'🌿',
   'Sunflower':'🌻','Dahlia':'🌺','Cosmos':'🌼','Zinnia':'🌼','Marigold':'🌼','Calendula':'🌼','Aster':'🌼','Sweet Pea':'🌸','Nasturtium':'🌸',
   // Added below - same crops as crops-and-issues.md, but never got an icon assigned when they were
   // added to the curated database, so they silently fell back to plain text with no leaf icon at
@@ -1516,7 +1651,7 @@ const CROP_ICONS = {
   'Asparagus Pea':'🫛',
   'Celeriac':'🥬','Celery':'🥬','Cress':'🥬',
   'Fig':'🍑','Plum':'🍑',
-  'Florence Fennel':'🌿','Globe Artichoke':'🌿','Asparagus':'🌱','Rhubarb':'🌱',
+  'Florence Fennel':'🌿','Globe Artichoke':'🌿','Jerusalem Artichoke':'🥔','Okra':'🌿','Cucamelon':'🥒','Cape Gooseberry':'🍊','Salsify':'🥕','Scorzonera':'🥕','Celtuce':'🥬','Luffa':'🥒','Asparagus':'🌱','Rhubarb':'🌱',
   'Beetroot':'🥕','Parsnip':'🥕','Radish':'🥕','Winter Radish':'🥕','Early Carrot':'🥕','Maincrop Carrot':'🥕',
   'Elephant Garlic':'🧄','Mizuna':'🥬','Loganberry':'🫐',
   // Ornamental flowers with no edible-crop family to borrow from - grouped onto Cosmos's 🌼 the same
@@ -1613,12 +1748,16 @@ const CROP_ISSUES = {
   'Spring Garlic': ['White Rot','Rust'],
   'Leek': ['Leek Moth','Rust','Onion Fly'],
   'Pea': ['Pea Moth','Powdery Mildew','Aphids'],
+  'Maincrop Pea': ['Pea Moth','Powdery Mildew','Aphids'],
+  'Autumn Pea': ['Pea Moth','Powdery Mildew','Aphids'],
   'Broad Bean': ['Blackfly (Aphids)','Chocolate Spot'],
+  'Autumn Broad Bean': ['Blackfly (Aphids)','Chocolate Spot'],
   'Runner Bean': ['Blackfly (Aphids)','Slugs'],
   'French Bean': ['Blackfly (Aphids)','Slugs'],
   'Courgette': ['Powdery Mildew','Slugs','Aphids'],
   'Cucumber': ['Powdery Mildew','Whitefly','Aphids'],
   'Squash': ['Powdery Mildew','Slugs'],
+  'Summer Squash': ['Powdery Mildew','Slugs','Aphids'],
   'Pumpkin': ['Powdery Mildew','Slugs'],
   'Melon': ['Powdery Mildew','Whitefly'],
   'Sweetcorn': ['Slugs','Frit Fly'],
@@ -1652,6 +1791,15 @@ const CROP_ISSUES = {
   'Cherry': ['Bacterial Canker','Brown Rot'],
   'Fig': ['Rust','Scale Insects'],
   'Basil': ['Aphids','Slugs'],
+  'Okra': ['Aphids','Whitefly','Red Spider Mite'],
+  'Cucamelon': ['Powdery Mildew','Aphids'],
+  'Cape Gooseberry': ['Whitefly','Aphids'],
+  'Celtuce': ['Slugs','Aphids'],
+  'Salsify': ['Slugs'],
+  'Scorzonera': ['Slugs'],
+  'Chervil': ['Slugs','Aphids'],
+  'Sorrel': ['Slugs'],
+  'Lemon Balm': ['Aphids'],
   'Parsley': ['Carrot Fly','Aphids'],
   'Coriander': ['Aphids'],
   'Chives': ['Onion Fly'],
@@ -1717,12 +1865,33 @@ function matchCropWithConfidence(typed){
   const tokens = typed.toLowerCase().split(/[\s,\/-]+/).filter(Boolean);
   const lower = typed.toLowerCase();
   let best=null, bestScore=0, bestWordLen=0;
-  for(const k of KNOWN_CROPS){
-    for(const w of k.words){
-      let score = lower.includes(w) ? w.length + 0.5 : 0;
-      for(const t of tokens) score = Math.max(score, wordCloseness(w, t));
-      if(score>bestScore){ bestScore=score; best=k; bestWordLen=w.length; }
+  // A crop word actually present in what was typed beats any typo-guess. Without this, a variety name
+  // that happens to be close to another crop's word could win - "Pea Sweet Horizon" was going to
+  // Swede ('sweet' is one letter-swap from 'swede'), "Pea Oregon Sugar Pod" to Oregano and "Carrot
+  // Sugarsnax" to Pea. Typo-guessing is only used when no crop word is present at all.
+  for(const exactOnly of [true, false]){
+    let tied = [];
+    for(const k of KNOWN_CROPS){
+      for(const w of k.words){
+        let score = lower.includes(w) ? w.length + 0.5 : 0;
+        if(!exactOnly) for(const t of tokens) score = Math.max(score, wordCloseness(w, t));
+        if(score>bestScore){ bestScore=score; best=k; bestWordLen=w.length; tied=[k]; }
+        else if(exactOnly && score>0 && score===bestScore && !tied.includes(k)) tied.push(k);
+      }
     }
+    // Two crop words of the same length both typed - "Squash Mashed Potato", "Latino Romanesco
+    // Courgette". Prefer the crop whose own variety list names what was typed; failing that, the
+    // crop word typed first.
+    if(exactOnly && tied.length>1){
+      const byVariety = tied.filter(k=>(k.varieties||[]).some(v=>{
+        const vl = v.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`(^|[^a-z])${vl}($|[^a-z])`).test(lower);
+      }));
+      const pool = byVariety.length ? byVariety : tied;
+      const firstAt = k=>Math.min(...k.words.filter(w=>w.length+0.5===bestScore && lower.includes(w)).map(w=>lower.indexOf(w)));
+      best = pool.reduce((a,b)=> firstAt(b)<firstAt(a) ? b : a);
+    }
+    if(best) break;
   }
   if(bestScore<=0) return {crop:null, confident:false};
   // A confident match is an exact/near-exact word, not just close enough by typo-distance
@@ -1736,7 +1905,9 @@ function matchCropWithConfidence(typed){
 // Some crops come as sibling types with different timings (Potato / First Early / Second Early /
 // Maincrop; Onion / Autumn Onion; Shallot / Autumn Shallot; Garlic / Spring Garlic; Cabbage / Winter /
 // Spring / Chinese Cabbage; Cauliflower / Winter Cauliflower; Calabrese / Sprouting Broccoli; Carrot / Early / Maincrop;
-// Radish / Winter Radish; Lettuce / Salad Leaves / Winter Lettuce), marked with the
+// Radish / Winter Radish; Lettuce / Salad Leaves / Winter Lettuce; Pea / Maincrop / Autumn;
+// Broad Bean / Autumn Broad Bean; Squash / Summer Squash; Chilli / Sweet Pepper;
+// Florence Fennel / Fennel (herb)), marked with the
 // same 'group'. So the app takes the strain rather than the gardener needing to know which type a
 // variety is, a name like "Potato Charlotte" or "Onion Senshyu" is steered to the sibling whose
 // variety list holds that exact variety. Whole-word matches only - no typo-guessing here - and only
