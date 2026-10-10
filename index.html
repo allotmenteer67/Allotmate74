@@ -185,6 +185,19 @@
   .vr-key{font-size:14px; color:var(--slate); margin:8px 0 0;}
   .vr-pill{font-size:16px; padding:8px 12px; border:1.5px solid var(--line); border-radius:8px; background:var(--card); color:var(--soil); margin:0 6px 8px 0;}
   .vr-pill.sel{border-color:var(--leaf); background:#3F664422; font-weight:700;}
+  /* Compost: one-line ingredients, readiness card, and the status-grouped Compost tab. */
+  details.ing-line>summary, details.vr-ing>summary{list-style:none; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:10px; min-height:44px;}
+  details.ing-line>summary::-webkit-details-marker, details.vr-ing>summary::-webkit-details-marker{display:none;}
+  details.ing-line>summary::after, details.vr-ing>summary::after{content:'\203A'; font-size:22px; color:var(--slate); width:14px; text-align:center; flex-shrink:0; transition:transform .15s;}
+  details.ing-line[open]>summary::after, details.vr-ing[open]>summary::after{transform:rotate(90deg);}
+  .ing-text{font-size:19px; line-height:1.4; flex:1; overflow-wrap:anywhere;}
+  details.vr-ing{border-top:1px solid var(--line-soft); margin-left:4px;} details.vr-ing>summary span:first-child{overflow-wrap:anywhere;}
+  .ing-dates{padding:0 0 8px 4px;}
+  .cmp-row{display:flex; justify-content:space-between; align-items:center; gap:10px; min-height:50px; border-top:1px solid var(--line-soft); cursor:pointer;}
+  .cmp-row:first-of-type{border-top:none;}
+  .cmp-tag{font-size:16px; padding:2px 10px; border-radius:6px; font-weight:700; flex-shrink:0;}
+  .cmp-ready{background:#3F664422; color:var(--leaf);} .cmp-check{background:#B9852B26; color:var(--mustard);}
+  .cmp-wait{color:var(--slate); font-size:17px; flex-shrink:0;}
   details.more-toggle{margin-top:10px;} details.more-toggle summary{cursor:pointer; font-size:17px; color:var(--leaf); font-weight:700; background:var(--card); border:1.5px solid var(--leaf); border-radius:var(--radius); padding:10px 14px; display:block; list-style:none;}
   details.more-toggle summary::-webkit-details-marker{display:none;}
   details.more-toggle summary::marker{display:none; content:'';}
@@ -793,7 +806,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.10.1';
+const APP_VERSION = '2026.10.10.2';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -2322,7 +2335,6 @@ let outlineEditing = false;
 let activeTier = {}; // featId -> tierId, transient (not persisted)
 let traySortMode = {}; // featId -> 'num'|'date'|'az', transient (not persisted)
 let cropsSubTab = 'crops'; // 'crops'|'compost', transient (not persisted) - which half of the Crops tab is showing
-let compostListSort = 'inuse'; // 'inuse'|'date'|'az', transient (not persisted)
 let autoJumpedTiers = new Set(); // featIds that have already had their first-open smart tier-jump applied this session
 
 function defaultShape(w,h){ return [{x:0,y:0},{x:w,y:0},{x:w,y:h},{x:0,y:h}]; }
@@ -4920,26 +4932,147 @@ function compostBatchLabel(batch){
 // free-text entries (date + a few words) rather than a fixed set of ingredient options, since
 // real mixes are ad hoc ("half a barrow of horse manure and last month's bean plants") and a
 // fixed list would just force everything into "Other".
+// ---- Readiness: a date is only ever a best guess, so a batch is one of: still maturing (the date is
+// ahead), "check it" (the date has passed but nobody has confirmed it), ready (somebody tapped
+// "It's ready now"), no date, or used up. Worked out here, shown the same way everywhere.
+function compostMonthsToGo(ua){
+  const [y,m] = String(ua).split('-').map(Number);
+  const n = new Date();
+  return (y-n.getFullYear())*12 + (m-(n.getMonth()+1));
+}
+function compostMonthLabel(ua){ return monthYearLabel(ua+'-01'); }
+function compostStatus(batch){
+  if(batch.usedUp) return {key:'used'};
+  if(batch.readyDate) return {key:'ready'};
+  if(!batch.useAfter) return {key:'nodate'};
+  const n = compostMonthsToGo(batch.useAfter);
+  return n>0 ? {key:'maturing', months:n} : {key:'check'};
+}
+// Which bits of the compost screens are open, kept across the re-draw that follows every change so
+// that adding or removing something doesn't snap everything shut again.
+let compostUI = {batchId:null, lineOpen:false, datesOpen:false, ingOpen:{}, moreOpen:{}};
+function compostUIFor(batch){
+  if(compostUI.batchId!==batch.id) compostUI = {batchId:batch.id, lineOpen:false, datesOpen:false, ingOpen:{}, moreOpen:{}};
+  return compostUI;
+}
+function compostReadinessHTML(batch, startExtra){
+  const ui = compostUIFor(batch);
+  const st = compostStatus(batch);
+  let head, sub = [];
+  if(st.key==='ready'){
+    head = 'Ready to use';
+    if(batch.useAfter && compostMonthsToGo(batch.useAfter)>0) sub.push(`marked ready ahead of ${compostMonthLabel(batch.useAfter)}`);
+  } else if(st.key==='maturing'){
+    head = `Do not use before ${compostMonthLabel(batch.useAfter)}`;
+    sub.push(`${st.months} month${st.months===1?'':'s'} to go`);
+  } else if(st.key==='check'){
+    head = `Do not use before ${compostMonthLabel(batch.useAfter)}`;
+    sub.push('that date has passed, so worth checking it');
+  } else if(st.key==='used'){
+    head = 'Used up';
+  } else {
+    head = 'No date set';
+    sub.push('add a "do not use before" month if you have a guess');
+  }
+  if(startExtra.showStart && batch.startDate) sub.push(`started ${monthYearLabel(batch.startDate)}`);
+  const action = st.key==='ready' ? '<button type="button" class="btn small secondary" id="mNotReady">Not ready after all</button>'
+    : (st.key==='used' ? '' : '<button type="button" class="btn small" id="mReadyNow">It\'s ready now</button>');
+  return `<div class="summary-card" style="margin:6px 0 12px;">
+    <div class="summary-title">${escapeHTML(head)}</div>
+    ${sub.length?`<p class="tiny-muted" style="margin:2px 0 0;">${escapeHTML(sub.join(' \u00B7 '))}</p>`:''}
+    ${batch.useAfterReason?`<p class="tiny-muted" style="margin:4px 0 0;">${escapeHTML(batch.useAfterReason)}</p>`:''}
+    ${action?`<div class="btn-row" style="margin-top:8px;">${action}</div>`:''}
+    <details class="timings" data-ui="dates" ${ui.datesOpen?'open':''}><summary>Change dates</summary>
+      <div class="form-row"><div><label>Do not use before</label><p class="tiny-muted" style="margin:2px 0 6px;">a best guess is fine</p><input type="month" id="mUseAfter" value="${batch.useAfter||''}"></div></div>
+      <div class="form-row"><div><label>Why that date (optional)</label><input type="text" id="mUseAfterReason" placeholder="e.g. lots of twigs, slow to break down" value="${escapeAttr(batch.useAfterReason||'')}"></div></div>
+      ${startExtra.showStart?`<div class="form-row"><div><label>Compost started</label><input type="date" id="mCreatedDate" value="${batch.startDate||''}"></div></div>`:''}
+      ${startExtra.html||''}
+    </details>
+  </div>`;
+}
+function wireCompostReadiness(batch, obj, storeKind, onDone){
+  const save = async ()=>{ await put(storeKind, obj); await afterChange(); onDone(); };
+  const useAfterEl = document.getElementById('mUseAfter');
+  if(useAfterEl) useAfterEl.addEventListener('change', async ()=>{
+    batch.useAfter = useAfterEl.value || null;
+    // Pushing the date into the future means it isn't ready after all.
+    if(batch.useAfter && batch.readyDate && compostMonthsToGo(batch.useAfter)>0) batch.readyDate = null;
+    await save();
+  });
+  const reasonEl = document.getElementById('mUseAfterReason');
+  if(reasonEl) reasonEl.addEventListener('change', async ()=>{ batch.useAfterReason = reasonEl.value.trim() || null; await save(); });
+  const startEl = document.getElementById('mCreatedDate');
+  if(startEl) startEl.addEventListener('change', async ()=>{ batch.startDate = startEl.value || null; await save(); });
+  const readyBtn = document.getElementById('mReadyNow');
+  if(readyBtn) readyBtn.addEventListener('click', async ()=>{ batch.readyDate = todayISO(); await save(); });
+  const notReadyBtn = document.getElementById('mNotReady');
+  if(notReadyBtn) notReadyBtn.addEventListener('click', async ()=>{ batch.readyDate = null; compostUIFor(batch).datesOpen = true; await save(); });
+}
+function wireCompostToggles(batch){
+  const ui = compostUIFor(batch);
+  modalContent.querySelectorAll('details[data-ui]').forEach(d=>d.addEventListener('toggle', ()=>{
+    const v = d.dataset.ui, i = v.indexOf('|');
+    const t = i<0 ? v : v.slice(0,i), k = i<0 ? '' : v.slice(i+1);
+    if(t==='line') ui.lineOpen = d.open;
+    else if(t==='dates') ui.datesOpen = d.open;
+    else if(t==='ing') ui.ingOpen[k] = d.open;
+    else if(t==='more') ui.moreOpen[k] = d.open;
+  }));
+}
+// ---- What's gone in: the log is free text, so the same thing typed the same way is one ingredient.
+// Closed, it reads as one line ("Grass clippings, leaves, horse manure"); everything else is a tap down.
+function compostIngredients(batch){
+  const groups = {};
+  for(const e of (batch.contentsLog||[])){
+    const k = String(e.note||'').trim().toLowerCase().replace(/\s+/g,' ');
+    if(!k) continue;
+    (groups[k] = groups[k] || {key:k, entries:[]}).entries.push(e);
+  }
+  const list = Object.values(groups);
+  list.forEach(g=>{
+    g.entries.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    // The spelling typed most often names it (oldest wins a tie), so one stray capital doesn't rename it.
+    const spell = {};
+    g.entries.forEach(e=>{ const t=String(e.note).trim(); (spell[t]=spell[t]||{t, n:0, first:e.date||''}).n++; if((e.date||'')<spell[t].first) spell[t].first=e.date||''; });
+    g.label = Object.values(spell).sort((a,b)=> b.n-a.n || a.first.localeCompare(b.first))[0].t;
+    g.last = g.entries[0].date || '';
+  });
+  list.sort((a,b)=> b.last.localeCompare(a.last) || a.label.localeCompare(b.label));
+  return list;
+}
+function compostLcFirst(s){
+  if(!s) return s;
+  return (s.length===1 || s[1]===s[1].toLowerCase()) ? s[0].toLowerCase()+s.slice(1) : s;
+}
+function compostAddLogHTML(batch, obj){
+  const names = new Set();
+  (obj.compostBatches||[]).forEach(b=>compostIngredients(b).forEach(g=>names.add(g.label)));
+  return `<div class="row-heading">Add to the log</div>
+    <datalist id="compostIngList">${[...names].sort((a,b)=>a.localeCompare(b)).map(n=>`<option value="${escapeAttr(n)}"></option>`).join('')}</datalist>
+    <div class="form-row"><div><input type="text" id="mLogNote" list="compostIngList" placeholder="e.g. Horse manure"></div></div>
+    <details class="timings"><summary>Not today? Change the date</summary><div class="form-row" style="margin-top:6px;"><div><label>Date</label><input type="date" id="mLogDate" value="${todayISO()}"></div></div></details>
+    <button type="button" class="btn small" id="mLogAdd" style="margin:8px 0 14px;">+ Add to log</button>`;
+}
+function compostIngredientsHTML(batch){
+  const ui = compostUIFor(batch);
+  const list = compostIngredients(batch);
+  if(!list.length) return `<div class="row-heading">What's gone in</div><p class="muted">Nothing logged yet.</p>`;
+  const line = list.map((g,i)=> i ? compostLcFirst(g.label) : g.label).join(', ');
+  const dateRow = e=>`<div class="planting-row"><span class="pname">${dayLabel(e.date)}</span><button type="button" class="btn small danger" data-dellog="${e.id}">Remove</button></div>`;
+  const inner = list.map(g=>{
+    const n = g.entries.length, shown = g.entries.slice(0,3), more = g.entries.slice(3);
+    return `<details class="vr-ing" data-ui="ing|${escapeAttr(g.key)}" ${ui.ingOpen[g.key]?'open':''}><summary><span>${escapeHTML(g.label)}</span><span class="tiny-muted" style="margin-left:auto;">${n===1?'once':n+' times'}</span></summary>
+      <div class="ing-dates">${shown.map(dateRow).join('')}${more.length?`<details class="timings" data-ui="more|${escapeAttr(g.key)}" ${ui.moreOpen[g.key]?'open':''}><summary>and ${more.length} earlier</summary>${more.map(dateRow).join('')}</details>`:''}</div></details>`;
+  }).join('');
+  return `<div class="row-heading">What's gone in</div>
+    <details class="ing-line" data-ui="line" ${ui.lineOpen?'open':''}><summary><span class="ing-text">${escapeHTML(line)}</span></summary><div>${inner}</div></details>`;
+}
 function compostFieldsHTML(obj){
   const batch = currentCompostBatch(obj);
-  const entries = (batch.contentsLog||[]).slice().sort((a,b)=> b.date.localeCompare(a.date));
-  const logRows = entries.map(e=>`<div class="planting-row"><span class="pname">${escapeHTML(e.note)}</span><span class="pdate">${dayLabel(e.date)}</span></div>
-    <button type="button" class="btn small danger" data-dellog="${e.id}" style="margin:-6px 0 8px;">Remove entry</button>`).join('') || '<p class="muted">Nothing logged yet.</p>';
   const pastBatches = (obj.compostBatches||[]).filter(b=>b.id!==batch.id && b.endDate).sort((a,b)=> (b.endDate||'').localeCompare(a.endDate||''));
   const pastHTML = pastBatches.length ? `<div class="row-heading">Past batches</div>${pastBatches.map(b=>`<div class="planting-row" style="cursor:pointer;" data-viewbatch="${b.id}"><span class="pname">${escapeHTML(compostBatchLabel(b))}${b.usedUp?' <span class="tiny-muted">(used up)</span>':''}</span></div>`).join('')}` : '';
-  return `<div class="form-row">
-      <div><label>Compost started</label><p class="tiny-muted" style="margin:2px 0 6px;">optional</p><input type="date" id="mCreatedDate" value="${batch.startDate||''}"></div>
-      <div><label>Use after</label><p class="tiny-muted" style="margin:2px 0 6px;">optional</p><input type="month" id="mUseAfter" value="${batch.useAfter||''}"></div>
-    </div>
-    <div class="row-heading">What's gone in</div>
-    ${logRows}
-    <div class="form-row" style="margin-top:6px;"><div><label>Date</label><input type="date" id="mLogDate" value="${todayISO()}"></div><div><label>Added</label><input type="text" id="mLogNote" placeholder="e.g. Horse manure"></div></div>
-    <div class="btn-row" style="margin-bottom:14px;">
-      <button type="button" class="btn small" id="mLogAdd">+ Add to log</button>
-      <button type="button" class="btn small secondary" id="mNewBatch">Start a new batch</button>
-    </div>
-    <div class="form-row"><div><label>Reason for delay (optional)</label><input type="text" id="mUseAfterReason" placeholder="e.g. lots of woodchip, slow to break down" value="${escapeAttr(batch.useAfterReason||'')}"></div></div>
-    ${pastHTML}`;
+  return compostReadinessHTML(batch, {showStart:true}) + compostAddLogHTML(batch, obj) + compostIngredientsHTML(batch) +
+    `<div class="btn-row" style="margin:14px 0;"><button type="button" class="btn small secondary" id="mNewBatch">Start a new batch</button></div>` + pastHTML;
 }
 // Everything compostFieldsHTML renders that needs wiring up - the date, the log's add/remove,
 // starting a new batch, and jumping into a past one. Kept as one function since they all act on
@@ -4947,21 +5080,8 @@ function compostFieldsHTML(obj){
 // button the surrounding screen has for the object's own name/size/colour.
 function wireCompostFields(obj, storeKind, onDone){
   const batch = currentCompostBatch(obj);
-  const dateEl = document.getElementById('mCreatedDate');
-  if(dateEl) dateEl.addEventListener('change', async ()=>{
-    batch.startDate = dateEl.value || null;
-    await put(storeKind, obj); await afterChange();
-  });
-  const useAfterEl = document.getElementById('mUseAfter');
-  if(useAfterEl) useAfterEl.addEventListener('change', async ()=>{
-    batch.useAfter = useAfterEl.value || null;
-    await put(storeKind, obj); await afterChange();
-  });
-  const useAfterReasonEl = document.getElementById('mUseAfterReason');
-  if(useAfterReasonEl) useAfterReasonEl.addEventListener('change', async ()=>{
-    batch.useAfterReason = useAfterReasonEl.value.trim() || null;
-    await put(storeKind, obj); await afterChange();
-  });
+  wireCompostReadiness(batch, obj, storeKind, onDone);
+  wireCompostToggles(batch);
   const addBtn = document.getElementById('mLogAdd');
   if(addBtn) addBtn.addEventListener('click', async ()=>{
     const note = document.getElementById('mLogNote').value.trim();
@@ -4995,21 +5115,15 @@ function wireCompostFields(obj, storeKind, onDone){
 // that on drops it out of the Source picker everywhere (nothing left in it worth choosing), while
 // leaving it exactly where it is in this Past batches list and in the "Used on" trace below - nothing
 // is deleted or hidden from history, it just stops being offered as something to log against.
-function compostBatchEditHTML(batch){
-  const entries = (batch.contentsLog||[]).slice().sort((a,b)=> b.date.localeCompare(a.date));
-  const logRows = entries.map(e=>`<div class="planting-row"><span class="pname">${escapeHTML(e.note)}</span><span class="pdate">${dayLabel(e.date)}</span></div>
-    <button type="button" class="btn small danger" data-dellog="${e.id}" style="margin:-6px 0 8px;">Remove entry</button>`).join('') || '<p class="muted">Nothing logged.</p>';
-  return `<div class="form-row">
-      <div><label>Started</label><input type="date" id="mBatchStart" value="${batch.startDate||''}"></div>
-      <div><label>Ended</label><input type="date" id="mBatchEnd" value="${batch.endDate||''}"></div>
-    </div>
-    <div class="toggle-row"><span>Used up</span><label class="switch"><input type="checkbox" id="mUsedUp" ${batch.usedUp?'checked':''}><span class="slider"></span></label></div>
-    <div class="row-heading">What went in</div>
-    ${logRows}
-    <div class="form-row" style="margin-top:6px;"><div><label>Date</label><input type="date" id="mLogDate" value="${todayISO()}"></div><div><label>Added</label><input type="text" id="mLogNote" placeholder="e.g. Horse manure"></div></div>
-    <button type="button" class="btn small" id="mLogAdd" style="margin-bottom:14px;">+ Add to log</button>`;
+function compostBatchEditHTML(batch, obj){
+  const datesExtra = `<div class="form-row"><div><label>Started</label><input type="date" id="mBatchStart" value="${batch.startDate||''}"></div><div><label>Ended</label><input type="date" id="mBatchEnd" value="${batch.endDate||''}"></div></div>`;
+  return compostReadinessHTML(batch, {showStart:false, html:datesExtra}) +
+    `<div class="toggle-row"><span>Used up</span><label class="switch"><input type="checkbox" id="mUsedUp" ${batch.usedUp?'checked':''}><span class="slider"></span></label></div>` +
+    compostAddLogHTML(batch, obj) + compostIngredientsHTML(batch);
 }
 function wireCompostBatchEdit(batch, obj, storeKind, onDone){
+  wireCompostReadiness(batch, obj, storeKind, onDone);
+  wireCompostToggles(batch);
   document.getElementById('mBatchStart').addEventListener('change', async ()=>{
     batch.startDate = document.getElementById('mBatchStart').value || null;
     await put(storeKind, obj); await afterChange(); onDone();
@@ -5042,7 +5156,7 @@ function openCompostBatchDetail(batch, obj, storeKind, backFn){
   batch = obj && (obj.compostBatches||[]).find(b=>b.id===batch.id);
   if(!batch){ backFn(); return; }
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${escapeHTML(compostBatchLabel(batch))}</h3>
-    ${compostBatchEditHTML(batch)}
+    ${compostBatchEditHTML(batch, obj)}
     <button type="button" class="btn danger" id="mDelBatch" style="margin-top:10px;">Delete this batch</button>
     ${compostUsedOnHTML(batch.id)}`, true);
   document.getElementById('mBack').addEventListener('click', backFn);
@@ -7275,25 +7389,38 @@ function renderCompostSubList(){
   });
   STATE.beds.forEach(b=>{ if(b.raised && b.composting) crates.push({storeKind:'beds', label:b.name, obj:b}); });
   if(crates.length===0){ wrap.innerHTML = '<p class="empty-note">No compost batches yet — turn on "Composting underneath" on a raised bed or container, or add a Compost heap, to start tracking one.</p>'; return; }
-  const groups = crates.map(c=>({...c, batches:(c.obj.compostBatches||[]).slice().sort((a,b)=> (a.startDate||'').localeCompare(b.startDate||''))}));
-  const oldestStart = g=> (g.batches[0] && g.batches[0].startDate) || '';
-  if(compostListSort==='az') groups.sort((a,b)=> a.label.localeCompare(b.label));
-  else if(compostListSort==='date') groups.sort((a,b)=> oldestStart(a).localeCompare(oldestStart(b)));
-  else groups.sort((a,b)=> ((b.obj.compostInUse?1:0)-(a.obj.compostInUse?1:0)) || oldestStart(a).localeCompare(oldestStart(b)));
-  const sortRowHTML = groups.length>1 ? `<div class="sort-row"><span class="tiny-muted">Sort by</span>
-    <button class="tier-pill ${compostListSort==='inuse'?'active':''}" data-compostsort="inuse">In use first</button>
-    <button class="tier-pill ${compostListSort==='date'?'active':''}" data-compostsort="date">Oldest</button>
-    <button class="tier-pill ${compostListSort==='az'?'active':''}" data-compostsort="az">A&ndash;Z</button></div>` : '';
-  wrap.innerHTML = sortRowHTML + groups.map(g=>{
-    const batchRows = g.batches.length ? g.batches.map(batch=>`<div class="planting-row" style="cursor:pointer; padding-left:14px;" data-openbatch="${batch.id}" data-storekind="${g.storeKind}" data-objid="${g.obj.id}"><span class="pname">${escapeHTML(compostBatchLabel(batch))}${batch.usedUp?' <span class="tiny-muted">(used up)</span>':(!batch.endDate?' <span class="tiny-muted">(current)</span>':'')}</span></div>`).join('')
-      : '<p class="muted" style="padding-left:14px; margin:2px 0 8px;">No batches logged yet.</p>';
-    return `<div class="row-heading" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-      <span>${escapeHTML(g.label)}</span>
-      <label class="switch" title="Show in the compost picker when logging a treatment"><input type="checkbox" data-inuse="${g.obj.id}" data-storekind="${g.storeKind}" ${g.obj.compostInUse?'checked':''}><span class="slider"></span></label>
-    </div>
-    ${batchRows}`;
-  }).join('');
-  wrap.querySelectorAll('.sort-row [data-compostsort]').forEach(b=>b.addEventListener('click', ()=>{ compostListSort = b.dataset.compostsort; renderCompostSubList(); }));
+  const byName = (a,b)=> a.label.localeCompare(b.label, undefined, {numeric:true});
+  const rows = [], emptyCrates = [];
+  crates.forEach(c=>{
+    const batches = c.obj.compostBatches||[];
+    const live = batches.filter(b=>!b.usedUp);
+    if(!batches.length) emptyCrates.push(c);
+    batches.forEach(b=>{
+      const st = compostStatus(b);
+      let suffix = '';
+      if(st.key!=='used' && live.length>1) suffix = b.endDate ? ' (earlier batch)' : ' (current batch)';
+      rows.push({c, b, st, suffix, label:c.label});
+    });
+  });
+  const attrs = r=>`data-openbatch="${r.b.id}" data-storekind="${r.c.storeKind}" data-objid="${r.c.obj.id}"`;
+  const rowHTML = (r, right)=>`<div class="cmp-row" ${attrs(r)}><span style="flex:1; font-size:19px;">${escapeHTML(r.label)}${r.suffix?`<span class="tiny-muted">${r.suffix}</span>`:''}</span>${right}</div>`;
+  const ready = rows.filter(r=>r.st.key==='ready').sort((a,b)=>byName(a,b));
+  const check = rows.filter(r=>r.st.key==='check').sort((a,b)=>byName(a,b));
+  const maturing = rows.filter(r=>r.st.key==='maturing').sort((a,b)=> a.b.useAfter.localeCompare(b.b.useAfter) || byName(a,b));
+  const nodate = rows.filter(r=>r.st.key==='nodate').sort((a,b)=>byName(a,b));
+  const used = rows.filter(r=>r.st.key==='used').sort((a,b)=>byName(a,b));
+  let html = '';
+  const usable = [...ready, ...check];
+  if(usable.length) html += `<div class="row-heading">Ready to use</div>` + usable.map(r=>rowHTML(r, r.st.key==='ready' ? '<span class="cmp-tag cmp-ready">Ready</span>' : '<span class="cmp-tag cmp-check">Check it</span>')).join('');
+  const waiting = [...maturing, ...nodate];
+  if(waiting.length) html += `<div class="row-heading">Still maturing</div>` + waiting.map(r=>rowHTML(r, r.st.key==='maturing' ? `<span class="cmp-wait">${escapeHTML(compostMonthLabel(r.b.useAfter))}</span>` : '<span class="cmp-wait">No date</span>')).join('');
+  if(used.length) html += `<details class="timings" style="margin-top:14px;"><summary>Used up (${used.length})</summary><div style="margin-top:6px;">${used.map(r=>`<div class="cmp-row" ${attrs(r)}><span style="flex:1; font-size:18px;">${escapeHTML(r.label)} <span class="tiny-muted">${escapeHTML(compostBatchLabel(r.b))}</span></span></div>`).join('')}</div></details>`;
+  if(emptyCrates.length) html += `<p class="tiny-muted" style="margin-top:14px;">No batch logged yet: ${emptyCrates.map(c=>escapeHTML(c.label)).join(', ')}</p>`;
+  if(!html) html = '<p class="empty-note">Nothing to show yet.</p>';
+  // Which crates are offered when logging a treatment - same switch as before, tucked away.
+  const sorted = crates.slice().sort(byName);
+  html += `<details class="timings" style="margin-top:14px;"><summary>Crates offered when logging a treatment</summary><div style="margin-top:6px;">${sorted.map(g=>`<div class="planting-row" style="justify-content:space-between;"><span>${escapeHTML(g.label)}</span><label class="switch"><input type="checkbox" data-inuse="${g.obj.id}" data-storekind="${g.storeKind}" ${g.obj.compostInUse?'checked':''}><span class="slider"></span></label></div>`).join('')}</div></details>`;
+  wrap.innerHTML = html;
   wrap.querySelectorAll('[data-inuse]').forEach(el=>el.addEventListener('change', async ()=>{
     const obj = STATE[el.dataset.storekind].find(o=>o.id===el.dataset.inuse);
     if(!obj) return;
