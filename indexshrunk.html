@@ -152,6 +152,24 @@ input[type=checkbox]{width:22px; height:22px; accent-color:var(--leaf); flex-shr
 .crop-foot{display:flex; align-items:center; gap:8px; margin-top:6px;}
 .crop-head input[type=text]{border:none; background:transparent; font-family:'Zilla Slab',serif; font-size:19.5px; font-weight:600; color:var(--soil); flex:1; padding:2px 0;}
 details.timings{margin-top:8px;} details.timings summary{cursor:pointer; font-size:16.5px; color:var(--leaf); font-weight:700;}
+/* Variety comparison: one slim line per variety (name, bar, percentage), everything else behind a tap. */
+details.vr{border-top:1px solid var(--line-soft);} details.vr:first-of-type{border-top:none;}
+details.vr summary{list-style:none; cursor:pointer; display:flex; align-items:center; gap:8px; min-height:48px; padding:4px 0;}
+details.vr summary::-webkit-details-marker{display:none;}
+details.vr summary::after{content:'\203A'; font-size:22px; color:var(--slate); width:14px; text-align:center; transition:transform .15s;}
+details.vr[open] summary::after{transform:rotate(90deg);}
+details.vr.sel{background:#3F664412; border-radius:8px;}
+.vr-nm{flex:0 0 38%; font-size:18px; line-height:1.2; overflow-wrap:anywhere; color:var(--ink); font-weight:400;}
+.vr-bar{flex:1; height:12px; border-radius:6px; background:var(--line-soft); overflow:hidden; min-width:40px;}
+.vr-bar i{display:block; height:100%; background:var(--leaf);} .vr-bar i.thin{background:var(--leaf-light);}
+.vr-pct{font-size:17px; font-weight:700; min-width:48px; text-align:right; color:var(--soil);}
+.vr-det{padding:2px 4px 12px; font-size:16px; color:var(--slate); line-height:1.5;}
+.vr-det .vr-fail{color:var(--brick); font-weight:700;}
+.vr-yrs{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;}
+.vr-yr{font-size:14px; padding:2px 8px; border-radius:6px; background:var(--paper-dark); color:var(--soil);}
+.vr-key{font-size:14px; color:var(--slate); margin:8px 0 0;}
+.vr-pill{font-size:16px; padding:8px 12px; border:1.5px solid var(--line); border-radius:8px; background:var(--card); color:var(--soil); margin:0 6px 8px 0;}
+.vr-pill.sel{border-color:var(--leaf); background:#3F664422; font-weight:700;}
 details.more-toggle{margin-top:10px;} details.more-toggle summary{cursor:pointer; font-size:17px; color:var(--leaf); font-weight:700; background:var(--card); border:1.5px solid var(--leaf); border-radius:var(--radius); padding:10px 14px; display:block; list-style:none;}
 details.more-toggle summary::-webkit-details-marker{display:none;}
 details.more-toggle summary::marker{display:none; content:'';}
@@ -718,7 +736,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.09.19';
+const APP_VERSION = '2026.10.10.1';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -3507,9 +3525,10 @@ for(const o of objs){
 const x=X(o.x), y=Y(o.y), w=o.w*scale, h=o.h*scale;
 const name = o._kind==='beds' ? (o.name||'Bed') : (o.label || (FEATURE_TYPES[o.type]||{label:o.type}).label);
 const planned = (STATE.planningItems||[]).filter(it=>(it.plannedBeds||[]).some(p=>p.bedId===o.id)).map(it=>{
+const pe = (it.plannedBeds||[]).find(pp=>pp.bedId===o.id);
 const clash = !!(planningClashForBed(it, o)) || planningDiseaseClashForBed(it, o).length>0;
 if(clash) anyClash = true;
-return (clash?'⚠ ':'') + it.name + (it.plantingDate ? ` (${monthOf(it.plantingDate)})` : '');
+return (clash?'⚠ ':'') + planName(it,pe) + (it.plantingDate ? ` (${monthOf(it.plantingDate)})` : '');
 });
 const nowLines = planningPrintNowLines(o);
 const isPath = o.type==='path' || o.type==='fence';
@@ -7301,9 +7320,9 @@ let historyCropTerm = '';
 let historyBedTerm = '';
 function gatherRemovedHistory(){
 const removed = [];
-for(const bed of STATE.beds) for(const h of (bed.history||[])) removed.push({id:h.id?'rm-'+h.id:'rm-'+bed.id+'-'+h.clearedDate+'-'+h.cropName, entryId:h.id, cropName:h.cropName, family:h.family, locationLabel:bed.name, harvestDate:h.clearedDate, reason:h.reason, removed:true, approx:h.approx, sourceKind:'beds', sourceId:bed.id});
-for(const feat of STATE.features) for(const h of (feat.history||[])) removed.push({id:h.id?'rm-'+h.id:'rm-'+feat.id+'-'+h.clearedDate+'-'+h.cropName, entryId:h.id, cropName:h.cropName, family:h.family, locationLabel:feat.label, harvestDate:h.clearedDate, reason:h.reason, removed:true, approx:h.approx, sourceKind:'features', sourceId:feat.id});
-for(const h of (STATE.settings.unplacedHistory||[])) removed.push({id:'up-'+h.id, unplacedId:h.id, cropName:h.cropName, family:h.family, locationLabel:'Not sure which bed', harvestDate:h.clearedDate, reason:h.reason, removed:true, approx:true, unplaced:true, by:h.by, sourceKind:'unplaced'});
+for(const bed of STATE.beds) for(const h of (bed.history||[])) removed.push({id:h.id?'rm-'+h.id:'rm-'+bed.id+'-'+h.clearedDate+'-'+h.cropName, entryId:h.id, cropName:h.cropName, family:h.family, locationLabel:bed.name, harvestDate:h.clearedDate, reason:h.reason, startedDate:h.startedDate, removed:true, approx:h.approx, sourceKind:'beds', sourceId:bed.id});
+for(const feat of STATE.features) for(const h of (feat.history||[])) removed.push({id:h.id?'rm-'+h.id:'rm-'+feat.id+'-'+h.clearedDate+'-'+h.cropName, entryId:h.id, cropName:h.cropName, family:h.family, locationLabel:feat.label, harvestDate:h.clearedDate, reason:h.reason, startedDate:h.startedDate, removed:true, approx:h.approx, sourceKind:'features', sourceId:feat.id});
+for(const h of (STATE.settings.unplacedHistory||[])) removed.push({id:'up-'+h.id, unplacedId:h.id, cropName:h.cropName, family:h.family, locationLabel:'Not sure which bed', harvestDate:h.clearedDate, reason:h.reason, startedDate:h.startedDate, removed:true, approx:true, unplaced:true, by:h.by, sourceKind:'unplaced'});
 return removed;
 }
 /* ======================= GLOBAL SEARCH =======================
@@ -7495,6 +7514,152 @@ wrap.innerHTML = (nothingThisYear ? `<p class="empty-note" style="margin-bottom:
 wrap.querySelectorAll('[data-h]').forEach(el=>el.addEventListener('click', ()=> openHistoryDetail(el.dataset.h)));
 wrap.querySelectorAll('[data-rh]').forEach(el=>el.addEventListener('click', ()=> openRemovedHistoryDetail(el.dataset.rh)));
 }
+/* ======================= VARIETY COMPARISON =======================
+One shared calculation behind both the History "Comparing varieties" list and the Planning Ahead
+variety picker. It only uses what's already recorded: each harvest's rating, optional weight and
+planted date, the person who logged it, and the history entries left behind when a crop is removed. */
+function vcEsc(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+function vcKey(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+// Which variety a stored crop name carries: a built-in variety found in the name wins (longest first);
+// otherwise whatever is left after taking out the crop's own name/words (a custom variety). Nothing
+// left means no variety was named (key '').
+function splitVariety(cropName, baseCrop){
+const raw = (cropName||'').trim();
+if(!baseCrop) return {key:vcKey(raw), label:raw};
+const lower = raw.toLowerCase();
+const vs = (baseCrop.varieties||[]).slice().sort((a,b)=>b.length-a.length);
+for(const v of vs){
+if(new RegExp(`(^|[^a-z0-9])${vcEsc(v.toLowerCase())}($|[^a-z0-9])`).test(lower)) return {key:vcKey(v), label:v};
+}
+let rest = raw;
+const ws = [baseCrop.name, ...(baseCrop.words||[])].sort((a,b)=>b.length-a.length);
+for(const w of ws) rest = rest.replace(new RegExp(`(^|[^A-Za-z0-9])${vcEsc(w)}(?=$|[^A-Za-z0-9])`,'gi'),' ');
+rest = rest.replace(/\s+/g,' ').trim();
+return {key:vcKey(rest), label:rest};
+}
+function vcPlantingKey(name, loc, date){ return [name,loc,date].map(x=>String(x||'').toLowerCase().trim()).join('|'); }
+// A removed crop counts as a failure when nothing was ever harvested from that planting. Old entries
+// with no planted date can't be matched, so they only count if a reason was written down.
+function vcIsFailure(e, harvestKeys){
+if(!e.removed) return false;
+if(e.startedDate) return !harvestKeys.has(vcPlantingKey(e.cropName,'',e.startedDate));
+return !!e.reason;
+}
+function vcItemsForBase(baseName){
+return [...STATE.harvests, ...gatherRemovedHistory()].filter(h=>{
+const m = matchCropWithConfidence(h.cropName||'');
+return m.crop && m.confident && m.crop.name===baseName;
+});
+}
+function varietyStats(items, baseCrop){
+const harvestKeys = new Set(STATE.harvests.map(h=>vcPlantingKey(h.cropName,'',h.plantedDate)));
+const groups = {};
+const get = (name)=>{ const sv = splitVariety(name, baseCrop); return groups[sv.key] = groups[sv.key] || {key:sv.key, label:sv.label, harvests:[], failures:[]}; };
+for(const h of items){
+if(h.removed){ if(vcIsFailure(h, harvestKeys)) get(h.cropName).failures.push(h); }
+else get(h.cropName).harvests.push(h);
+}
+const toKg = w => w.unit==='lb' ? w.value*0.45359237 : w.value;
+const yearOf = h => String(h.plantedDate||h.startedDate||h.harvestDate||'').slice(0,4);
+const out = [];
+for(const g of Object.values(groups)){
+const rated = g.harvests.filter(h=>h.rating!=null);
+g.avg = rated.length ? Math.round(rated.reduce((a,h)=>a+h.rating,0)/rated.length*10) : null;
+const years = [...new Set([...g.harvests,...g.failures].map(yearOf).filter(Boolean))].sort();
+g.years = years; g.seasons = years.length;
+g.perYear = years.map(y=>{
+const r = rated.filter(h=>yearOf(h)===y);
+return {year:y, avg: r.length ? Math.round(r.reduce((a,h)=>a+h.rating,0)/r.length*10) : null, failed: g.failures.filter(f=>yearOf(f)===y).length};
+});
+const plantings = {};
+for(const h of g.harvests){
+if(!h.amount || !h.amount.weight || !(h.amount.weight.value>0)) continue;
+const k = vcPlantingKey(h.cropName, h.locationLabel, h.plantedDate || ('h'+String(h.harvestDate||'').slice(0,4)));
+const pl = plantings[k] = plantings[k] || {kg:0, area:null};
+pl.kg += toKg(h.amount.weight);
+if(h.area) pl.area = h.area;
+}
+const ps = Object.values(plantings);
+g.nWeighed = ps.length;
+g.kgPerGrowing = ps.length ? ps.reduce((a,x)=>a+x.kg,0)/ps.length : null;
+const withArea = ps.filter(x=>x.area>0);
+g.kgPerM2 = withArea.length ? withArea.reduce((a,x)=>a+x.kg/x.area,0)/withArea.length : null;
+const by = {};
+for(const h of rated){ const n=(h.by||'').trim(); if(n) (by[n]=by[n]||[]).push(h.rating); }
+const names = Object.keys(by);
+g.split = null;
+if(names.length>=2){
+const avgs = names.map(n=>({n, a:Math.round(by[n].reduce((x,y)=>x+y,0)/by[n].length*10)}));
+const hi = Math.max(...avgs.map(x=>x.a)), lo = Math.min(...avgs.map(x=>x.a));
+if(hi-lo>=20) g.split = avgs.sort((x,y)=>y.a-x.a);
+}
+out.push(g);
+}
+return out;
+}
+function vcFmtWeight(kg){
+const imp = STATE.settings.units==='imperial';
+const v = imp ? kg/0.45359237 : kg;
+return (v<10 ? v.toFixed(1) : String(Math.round(v))) + (imp?' lb':' kg');
+}
+function varietyDetailHTML(g){
+const lines = [];
+const n = g.harvests.length;
+let first = `${n} harvest${n===1?'':'s'}`;
+if(g.seasons===1) first += ` &middot; one season only (${g.years[0]})`;
+lines.push(first);
+if(g.kgPerGrowing!=null){
+lines.push(`${vcFmtWeight(g.kgPerGrowing)} per growing` + (g.kgPerM2!=null ? ` &middot; ${vcFmtWeight(g.kgPerM2)} per m&sup2;` : '') + (g.nWeighed>1 ? ` <span class="tiny-muted">(from ${g.nWeighed} growings)</span>` : ''));
+} else if(n){ lines.push('No weight recorded'); }
+if(g.failures.length){
+const f = g.failures[0];
+lines.push(`<span class="vr-fail">${g.failures.length} failed</span>` + (g.failures.length===1 ? ` &mdash; removed ${dayLabel(f.harvestDate)}${f.reason?', '+escapeHTML(f.reason):''}` : ''));
+}
+if(g.split) lines.push(g.split.map(x=>`${escapeHTML(x.n)} ${x.a}%`).join(' &middot; ') + ' &mdash; you rated this one differently');
+const chips = g.perYear.length>1 || g.failures.length || g.perYear.some(y=>y.avg==null)
+? `<div class="vr-yrs">${g.perYear.map(y=>`<span class="vr-yr">${y.year} &middot; ${y.avg!=null?y.avg+'%':(y.failed?'failed':'no rating')}${y.avg!=null&&y.failed?` + ${y.failed} failed`:''}</span>`).join('')}</div>` : '';
+return lines.join('<br>') + chips;
+}
+function varietyRowHTML(g, o){
+o = o || {};
+const label = g.label || 'No variety named';
+return `<details class="vr${o.selected?' sel':''}"><summary><span class="vr-nm">${escapeHTML(label)}</span><span class="vr-bar"><i class="${g.seasons>1?'':'thin'}" style="width:${g.avg!=null?g.avg:0}%"></i></span><span class="vr-pct">${o.approx?'\u2248':''}${g.avg!=null?g.avg+'%':'\u2013'}</span></summary><div class="vr-det">${varietyDetailHTML(g)}${o.extra||''}</div></details>`;
+}
+// Best first, but anything within about 5 points of the top of its group is treated as level (sorted
+// A-Z, marked with a tilde) so a one-point gap never decides an order.
+function varietyOrderForHistory(stats){
+const byLabel = (a,b)=> (a.label||'').localeCompare(b.label||'');
+const rated = stats.filter(g=>g.avg!=null).sort((a,b)=>b.avg-a.avg || byLabel(a,b));
+const unrated = stats.filter(g=>g.avg==null).sort(byLabel);
+const clusters = []; let cur = null;
+for(const g of rated){
+if(cur && cur.top-g.avg<=5) cur.list.push(g); else { cur = {top:g.avg, list:[g]}; clusters.push(cur); }
+}
+const rows = [];
+for(const c of clusters){ c.list.sort(byLabel); c.list.forEach(g=>rows.push({g, approx:c.list.length>1})); }
+unrated.forEach(g=>rows.push({g, approx:false}));
+return rows;
+}
+let planningVarietyChoice = {itemId:null, label:'', open:false};
+function planName(it, p){ return it.name + (p && p.variety ? ' '+p.variety : ''); }
+function planningVarietyChosen(item){ return planningVarietyChoice.itemId===item.id ? planningVarietyChoice.label : ''; }
+function planningVarietyPanelHTML(item, matchedCrop){
+if(!matchedCrop) return '';
+if(splitVariety(item.name, matchedCrop).key) return ''; // the plan already names a variety
+const stats = varietyStats(vcItemsForBase(matchedCrop.name), matchedCrop).filter(g=>g.key);
+const grownKeys = new Set(stats.map(g=>g.key));
+const seen = new Set();
+const untried = (matchedCrop.varieties||[]).filter(v=>{ const k=vcKey(v); if(grownKeys.has(k)||seen.has(k)) return false; seen.add(k); return true; }).sort((a,b)=>a.localeCompare(b));
+if(!stats.length && !untried.length) return '';
+const choice = planningVarietyChosen(item);
+const open = planningVarietyChoice.itemId===item.id && planningVarietyChoice.open;
+stats.sort((a,b)=>(a.label||'').localeCompare(b.label||''));
+const grownHTML = stats.length ? `<p class="tiny-muted" style="margin:10px 0 2px;">Grown before</p>` + stats.map(g=>varietyRowHTML(g,{selected: choice && vcKey(choice)===g.key, extra:`<div style="margin-top:8px;"><button class="btn small" data-pickvariety="${escapeAttr(g.label)}">Choose ${escapeHTML(g.label)}</button></div>`})).join('') : '';
+const untriedHTML = untried.length ? `<p class="tiny-muted" style="margin:12px 0 6px;">Not tried yet</p>` + untried.map(v=>`<button class="vr-pill${choice && vcKey(choice)===vcKey(v)?' sel':''}" data-pickvariety="${escapeAttr(v)}">${escapeHTML(v)}</button>`).join('') : '';
+return `<details class="timings" ${open?'open':''} style="margin:4px 0 10px;"><summary>Variety (optional): ${choice?escapeHTML(choice):'not chosen yet'}</summary><div style="margin-top:8px;">
+<button class="vr-pill${choice?'':' sel'}" data-pickvariety="">Plain ${escapeHTML(item.name.toLowerCase())} (decide later)</button>
+${grownHTML}${untriedHTML}</div></details>`;
+}
 function renderHistoryCropLookup(wrap){
 const term = historyCropTerm.trim();
 if(!term){
@@ -7547,23 +7712,14 @@ ${avgRating!=null?`<div><span class="stat-num">${avgRating}%</span>avg rating</d
 ${avgDueLabel?`<div><span class="stat-num">${avgDueLabel}</span>vs. estimate, on average</div>`:''}
 <div><span class="stat-num">${spanLabel}</span></div>
 </div></div>`;
-const byVariety = {};
-for(const h of items){ const key = h.cropName||'Unknown'; (byVariety[key]=byVariety[key]||[]).push(h); }
-const varietyNames = Object.keys(byVariety);
+const baseCropForStats = (searchMatch.crop && searchMatch.confident) ? searchMatch.crop : null;
+const vstats = varietyStats(items, baseCropForStats);
 let varietyCompareHTML = '';
-if(varietyNames.length>1){
-const rows = varietyNames.map(name=>{
-const group = byVariety[name];
-const rated = group.filter(h=>h.rating!=null);
-const avg = rated.length ? Math.round(rated.reduce((a,h)=>a+h.rating,0)/rated.length*10) : null;
-const groupDueDiffs = group.filter(h=>h.dueDateDiff!=null).map(h=>h.dueDateDiff);
-const groupAvgDue = groupDueDiffs.length ? Math.round(groupDueDiffs.reduce((a,d)=>a+d,0)/groupDueDiffs.length) : null;
-const groupAvgDueLabel = groupAvgDue==null ? null : (groupAvgDue===0?'on time':(groupAvgDue<0?`${Math.abs(groupAvgDue)}d early`:`${groupAvgDue}d late`));
-return {name, count:group.length, avg, groupAvgDueLabel};
-}).sort((a,b)=> (b.avg??-1)-(a.avg??-1));
-varietyCompareHTML = `<div class="row-heading">Comparing varieties</div>` + rows.map(r=>
-`<div class="planting-row"><span class="pname">${escapeHTML(r.name)}</span><span class="pdate">${r.count} harvest${r.count===1?'':'s'}${r.avg!=null?` &middot; ${r.avg}% avg rating`:''}${r.groupAvgDueLabel?` &middot; ${r.groupAvgDueLabel} on average`:''}</span></div>`
-).join('');
+if(vstats.length>1){
+const vrows = varietyOrderForHistory(vstats);
+const anyThin = vrows.some(r=>r.g.seasons===1 && r.g.avg!=null), anyLevel = vrows.some(r=>r.approx);
+varietyCompareHTML = `<div class="row-heading">Comparing varieties</div>` + vrows.map(r=>varietyRowHTML(r.g,{approx:r.approx})).join('') +
+`<p class="vr-key">Tap a variety for details.${anyThin?' Pale bar: one season only.':''}${anyLevel?' \u2248 means within about 5 points, so treat as level.':''}</p>`;
 }
 const cardsHTML = items.map(h=>{
 const ratingPct = h.rating!=null ? Math.round(h.rating*10) : null;
@@ -7955,13 +8111,16 @@ const rotationNote = !cropFamily
 const companionSuggestionBed = bedResults.find(r=>r.companionName && !r.already);
 const companionSuggestionHTML = companionSuggestionBed ? `<div class="warn-note" style="background:transparent; border-color:var(--leaf-light); color:var(--leaf); margin:2px 0 10px;">🌿 ${companionSuggestionBed.companionIsUserAdded?'<strong>Your own note:</strong> ':''}${escapeHTML(companionSuggestionBed.companionName)}'s already here at ${escapeHTML(companionSuggestionBed.bed.name)} — a good companion, worth planting ${escapeHTML(item.name)} there.
 <div class="btn-row" style="margin-top:6px;"><button class="btn small" data-agree="${companionSuggestionBed.bed.id}|${companionSuggestionBed.bed._kind}">Plan ${escapeHTML(item.name)} here</button></div></div>` : '';
+const chosenVariety = planningVarietyChosen(item);
+const planLabel = item.name + (chosenVariety ? ' '+chosenVariety : '');
 const rowHTML = (r) => {
+const plannedEntry = (item.plannedBeds||[]).find(pb=>pb.bedId===r.bed.id);
 const companionHTML = r.companionName ? `<div class="warn-note" style="background:transparent; border-color:var(--leaf-light); color:var(--leaf); margin-top:6px;">🌿 ${r.companionIsUserAdded?'<strong>Your own note:</strong> ':''}${escapeHTML(r.companionName)} is already here — a known companion for ${escapeHTML(item.name)}.
 <div class="btn-row" style="margin-top:6px;"><button class="btn small" data-companiontogether="${r.bed.id}|${r.bed._kind}">Sow together</button><button class="btn small secondary" data-companionseedonly="${r.bed.id}|${r.bed._kind}">Just add seed to tasks</button></div></div>` : '';
 return `<div style="border-bottom:1px solid var(--line-soft); padding-bottom:8px; margin-bottom:8px;">
 <div class="planting-row" style="border-bottom:none; padding-bottom:0;"><span class="pname" style="font-weight:700;">${escapeHTML(r.bed.name)}</span><span class="pdate" style="${r.clashing?'color:var(--brick);':''}">${r.reasonHTML}</span></div>
 <div class="btn-row" style="margin:4px 0 0;">
-<button class="btn small ${r.already?'secondary':''}" data-agree="${r.bed.id}|${r.bed._kind}" ${r.already?'disabled':''}>${r.already?'Already planned here':`Plan ${escapeHTML(item.name)} here`}</button>
+<button class="btn small ${r.already?'secondary':''}" data-agree="${r.bed.id}|${r.bed._kind}" ${r.already?'disabled':''}>${r.already?`Already planned here${plannedEntry&&plannedEntry.variety?' \u00B7 '+escapeHTML(plannedEntry.variety):''}`:`Plan ${escapeHTML(planLabel)} here`}</button>
 ${r.already?`<button class="btn small danger" data-removefromplan="${r.bed.id}">Remove from plan</button>`:''}
 </div>
 ${companionHTML}
@@ -7987,7 +8146,8 @@ dateLine = `<div class="planting-row"><span class="pname">${label}</span><span c
 <p class="tiny-muted" style="margin:2px 0 10px;">Buy seed and prepare-bed reminders both 2 weeks before; a sow reminder on the day itself.</p>`;
 }
 checkArea.innerHTML = `<div class="summary-card" style="margin-top:14px;">
-<div class="summary-title">Choose a bed for ${escapeHTML(item.name)}</div>
+<div class="summary-title">Choose a bed for ${escapeHTML(planLabel)}</div>
+${planningVarietyPanelHTML(item, matchedCrop)}
 ${dateLine}
 ${rotationNote}
 ${companionSuggestionHTML}
@@ -8000,9 +8160,16 @@ const [id, kind] = b.dataset.agree.split('|');
 const bed = plantableById(kind, id);
 const bedName = bed.name || bed.label;
 item.plannedBeds = item.plannedBeds || [];
-item.plannedBeds.push({bedId:id, bedName, bedKind:kind, notedDate:todayISO()});
+const planEntry = {bedId:id, bedName, bedKind:kind, notedDate:todayISO()};
+const vChoice = planningVarietyChosen(item);
+if(vChoice) planEntry.variety = vChoice;
+item.plannedBeds.push(planEntry);
 await put('planningItems', item);
 await afterChange();
+}));
+checkArea.querySelectorAll('[data-pickvariety]').forEach(b=>b.addEventListener('click', ()=>{
+planningVarietyChoice = {itemId:item.id, label:b.dataset.pickvariety, open:true};
+renderPlanning();
 }));
 checkArea.querySelectorAll('[data-removefromplan]').forEach(b=>b.addEventListener('click', async ()=>{
 item.plannedBeds = (item.plannedBeds||[]).filter(p=>p.bedId!==b.dataset.removefromplan);
@@ -8535,7 +8702,7 @@ return `<div class="warn-box" style="background:#B9852B14; border:1.5px solid va
 <div class="btn-row" style="margin-top:8px;"><button class="btn small secondary" data-dismissdisease="${it.id}|${bedId}|${kind}|${diseaseClash.issue}">I know — keep this plan anyway (until next year)</button><button class="btn small danger" data-deletedisease="${bedId}|${kind}|${diseaseClash.issue}">Delete this warning entirely</button></div>`;
 }).join('');
 return `<div class="summary-card" style="margin-top:10px;">
-<div class="summary-title" style="font-size:16px; font-weight:700;">${escapeHTML(it.name)}${it.plantingDate?` — planned ${dayLabel(it.plantingDate)}`:''}</div>
+<div class="summary-title" style="font-size:16px; font-weight:700;">${escapeHTML(planName(it,p))}${it.plantingDate?` — planned ${dayLabel(it.plantingDate)}`:''}</div>
 ${showWarn?`<div class="warn-box" style="background:#A23B2D14; border:1.5px solid var(--brick); border-radius:8px; padding:10px; margin-top:8px; font-family:-apple-system,sans-serif; font-size:15px; color:var(--soil);"><strong style="color:var(--brick);">Clashes with what's already there.</strong><br>${escapeHTML(clash.cropName)} isn't expected ready until <strong>${dayLabel(clash.harvestDue)}</strong> — after this planned sow date.</div>
 <button class="btn secondary" data-overrule="${it.id}|${bedId}|${kind}" style="margin-top:8px;">I know — keep this plan anyway</button>` : (dismissed?`<p class="tiny-muted" style="margin-top:6px;">Clash noted, kept anyway.</p>`:'')}
 ${diseaseHTML}
