@@ -749,7 +749,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.10.8';
+const APP_VERSION = '2026.10.10.9';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -4871,12 +4871,14 @@ return batch.startDate ? `since ${monthYearLabel(batch.startDate)}` : 'not yet s
 // ---- Readiness: a date is only ever a best guess, so a batch is one of: still maturing (the date is
 // ahead), "check it" (the date has passed but nobody has confirmed it), ready (somebody tapped
 // "It's ready now"), no date, or used up. Worked out here, shown the same way everywhere.
+// Stored as a month ("2027-09"); a full date from older or imported data is read as its month.
+function compostMonthOf(ua){ return ua ? String(ua).slice(0,7) : ''; }
 function compostMonthsToGo(ua){
-const [y,m] = String(ua).split('-').map(Number);
+const [y,m] = compostMonthOf(ua).split('-').map(Number);
 const n = new Date();
 return (y-n.getFullYear())*12 + (m-(n.getMonth()+1));
 }
-function compostMonthLabel(ua){ return monthYearLabel(ua+'-01'); }
+function compostMonthLabel(ua){ return monthYearLabel(compostMonthOf(ua)+'-01'); }
 function compostStatus(batch){
 if(batch.usedUp) return {key:'used'};
 if(batch.readyDate) return {key:'ready'};
@@ -4919,7 +4921,7 @@ ${sub.length?`<p class="tiny-muted" style="margin:2px 0 0;">${escapeHTML(sub.joi
 ${batch.useAfterReason?`<p class="tiny-muted" style="margin:4px 0 0;">${escapeHTML(batch.useAfterReason)}</p>`:''}
 ${action?`<div class="btn-row" style="margin-top:8px;">${action}</div>`:''}
 <details class="timings" data-ui="dates" ${ui.datesOpen?'open':''}><summary>Change dates</summary>
-<div class="form-row"><div><label>Do not use before</label><p class="tiny-muted" style="margin:2px 0 6px;">a best guess is fine</p><input type="month" id="mUseAfter" value="${batch.useAfter||''}"></div></div>
+<div class="form-row"><div><label>Do not use before</label><p class="tiny-muted" style="margin:2px 0 6px;">a best guess is fine</p><input type="month" id="mUseAfter" value="${compostMonthOf(batch.useAfter)}"></div></div>
 <div class="form-row"><div><label>Why that date (optional)</label><input type="text" id="mUseAfterReason" placeholder="e.g. lots of twigs, slow to break down" value="${escapeAttr(batch.useAfterReason||'')}"></div></div>
 ${startExtra.showStart?`<div class="form-row"><div><label>Compost started</label><input type="date" id="mCreatedDate" value="${batch.startDate||''}"></div></div>`:''}
 ${startExtra.html||''}
@@ -7366,7 +7368,7 @@ const attrs = r=>`data-openbatch="${r.b.id}" data-storekind="${r.c.storeKind}" d
 const rowHTML = (r, right)=>`<div class="cmp-row" ${attrs(r)}><span style="flex:1; font-size:19px;">${escapeHTML(r.label)}${r.suffix?`<span class="tiny-muted">${r.suffix}</span>`:''}</span>${right}</div>`;
 const ready = rows.filter(r=>r.st.key==='ready').sort((a,b)=>byName(a,b));
 const check = rows.filter(r=>r.st.key==='check').sort((a,b)=>byName(a,b));
-const maturing = rows.filter(r=>r.st.key==='maturing').sort((a,b)=> a.b.useAfter.localeCompare(b.b.useAfter) || byName(a,b));
+const maturing = rows.filter(r=>r.st.key==='maturing').sort((a,b)=> compostMonthOf(a.b.useAfter).localeCompare(compostMonthOf(b.b.useAfter)) || byName(a,b));
 const nodate = rows.filter(r=>r.st.key==='nodate').sort((a,b)=>byName(a,b));
 const used = rows.filter(r=>r.st.key==='used').sort((a,b)=>byName(a,b));
 let html = '';
@@ -9220,6 +9222,18 @@ const newer = (localObj._ts||0) >= (remoteObj._ts||0) ? localObj : remoteObj;
 const merged = {...newer};
 for(const nested of ['plantings','history','treatments','compostBatches']){
 if(remoteObj[nested] || localObj[nested]) merged[nested] = mergeItemListById(remoteObj[nested], localObj[nested], tombstoned);
+}
+// A compost batch keeps its own log inside it. When both devices have the same batch, its dates and
+// ready mark come from whichever changed it last, but log entries added on either device are all kept
+// (a removed entry stays removed - removals are tombstoned).
+if(merged.compostBatches){
+const rb = new Map((remoteObj.compostBatches||[]).map(b=>[b.id,b]));
+const lb = new Map((localObj.compostBatches||[]).map(b=>[b.id,b]));
+merged.compostBatches = merged.compostBatches.map(b=>{
+const r = rb.get(b.id), l = lb.get(b.id);
+if(!b.id || !r || !l) return b;
+return {...b, contentsLog: mergeItemListById(r.contentsLog, l.contentsLog, tombstoned)};
+});
 }
 return merged;
 }
