@@ -88,7 +88,9 @@
   .mapObj .icon{line-height:1;}
   .mapObj .lbl{max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 2px;}
   .mapObj.shaped{border:none; background:transparent; border-radius:0; overflow:visible;}
-  .mapObj.type-greenhouse,.mapObj.type-polytunnel{background:#EAF2F1; border-color:var(--slate);}
+  .cut-hole{position:absolute; border:1.5px dotted var(--slate); pointer-events:none; z-index:3;}
+  .cloche-over{position:absolute; border:2px dashed #435760; background:rgba(206,224,233,0.62); z-index:4; display:flex; align-items:center; justify-content:center; font-size:13px; color:#2B3A40; text-align:center; cursor:pointer; overflow:hidden; border-radius:3px;}
+  .mapObj.type-greenhouse,.mapObj.type-polytunnel,.mapObj.type-cloche{background:#EAF2F1; border-color:var(--slate);}
   .mapObj.type-shed{background:#EFE7DA; border-color:var(--soil);}
   .mapObj.type-fence{background:repeating-linear-gradient(45deg, #EFE7DA, #EFE7DA 4px, #E4DCC8 4px, #E4DCC8 8px); border-color:var(--soil);}
   .mapObj.type-container{background:#EFE7DA; border-color:var(--soil);}
@@ -806,7 +808,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.10.9';
+const APP_VERSION = '2026.10.10.10';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -2285,13 +2287,14 @@ window.addEventListener('online', async ()=>{
 
 const ICON_GREENHOUSE = '<svg viewBox="0 0 24 24" width="20" height="20"><polyline points="2,9 12,3 22,9" fill="none" stroke="#435760" stroke-width="1.6"/><rect x="3" y="9" width="18" height="12" fill="none" stroke="#435760" stroke-width="1.6"/><line x1="12" y1="3" x2="12" y2="21" stroke="#435760" stroke-width="1"/><line x1="3" y1="15" x2="21" y2="15" stroke="#435760" stroke-width="1"/></svg>';
 const ICON_POLYTUNNEL = '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M2 20 Q2 5 12 5 Q22 5 22 20" fill="none" stroke="#435760" stroke-width="1.6"/><line x1="2" y1="20" x2="22" y2="20" stroke="#435760" stroke-width="1.6"/><path d="M6 20 Q6 9.5 12 9.5 Q18 9.5 18 20" fill="none" stroke="#435760" stroke-width="1.2"/><path d="M9 20 Q9 13 12 12.8 Q15 13 15 20" fill="none" stroke="#435760" stroke-width="1"/></svg>';
+const ICON_CLOCHE = '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 18 L6 9 H18 L21 18 Z" fill="none" stroke="#435760" stroke-width="1.6" stroke-linejoin="round"/><line x1="2" y1="18" x2="22" y2="18" stroke="#435760" stroke-width="1.6"/><line x1="9" y1="9" x2="8" y2="18" stroke="#435760" stroke-width="1"/><line x1="15" y1="9" x2="16" y2="18" stroke="#435760" stroke-width="1"/></svg>';
 const ICON_RAISEDBED = '<svg viewBox="0 0 24 24" width="20" height="20"><rect x="2" y="4" width="20" height="16" rx="1" fill="none" stroke="#8B5A2B" stroke-width="1.6"/><line x1="2" y1="9" x2="22" y2="9" stroke="#8B5A2B" stroke-width="1"/><line x1="2" y1="14" x2="22" y2="14" stroke="#8B5A2B" stroke-width="1"/><line x1="2" y1="19" x2="22" y2="19" stroke="#8B5A2B" stroke-width="1"/></svg>';
 const FEATURE_TYPES = {
-  bed:{label:'Bed',icon:'🌱'}, raisedbed:{label:'Raised bed',icon:ICON_RAISEDBED}, greenhouse:{label:'Greenhouse',icon:ICON_GREENHOUSE}, polytunnel:{label:'Polytunnel',icon:ICON_POLYTUNNEL},
+  bed:{label:'Bed',icon:'🌱'}, raisedbed:{label:'Raised bed',icon:ICON_RAISEDBED}, greenhouse:{label:'Greenhouse',icon:ICON_GREENHOUSE}, polytunnel:{label:'Polytunnel',icon:ICON_POLYTUNNEL}, cloche:{label:'Cloche',icon:ICON_CLOCHE},
   tree:{label:'Fruit tree',icon:'🌳'}, basket:{label:'Basket',icon:'🧺'}, shed:{label:'Shed',icon:'🏚️'},
   container:{label:'Container',icon:'🪴'}, path:{label:'Path',icon:'▫️'}, fence:{label:'Fence',icon:'🚧'}, water:{label:'Water butt',icon:'💧'}, compost:{label:'Compost',icon:'♻️'},
 };
-const DEFAULT_SIZE = { bed:[2,1], raisedbed:[1.2,1.2], greenhouse:[2.5,2], polytunnel:[4,2], tree:[0.6,0.6], basket:[0.5,0.5], shed:[1.5,1.5], container:[0.5,0.5], path:[2,0.6], fence:[2,0.15], water:[0.5,0.5], compost:[1,0.8] };
+const DEFAULT_SIZE = { cloche:[1,0.5], bed:[2,1], raisedbed:[1.2,1.2], greenhouse:[2.5,2], polytunnel:[4,2], tree:[0.6,0.6], basket:[0.5,0.5], shed:[1.5,1.5], container:[0.5,0.5], path:[2,0.6], fence:[2,0.15], water:[0.5,0.5], compost:[1,0.8] };
 const BED_COLORS = ['#7E9A6D','#B9852B','#435760','#A23B2D','#6B4E71','#2E7D75','#C77D2E','#B15C6B'];
 const PROPOSAL_COLORS = ['#E63946','#1D8A99','#F3722C','#7209B7','#0077B6','#D62828'];
 function nextProposalColor(){
@@ -3445,6 +3448,20 @@ function renderPlacingBanner(){
     document.getElementById('alertsBox').innerHTML='';
     return;
   }
+  if(clocheFix){
+    const f = featureById(clocheFix.id);
+    el.innerHTML = `<div class="alert placing" style="flex-wrap:wrap; gap:8px;">
+      <span style="flex:1 1 100%;">⛺ Drag or turn ${escapeHTML(f?(f.label||'the cloche'):'the cloche')} to where it really is. Everything else is locked meanwhile.</span>
+      <button class="btn small secondary" id="btnFixTurn">↻ Turn</button>
+      <label style="display:flex; align-items:center; gap:6px; margin:0;"><input type="checkbox" id="chkFixOk"> This is the correct place</label>
+      <button class="btn small" id="btnFixConfirm">Confirm</button>
+      <button class="btn small secondary" id="btnFixCancel">Cancel</button></div>`;
+    document.getElementById('btnFixTurn').addEventListener('click', ()=>{ const ff=featureById(clocheFix.id); if(ff) turnClocheInPlace(ff, true); });
+    document.getElementById('btnFixConfirm').addEventListener('click', confirmClocheFix);
+    document.getElementById('btnFixCancel').addEventListener('click', cancelClocheFix);
+    document.getElementById('alertsBox').innerHTML='';
+    return;
+  }
   if(movingFeature){
     const label = (FEATURE_TYPES[movingFeature.type] && FEATURE_TYPES[movingFeature.type].label || 'container').toLowerCase();
     el.innerHTML = `<div class="alert placing">
@@ -3737,10 +3754,14 @@ function nextFreeSlot(w, h, occupied, itemW, itemH, shape){
   const defaultBandH = Math.min(0.6, Math.max(0.25, h/4));
   const iw = Math.min(itemW||w, w), ih = Math.min(itemH||defaultBandH, h);
   const n = occupied.length;
-  const rects = occupied.map((o,idx)=>{
-    if(o.px!=null && o.py!=null && o.pw!=null && o.ph!=null) return {px:o.px, py:o.py, pw:o.pw, ph:o.ph};
+  const rects = occupied.flatMap((o,idx)=>{
+    if(o.px!=null && o.py!=null && o.pw!=null && o.ph!=null){
+      const box = {px:o.px, py:o.py, pw:o.pw, ph:o.ph};
+      // ground cut out from under a cloche is free again, even though the crop's box still spans it
+      return (o.cutouts && o.cutouts.length) ? subtractRects([box], o.cutouts) : [box];
+    }
     const fallbackBandH = h/Math.max(1,n); // item has no saved position — it renders in a fallback band, so treat that band as taken
-    return {px:0, py:idx*fallbackBandH, pw:w, ph:fallbackBandH};
+    return [{px:0, py:idx*fallbackBandH, pw:w, ph:fallbackBandH}];
   });
   function overlaps(px,py,tw,th){
     for(const r of rects){ if(px < r.px+r.pw-0.001 && px+tw > r.px+0.001 && py < r.py+r.ph-0.001 && py+th > r.py+0.001) return true; }
@@ -3831,7 +3852,14 @@ function siblingRectsOf(boxEl){
     if(el===boxEl) return;
     if(myTier!==undefined && el.dataset.tierid!==myTier) return;
     if(myAllowOverlap || el.dataset.allowoverlap==='1') return;
-    rects.push({left:parseFloat(el.style.left), top:parseFloat(el.style.top), width:parseFloat(el.style.width), height:parseFloat(el.style.height)});
+    const box = {left:parseFloat(el.style.left), top:parseFloat(el.style.top), width:parseFloat(el.style.width), height:parseFloat(el.style.height)};
+    if(el.dataset.holes){
+      // the parts of this crop cut out from under a cloche are free to drag another crop into
+      const holes = el.dataset.holes.split(';').map(s=>{ const [l,t,w,h]=s.split(',').map(Number); return {px:l,py:t,pw:w,ph:h}; });
+      subtractRects([{px:box.left,py:box.top,pw:box.width,ph:box.height}], holes).forEach(r=>rects.push({left:r.px, top:r.py, width:r.pw, height:r.ph}));
+      return;
+    }
+    rects.push(box);
   });
   return rects;
 }
@@ -4307,11 +4335,14 @@ function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onCha
     // an unreachable sliver, making the handle impossible to grab precisely where it matters most.
     // Scale the icon to the box's own size once the box is the smaller of the two.
     const handleSize = Math.max(10, Math.min(20, w, h));
-    html += `<div class="crop-box${hl}${isEmpty?' empty':''}${centered?' icon-centered':''}${(!centered&&anchor.y==='bottom')?' anchor-y-bottom':''}${(!centered&&anchor.x==='right')?' anchor-x-right':''}" data-idx="${idx}" data-allowoverlap="${it.allowOverlap?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${colStyle} ${alignStyle} ${boxStyle}">
+    const holesAttr = (it.cutouts && it.cutouts.length) ? ` data-holes="${it.cutouts.map(c=>{ const l=anchor.x==='right'?(bw-c.px-c.pw)*ppmLocal:c.px*ppmLocal, t=anchor.y==='bottom'?(bh-c.py-c.ph)*ppmLocal:c.py*ppmLocal; return [l,t,c.pw*ppmLocal,c.ph*ppmLocal].map(v=>v.toFixed(1)).join(','); }).join(';')}"` : '';
+    html += `<div${holesAttr} class="crop-box${hl}${isEmpty?' empty':''}${centered?' icon-centered':''}${(!centered&&anchor.y==='bottom')?' anchor-y-bottom':''}${(!centered&&anchor.x==='right')?' anchor-x-right':''}" data-idx="${idx}" data-allowoverlap="${it.allowOverlap?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${colStyle} ${alignStyle} ${boxStyle}">
       ${content}${(it.locked && !noLock)?' 🔒':''}
       ${showResize?`<div class="resize-handle-sm" style="width:${handleSize}px; height:${handleSize}px; ${col?`background:${col};`:''}"></div>`:''}</div>`;
   });
+  html += pictureCutoutsAndClochesHTML(obj, items, effectivePos, ppmLocal, bw, bh, anchor);
   el.innerHTML = html;
+  el.querySelectorAll('[data-clocheover]').forEach(c=>c.addEventListener('click', (e)=>{ e.stopPropagation(); const f=featureById(c.dataset.clocheover); if(f) openStructureDetail(f); }));
   el.querySelectorAll('.crop-box').forEach(boxEl=>{
     const idx = parseInt(boxEl.dataset.idx);
     wireCropBox(boxEl, items[idx], ppmLocal, {w:bw,h:bh}, onChange, onTap, obj.shape, anchor);
@@ -4528,7 +4559,7 @@ function renderMap(){
       html += `<div class="vertex-handle" style="left:${px}px; top:${py}px;" data-vx="${p.x}" data-vy="${p.y}"></div>`;
     }
   } else {
-    const objs = [...STATE.beds.map(b=>({...b, _kind:'bed'})), ...STATE.features.map(f=>({...f, _kind:'feature'}))];
+    const objs = [...STATE.beds.map(b=>({...b, _kind:'bed'})), ...STATE.features.filter(f=>!(f.type==='cloche' && f.offPlot)).map(f=>({...f, _kind:'feature'}))];
     for(const o of objs){
       const left=(o.x-bounds.minX)*ppm, top=(o.y-bounds.minY)*ppm, w=o.w*ppm, h=o.h*ppm;
       const lockBadge = (o.locked && mapZoom > 1.001) ? '<span class="lock-badge">🔒</span>' : '';
@@ -4544,7 +4575,7 @@ function renderMap(){
         const bg = hasShape ? 'background:transparent;' : mapObjBackgroundCSS(showHatch, o.color, '#F1E6D6', '#8B5A2B');
         const hatchPatternDefs = (hasShape && showHatch) ? `<defs><pattern id="hatch-${o.id}" width="14" height="14" patternUnits="userSpaceOnUse"><rect width="14" height="14" fill="transparent"></rect><path d="M0,0L14,14" stroke="#000" stroke-width="1.25" stroke-opacity="0.22"></path><path d="M14,0L0,14" stroke="#fff" stroke-width="1.25" stroke-opacity="0.3"></path></pattern></defs>` : '';
         const shapeSVG = hasShape ? `<svg width="${w}" height="${h}" style="position:absolute; left:0; top:0; pointer-events:none;" shape-rendering="geometricPrecision">${hatchPatternDefs}<polygon points="${o.shape.map(p=>`${(p.x/o.w*w).toFixed(1)},${(p.y/o.h*h).toFixed(1)}`).join(' ')}" fill="${bedCol}40" stroke="${bedCol}" stroke-width="1.25" stroke-linejoin="round"></polygon>${showHatch?`<polygon points="${o.shape.map(p=>`${(p.x/o.w*w).toFixed(1)},${(p.y/o.h*h).toFixed(1)}`).join(' ')}" fill="url(#hatch-${o.id})" stroke="none"></polygon>`:''}</svg>` : '';
-        html += `<div class="mapObj ${o.raised?'raised':''}${eligible}${hasShape?' shaped':''}" data-kind="bed" data-id="${o.id}" data-locked="${o.locked?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${bg}">
+        html += `<div class="mapObj ${o.raised?'raised':''}${eligible}${hasShape?' shaped':''}" data-kind="bed" data-id="${o.id}" data-locked="${mapLockedNow(o)?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${bg}">
           ${shapeSVG}${lockBadge}${overdueBadge}<div style="overflow:hidden; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center;"><span class="icon" style="font-size:${iconPx}px;">${o.raised?ICON_RAISEDBED:'🌱'}</span><span class="lbl">${escapeHTML(o.name)}</span><span class="fams-dot-row">${cropCols.map(c=>`<span class="fam-dot" style="background:${c};"></span>`).join('')}</span></div></div>`;
       } else {
         const info = FEATURE_TYPES[o.type]||{icon:'❔',label:o.type};
@@ -4553,9 +4584,9 @@ function renderMap(){
         const showHatch = isComposting && Math.min(w,h) >= COMPOST_HATCH_MIN_PX;
         const featFallbackBg = o.type==='container' ? '#EFE7DA' : (o.type==='basket' ? '#F3ECD9' : '#EAF0E2');
         const featFallbackBorder = o.type==='container' ? 'var(--soil)' : (o.type==='basket' ? 'var(--mustard)' : 'var(--leaf-light)');
-        const featBg = mapObjBackgroundCSS(showHatch, o.color, featFallbackBg, featFallbackBorder) + (o.round ? ' border-radius:50%;' : '');
+        const featBg = mapObjBackgroundCSS(showHatch, o.color, featFallbackBg, featFallbackBorder) + (o.round ? ' border-radius:50%;' : '') + (o.type==='cloche' ? ' background:rgba(206,224,233,0.62); border:2px dashed #435760; z-index:3;' + (clocheFix && clocheFix.id===o.id ? ' box-shadow:0 0 0 3px #2B3A40;' : '') : '');
         const featEligible = (placingMode && (o.type==='container'||o.type==='basket')) ? ' placeable' : '';
-        html += `<div class="mapObj type-${o.type}${featEligible}" data-kind="feature" data-type="${o.type}" data-id="${o.id}" data-locked="${o.locked?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${featBg}">
+        html += `<div class="mapObj type-${o.type}${featEligible}" data-kind="feature" data-type="${o.type}" data-id="${o.id}" data-locked="${mapLockedNow(o)?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${featBg}">
           ${lockBadge}${overdueBadge}<span class="icon">${iconHTML}</span><span class="lbl">${escapeHTML(o.label||info.label)}</span></div>`;
       }
     }
@@ -4596,8 +4627,12 @@ function onCanvasBackgroundClick(e){
 }
 function siblingMapRectsOf(el){
   const rects = [];
+  const isCloche = el.dataset.type==='cloche';
   el.parentElement.querySelectorAll('.mapObj').forEach(other=>{
     if(other===el) return;
+    // A cloche can sit over beds, paths and under a tree's canopy; a bed can be moved out from under one.
+    if(isCloche && (other.dataset.kind==='bed' || other.dataset.type==='path' || other.dataset.type==='tree')) return;
+    if(el.dataset.kind==='bed' && other.dataset.type==='cloche') return;
     rects.push({left:parseFloat(other.style.left), top:parseFloat(other.style.top), width:parseFloat(other.style.width), height:parseFloat(other.style.height)});
   });
   return rects;
@@ -4691,7 +4726,7 @@ function wireMapObj(el, bounds){
         document.removeEventListener('pointerup', onLockedUp);
         document.removeEventListener('pointercancel', onLockedUp);
         if(ev.type==='pointercancel') return;
-        handleMapTap(wrapEl, ev.clientX, ev.clientY, ()=> openObjectDetail(el.dataset.kind, el.dataset.id, el.dataset.type));
+        if(!clocheFix) handleMapTap(wrapEl, ev.clientX, ev.clientY, ()=> openObjectDetail(el.dataset.kind, el.dataset.id, el.dataset.type));
       }
       document.addEventListener('pointerup', onLockedUp);
       document.addEventListener('pointercancel', onLockedUp);
@@ -4771,12 +4806,26 @@ function beginMapObjInteraction(el, bounds, pointerId, startX, startY){
         await moveObject(el.dataset.kind, el.dataset.id, newX, newY);
       } else if(ev.type!=='pointercancel') {
         const wrapEl = document.getElementById('mapWrap');
-        handleMapTap(wrapEl, ev.clientX, ev.clientY, ()=> openObjectDetail(el.dataset.kind, el.dataset.id, el.dataset.type));
+        if(!clocheFix) handleMapTap(wrapEl, ev.clientX, ev.clientY, ()=> openObjectDetail(el.dataset.kind, el.dataset.id, el.dataset.type));
       }
     }
     document.addEventListener('pointermove',onMove); document.addEventListener('pointerup',onUp);
 }
 async function moveObject(kind,id,x,y){
+  if(kind!=='bed'){
+    const f = featureById(id);
+    if(f && f.type==='cloche'){
+      if(clocheFix && clocheFix.id===id){ f.x=x; f.y=y; renderAll(); return; }   // fixing: nothing changes until confirmed
+      const why = clocheClashes(f, x, y, f.w, f.h);
+      if(why){ toast(`Can't put it there — ${why}.`); renderAll(); return; }
+      f.x=x; f.y=y; f.movedBy=who();
+      await clocheCover(f);
+      f.locked = true;   // re-locks itself after every move
+      await put('features', f); await afterChange();
+      toast(`${f.label||'Cloche'} moved and locked again`);
+      return;
+    }
+  }
   const obj = kind==='bed' ? bedById(id) : featureById(id);
   if(!obj) return; obj.x=x; obj.y=y; obj.movedBy=who();
   await put(kind==='bed'?'beds':'features', obj); await afterChange();
@@ -4835,12 +4884,276 @@ function isDuplicateName(name, list, excludeId){
   const lower = name.trim().toLowerCase();
   return list.some(item => item.id!==excludeId && ((item.name||item.label||'').trim().toLowerCase()===lower));
 }
+/* ======================= CLOCHES =======================
+   A cloche is a small, movable structure that holds trays like a greenhouse, but sits wherever is
+   handy - over a corner of a bed, a path, anywhere. Placing one quietly cuts the ground it stands on
+   out of any crop underneath (fallow and paths are left alone). Nothing is deleted: each crop just
+   carries a note of the patch ("cutout"), tied to the cloche and to that particular placement, so a
+   cloche put down in the wrong place can be corrected later and everything it covered given back.
+   A crop covered completely is set aside (not growing, not harvested, not a failure) until then.
+   Cut-outs are fixed to the ground in the bed, not to the crop, so moving the crop's box doesn't
+   drag the hole with it. A real move or turn leaves the old patch free; only "Put in the wrong
+   place?" gives it back. The cloche re-locks itself after every move. */
+let clocheFix = null;   // {id, x, y, w, h, turned} while correcting a cloche's position
+function mapLockedNow(o){ return clocheFix ? o.id!==clocheFix.id : !!o.locked; }
+function rectIntersect(a,b){
+  const x=Math.max(a.px,b.px), y=Math.max(a.py,b.py), r=Math.min(a.px+a.pw,b.px+b.pw), bt=Math.min(a.py+a.ph,b.py+b.ph);
+  return (r-x>0.001 && bt-y>0.001) ? {px:x, py:y, pw:r-x, ph:bt-y} : null;
+}
+function subtractRect(a,h){
+  const i = rectIntersect(a,h); if(!i) return [a];
+  const out = [];
+  if(i.py>a.py+0.001) out.push({px:a.px, py:a.py, pw:a.pw, ph:i.py-a.py});
+  if(i.py+i.ph<a.py+a.ph-0.001) out.push({px:a.px, py:i.py+i.ph, pw:a.pw, ph:a.py+a.ph-(i.py+i.ph)});
+  if(i.px>a.px+0.001) out.push({px:a.px, py:i.py, pw:i.px-a.px, ph:i.ph});
+  if(i.px+i.pw<a.px+a.pw-0.001) out.push({px:i.px+i.pw, py:i.py, pw:a.px+a.pw-(i.px+i.pw), ph:i.ph});
+  return out;
+}
+function subtractRects(list, holes){ for(const h of (holes||[])) list = list.flatMap(a=>subtractRect(a,h)); return list; }
+function plantingBox(p){ return (p.px!=null && p.py!=null && p.pw!=null && p.ph!=null) ? {px:p.px, py:p.py, pw:p.pw, ph:p.ph} : null; }
+function plantingGrowingArea(p){
+  const b = plantingBox(p); if(!b) return (p.pw||0)*(p.ph||0);
+  return subtractRects([b], p.cutouts).reduce((a,r)=>a+r.pw*r.ph, 0);
+}
+function clocheExemptPlanting(p){ const c = cropById(p.cropId); return !!(c && (c.name==='Fallow' || c.name==='Path')); }
+function clochesOnPlot(){ return STATE.features.filter(f=>f.type==='cloche' && !f.offPlot); }
+function clochesOverBed(bed){ return clochesOnPlot().filter(f=>metresOverlap(f.x,f.y,f.w,f.h, bed.x,bed.y,bed.w,bed.h)); }
+function bedsUnderCloche(f){ return f.offPlot ? [] : STATE.beds.filter(b=>metresOverlap(f.x,f.y,f.w,f.h, b.x,b.y,b.w,b.h)); }
+function clocheLocalRect(f, bed){ return rectIntersect({px:f.x-bed.x, py:f.y-bed.y, pw:f.w, ph:f.h}, {px:0, py:0, pw:bed.w, ph:bed.h}); }
+function plantingFullyCut(p){
+  const b = plantingBox(p); if(!b) return false;
+  return subtractRects([b], p.cutouts).reduce((a,r)=>a+r.pw*r.ph, 0) < 0.0005;
+}
+// Cut out whatever is under the cloche where it now stands, as a new placement.
+async function clocheCover(f, since){
+  f.placementId = uid(); f.placementSince = since || todayISO();
+  for(const bed of bedsUnderCloche(f)){
+    const local = clocheLocalRect(f, bed); if(!local) continue;
+    let touched = false;
+    for(const pl of (bed.plantings||[])){
+      if(!pl.active || clocheExemptPlanting(pl)) continue;
+      const box = plantingBox(pl); if(!box || !rectIntersect(box, local)) continue;
+      pl.cutouts = (pl.cutouts||[]).concat([{id:uid(), clocheId:f.id, placementId:f.placementId, px:local.px, py:local.py, pw:local.pw, ph:local.ph, since:f.placementSince}]);
+      if(plantingFullyCut(pl)){ pl.active = false; pl.coveredBy = {clocheId:f.id, placementId:f.placementId, since:f.placementSince}; }
+      touched = true;
+    }
+    if(touched) await put('beds', bed);
+  }
+}
+// Give back everything the cloche's current placement cut out. Anything planted in that ground since
+// keeps its place: the returning crop is cut around it instead. Returns {crops, gaveWay}.
+async function clocheRestore(f){
+  const pid = f.placementId; const result = {crops:0, gaveWay:0};
+  if(!pid) return result;
+  for(const bed of STATE.beds){
+    let touched = false;
+    for(const pl of (bed.plantings||[])){
+      const removed = (pl.cutouts||[]).filter(c=>c.placementId===pid);
+      const wasCovered = pl.coveredBy && pl.coveredBy.placementId===pid;
+      if(!removed.length && !wasCovered) continue;
+      pl.cutouts = (pl.cutouts||[]).filter(c=>c.placementId!==pid);
+      if(wasCovered){ pl.coveredBy = null; pl.active = true; }
+      if(pl.active){
+        const box = plantingBox(pl);
+        for(const q of (bed.plantings||[])){
+          if(q===pl || !q.active || !q.date || q.date < (f.placementSince||'')) continue;
+          const qb = plantingBox(q); if(!box || !qb) continue;
+          for(const r of removed){
+            const i1 = rectIntersect(r, box); const i = i1 && rectIntersect(i1, qb);
+            if(i){ pl.cutouts.push({id:uid(), clocheId:null, placementId:null, gaveWayTo:q.id, px:i.px, py:i.py, pw:i.pw, ph:i.ph, since:todayISO()}); result.gaveWay++; }
+          }
+        }
+        if(plantingFullyCut(pl)){ pl.active = false; pl.coveredBy = {clocheId:null, placementId:null, since:todayISO()}; }
+      }
+      result.crops++; touched = true;
+    }
+    if(touched) await put('beds', bed);
+  }
+  return result;
+}
+function clocheClashes(f, x, y, w, h){
+  const tb = getTightBounds();
+  if(x < tb.minX-0.001 || y < tb.minY-0.001 || x+w > tb.maxX+0.001 || y+h > tb.maxY+0.001) return 'it would go past the edge of the plot';
+  const hit = STATE.features.find(o=>o.id!==f.id && !(o.type==='cloche' && o.offPlot) && o.type!=='path' && o.type!=='tree' && metresOverlap(x,y,w,h, o.x,o.y,o.w,o.h));
+  return hit ? `it would run into ${hit.label || (FEATURE_TYPES[hit.type]||{}).label || 'something'}` : null;
+}
+// A quarter turn about the cloche's own centre. While fixing, it only moves on screen until confirmed.
+async function turnClocheInPlace(f, fixing){
+  const cx = f.x+f.w/2, cy = f.y+f.h/2;
+  const nx = snapMap(cx-f.h/2), ny = snapMap(cy-f.w/2);
+  const why = clocheClashes(f, nx, ny, f.h, f.w);
+  if(why){ toast(`Can't turn it there — ${why}.`); return false; }
+  const ow = f.w; f.w = f.h; f.h = ow; f.x = nx; f.y = ny; f.turned = !f.turned;
+  if(fixing){ renderAll(); return true; }
+  await clocheCover(f);
+  f.locked = true;
+  await put('features', f); await afterChange();
+  toast(`${f.label||'Cloche'} turned and locked again`);
+  return true;
+}
+function startClocheFix(f){
+  clocheFix = {id:f.id, x:f.x, y:f.y, w:f.w, h:f.h, turned:!!f.turned};
+  goHome();
+}
+function cancelClocheFix(){
+  const f = clocheFix && featureById(clocheFix.id);
+  if(f){ f.x=clocheFix.x; f.y=clocheFix.y; f.w=clocheFix.w; f.h=clocheFix.h; f.turned=clocheFix.turned; }
+  clocheFix = null; renderAll();
+}
+async function confirmClocheFix(){
+  const ok = document.getElementById('chkFixOk');
+  if(!ok || !ok.checked){ toast('Tick "This is the correct place" first'); return; }
+  const f = featureById(clocheFix.id); if(!f){ clocheFix=null; renderAll(); return; }
+  const why = clocheClashes(f, f.x, f.y, f.w, f.h);
+  if(why){ toast(`Can't put it there — ${why}.`); return; }
+  const since = f.placementSince || todayISO();
+  const res = await clocheRestore(f);
+  await clocheCover(f, since);
+  f.locked = true; clocheFix = null;
+  await put('features', f); await afterChange();
+  toast(res.gaveWay ? `Fixed — ${res.crops} crop${res.crops===1?'':'s'} given back, around anything planted there since` : `Fixed — ${res.crops} crop${res.crops===1?'':'s'} given back`);
+}
+function placeClocheAt(cx, cy){
+  const stored = STATE.features.filter(f=>f.type==='cloche' && f.offPlot);
+  const doPlace = async (f)=>{
+    const tb = getTightBounds();
+    let x = snapMap(cx-f.w/2), y = snapMap(cy-f.h/2);
+    x = Math.min(Math.max(x, tb.minX), tb.maxX-f.w); y = Math.min(Math.max(y, tb.minY), tb.maxY-f.h);
+    const why = clocheClashes(f, x, y, f.w, f.h);
+    if(why){ toast(`Can't put it there — ${why}.`); return; }
+    f.x = x; f.y = y; f.offPlot = false; f.locked = true;
+    await clocheCover(f);
+    await put('features', f); await afterChange(); closeModal();
+    toast(`${f.label} placed and locked`);
+  };
+  const makeNew = ()=>{
+    const n = STATE.features.filter(f=>f.type==='cloche').length + 1;
+    const [w,h] = DEFAULT_SIZE.cloche;
+    doPlace({id:uid(), type:'cloche', label:`Cloche ${n}`, w, h, locked:true, openToSoil:false, turned:false, createdBy:who()});
+  };
+  if(!stored.length){ makeNew(); return; }
+  openModal(`<h3>Which cloche?</h3>${stored.map(f=>`<button class="btn secondary" data-putback="${f.id}" style="display:block; width:100%; margin-bottom:8px;">Put back ${escapeHTML(f.label||'Cloche')}</button>`).join('')}<button class="btn" id="mNewCloche" style="width:100%;">A new cloche</button>`);
+  modalContent.querySelectorAll('[data-putback]').forEach(b=>b.addEventListener('click', ()=>{ const f=featureById(b.dataset.putback); if(f) doPlace(f); }));
+  document.getElementById('mNewCloche').addEventListener('click', makeNew);
+}
+function clocheControlsHTML(f){
+  const w = f.turned ? f.h : f.w, h = f.turned ? f.w : f.h;
+  const fmt = v=>String(+(+v).toFixed(2));
+  const beds = bedsUnderCloche(f).map(b=>b.name);
+  return `<p class="tiny-muted" style="margin:-4px 0 8px;">${fmt(w)} × ${fmt(h)} m${f.turned?' · turned':''}${f.offPlot?' · off the plot':(beds.length?` · on ${escapeHTML(beds.join(', '))}`:'')}</p>
+    ${f.offPlot ? `<p class="muted">Stored off the plot. To put it back, tap an empty spot on the map and choose Cloche.</p>` : `
+    <div class="toggle-row"><span>${f.locked?'Locked':'Unlocked — drag it on the map'}<br><span class="tiny-muted">re-locks itself after a move</span></span><label class="switch"><input type="checkbox" id="mClocheLock" ${f.locked?'checked':''}><span class="slider"></span></label></div>
+    <div class="btn-row" style="margin:8px 0 4px;"><button class="btn small secondary" id="mClocheTurn">↻ Turn</button><button class="btn small secondary" id="mClocheWrong">Put in the wrong place?</button></div>
+    <p class="tiny-muted" style="margin:0 0 8px;">${f.locked?'Unlock to drag or turn it. ':''}Whatever it lands on is cut out; where it was is left as free space.</p>`}
+    <div class="toggle-row"><span>Open to the soil<br><span class="tiny-muted">crops can be planted in the ground under it</span></span><label class="switch"><input type="checkbox" id="mClocheSoil" ${f.openToSoil?'checked':''}><span class="slider"></span></label></div>
+    ${f.offPlot ? '' : `<div class="btn-row" style="margin:6px 0 10px;"><button class="btn small secondary" id="mClocheOff">Take off the plot</button></div>`}`;
+}
+function wireClocheControls(f){
+  const reopen = ()=>{ const ff = featureById(f.id); if(ff) openStructureDetail(ff); };
+  const lockEl = document.getElementById('mClocheLock');
+  if(lockEl) lockEl.addEventListener('change', async ()=>{ f.locked = lockEl.checked; await put('features', f); await afterChange(); reopen(); });
+  const turnEl = document.getElementById('mClocheTurn');
+  if(turnEl) turnEl.addEventListener('click', async ()=>{
+    if(f.locked){ toast('Unlock it first, then turn it'); return; }
+    if(await turnClocheInPlace(f, false)) reopen();
+  });
+  const wrongEl = document.getElementById('mClocheWrong');
+  if(wrongEl) wrongEl.addEventListener('click', ()=> startClocheFix(f));
+  const soilEl = document.getElementById('mClocheSoil');
+  if(soilEl) soilEl.addEventListener('change', async ()=>{ f.openToSoil = soilEl.checked; await put('features', f); await afterChange(); });
+  const offEl = document.getElementById('mClocheOff');
+  if(offEl) offEl.addEventListener('click', ()=>{
+    const trays = STATE.trays.filter(t=>t.featureId===f.id && !trayIsEmpty(t));
+    const takeOff = async (destId)=>{
+      if(destId){
+        const dest = featureById(destId);
+        for(const t of trays) await moveTrayToStructure(t, dest, true);
+      }
+      f.offPlot = true; f.locked = true;
+      await put('features', f); await afterChange(); closeModal();
+      toast(`${f.label||'Cloche'} taken off the plot`);
+    };
+    if(!trays.length){ takeOff(null); return; }
+    const dests = STATE.features.filter(o=>o.type==='greenhouse' || o.type==='polytunnel');
+    openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Where are its ${trays.length} tray${trays.length===1?'':'s'} going?</h3>
+      ${dests.map(o=>`<button class="btn secondary" data-dest="${o.id}" style="display:block; width:100%; margin-bottom:8px;">${escapeHTML(o.label||FEATURE_TYPES[o.type].label)}</button>`).join('')}
+      <button class="btn secondary" id="mKeepIn" style="display:block; width:100%;">Keep them in the cloche</button>`);
+    document.getElementById('mBack').addEventListener('click', reopen);
+    modalContent.querySelectorAll('[data-dest]').forEach(b=>b.addEventListener('click', ()=> takeOff(b.dataset.dest)));
+    document.getElementById('mKeepIn').addEventListener('click', ()=> takeOff(null));
+  });
+}
+function clocheRowsHTML(bed){
+  const cl = clochesOverBed(bed);
+  if(!cl.length) return '';
+  return `<div class="row-heading">Cloches on this bed</div>` + cl.map(f=>{
+    const n = STATE.trays.filter(t=>t.featureId===f.id && !trayIsEmpty(t)).length;
+    return `<div class="planting-row" style="cursor:pointer;" data-clocherow="${f.id}"><span class="pname">${ICON_CLOCHE} ${escapeHTML(f.label||'Cloche')}</span><span class="pdate">${f.openToSoil?'open to the soil':'with base'}${n?` · ${n} tray${n===1?'':'s'}`:''}</span></div>`;
+  }).join('');
+}
+function pictureCutoutsAndClochesHTML(obj, items, effectivePos, ppmLocal, bw, bh, anchor){
+  const bed = STATE.beds.find(b=>b.id===obj.id);
+  if(!bed) return '';
+  const toPx = r=>({l: anchor.x==='right' ? (bw-r.px-r.pw)*ppmLocal : r.px*ppmLocal, t: anchor.y==='bottom' ? (bh-r.py-r.ph)*ppmLocal : r.py*ppmLocal, w:r.pw*ppmLocal, h:r.ph*ppmLocal});
+  let out = '';
+  items.forEach(it=>{
+    const box = plantingBox(it); if(!box || !(it.cutouts && it.cutouts.length)) return;
+    for(const c of it.cutouts){
+      const i = rectIntersect(box, c); if(!i) continue;
+      const r = toPx(i);
+      out += `<div class="cut-hole" style="left:${r.l}px; top:${r.t}px; width:${r.w}px; height:${r.h}px; background:var(--card,#fff);"></div>`;
+    }
+  });
+  for(const f of clochesOverBed(bed)){
+    const local = clocheLocalRect(f, bed); if(!local) continue;
+    const r = toPx(local);
+    out += `<div class="cloche-over" data-clocheover="${f.id}" style="left:${r.l}px; top:${r.t}px; width:${r.w}px; height:${r.h}px;">${escapeHTML(f.label||'Cloche')}</div>`;
+  }
+  return out;
+}
+async function moveTrayToStructure(tray, dest, quiet){
+  const tiers = getTiers(dest); const tier = tiers[0];
+  const occupied = STATE.trays.filter(t=>t.id!==tray.id && t.featureId===dest.id && (t.tierId||tiers[0].id)===tier.id);
+  const slot = nextFreeSlot(tier.w, tier.h, occupied, Math.min(tray.pw||0.38, tier.w), Math.min(tray.ph||0.24, tier.h));
+  tray.featureId = dest.id; tray.location = FEATURE_TYPES[dest.type].label; tray.tierId = tier.id;
+  tray.px = slot.px; tray.py = slot.py; tray.pw = slot.pw; tray.ph = slot.ph;
+  tray.moves = (tray.moves||[]).concat([{id:uid(), date:todayISO(), toId:dest.id, toLabel:dest.label||FEATURE_TYPES[dest.type].label}]);
+  await put('trays', tray);
+  if(!quiet){ await afterChange(); toast(`Moved to ${dest.label||FEATURE_TYPES[dest.type].label}`); }
+}
+function openMoveTrayStructure(trayId){
+  const tray = STATE.trays.find(t=>t.id===trayId); if(!tray) return;
+  const cur = featureForTray(tray);
+  const targets = STATE.features.filter(f=>(f.type==='greenhouse' || f.type==='polytunnel' || f.type==='cloche') && !(f.type==='cloche' && f.offPlot) && (!cur || f.id!==cur.id));
+  if(!targets.length){ toast('There is no other greenhouse, polytunnel or cloche to move it to.'); return; }
+  openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Move this tray to…</h3><div class="type-grid">${targets.map(f=>`<button class="type-opt" data-moveto="${f.id}"><span class="icon">${FEATURE_TYPES[f.type].icon}</span>${escapeHTML(f.label||FEATURE_TYPES[f.type].label)}</button>`).join('')}</div>`);
+  document.getElementById('mBack').addEventListener('click', ()=> openTrayOrPlanting(trayId));
+  modalContent.querySelectorAll('[data-moveto]').forEach(b=>b.addEventListener('click', async ()=>{
+    const dest = featureById(b.dataset.moveto); if(!dest) return;
+    await moveTrayToStructure(tray, dest, false);
+    openTrayOrPlanting(trayId);
+  }));
+}
 function openCellChooser(x,y){
-  const opts = Object.entries(FEATURE_TYPES).map(([key,info])=>`<button class="type-opt" data-type="${key}"><span class="icon">${info.icon}</span>${info.label}</button>`).join('');
+  // Greenhouse and polytunnel share one button (they behave identically - only the name, icon and
+  // starting size differ), which frees a slot for the cloche, kept as its own type so its behaviour
+  // (sitting over beds and cutting out what's underneath) can't be picked by accident.
+  const menu = ['bed','raisedbed','glass','cloche','tree','basket','shed','container','path','fence','water','compost'];
+  const opts = menu.map(key=>{
+    if(key==='glass') return `<button class="type-opt" data-type="glass"><span class="icon">${ICON_GREENHOUSE}</span>Greenhouse / polytunnel</button>`;
+    const info = FEATURE_TYPES[key]; if(!info) return '';
+    return `<button class="type-opt" data-type="${key}"><span class="icon">${info.icon}</span>${info.label}</button>`;
+  }).join('');
   openModal(`<h3>What's here?</h3><div class="type-grid">${opts}</div>`);
   modalContent.querySelectorAll('[data-type]').forEach(b=>b.addEventListener('click', ()=>handlePlaceType(x,y,b.dataset.type)));
 }
 function handlePlaceType(cx,cy,type){
+  if(type==='glass'){
+    openModal(`<h3>Greenhouse or polytunnel?</h3><div class="type-grid"><button class="type-opt" data-glass="greenhouse"><span class="icon">${ICON_GREENHOUSE}</span>Greenhouse</button><button class="type-opt" data-glass="polytunnel"><span class="icon">${ICON_POLYTUNNEL}</span>Polytunnel</button></div>`);
+    modalContent.querySelectorAll('[data-glass]').forEach(b=>b.addEventListener('click', ()=>handlePlaceType(cx,cy,b.dataset.glass)));
+    return;
+  }
+  if(type==='cloche'){ placeClocheAt(cx,cy); return; }
   const [dw,dh] = DEFAULT_SIZE[type]||[1,1];
   const tb = getTightBounds();
   let x = snapMap(cx-dw/2), y = snapMap(cy-dh/2);
@@ -4893,7 +5206,7 @@ function openObjectDetail(kind,id,type){
   if(kind==='bed') openBedDetail(id);
   else if(type==='tree') openTreeDetail(id);
   else if(type==='container' || type==='basket') openContainerDetail(id);
-  else if(type==='greenhouse' || type==='polytunnel') openStructureDetail(featureById(id));
+  else if(type==='greenhouse' || type==='polytunnel' || type==='cloche') openStructureDetail(featureById(id));
   else openFeatureDetail(featureById(id));
 }
 function lockToggleHTML(obj){
@@ -5564,7 +5877,9 @@ function hostedContainersFor(bed){
   return STATE.features.filter(f=>(f.type==='container'||f.type==='basket') && metresOverlap(f.x, f.y, f.w, f.h, bed.x, bed.y, bed.w, bed.h));
 }
 function hostedContainersAsOccupied(bed){
-  return hostedContainersFor(bed).map(f=>({px: f.x-bed.x, py: f.y-bed.y, pw: f.w, ph: f.h}));
+  // A cloche with a base takes the ground it stands on; one open to the soil can be planted under.
+  const cloches = clochesOverBed(bed).filter(f=>!f.openToSoil);
+  return [...hostedContainersFor(bed), ...cloches].map(f=>({px: f.x-bed.x, py: f.y-bed.y, pw: f.w, ph: f.h}));
 }
 function openBedDetail(bedId, highlightId){
   const bed = bedById(bedId);
@@ -5620,7 +5935,7 @@ function openBedDetail(bedId, highlightId){
     ${bed.raised && bed.composting && openCompostBatchOf(bed) && openCompostBatchOf(bed).startDate ? `<p class="tiny-muted">Composting underneath since ${fullDateLabel(openCompostBatchOf(bed).startDate)}</p>` : ''}
     <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
     <p class="picture-help">Drag a crop's box to where it is, and its corner to resize it. Tap it for details.</p>
-    ${rows}${hostedHTML}${warn}
+    ${rows}${hostedHTML}${clocheRowsHTML(bed)}${warn}
     <button class="btn" id="mSow" style="margin-top:10px;">+ Plant another crop here</button>
     ${treatmentsSectionHTML(bed,'beds','bedwide')}
     <div class="btn-row">
@@ -5630,6 +5945,7 @@ function openBedDetail(bedId, highlightId){
       ${bed.raised?`<button class="btn secondary" id="mCompost">Composting</button>`:''}
     </div>`, true);
   modalContent.querySelectorAll('[data-hostedcontainer]').forEach(el=>el.addEventListener('click', ()=> openContainerDetail(el.dataset.hostedcontainer)));
+  modalContent.querySelectorAll('[data-clocherow]').forEach(el=>el.addEventListener('click', ()=>{ const f=featureById(el.dataset.clocherow); if(f) openStructureDetail(f); }));
   wireTreatmentRows(bed,'beds', ()=>openBedDetail(bedId), null, undefined);
 
   renderPictureCanvas('bedPic', bed, active,
@@ -6390,7 +6706,7 @@ function openStructureDetail(feat, highlightTrayId){
     <button class="tier-pill ${sortMode==='az'?'active':''}" data-sort="az">A&ndash;Z</button></div>` : '';
 
   openModal(`<h3>${info.icon} ${escapeHTML(feat.label||info.label)} <span style="display:inline-block; width:16px; height:16px; border-radius:4px; background:${feat.color||BED_COLORS[0]}; vertical-align:-2px;"></span></h3>
-    ${stampHTML(feat)}
+    ${stampHTML(feat)}${feat.type==='cloche' ? clocheControlsHTML(feat) : ''}
     ${tierRow}
     ${tiers.length>1?`<p class="viewing-tier">Viewing: <strong>${escapeHTML(tier.label)}</strong></p>`:''}
     <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
@@ -6403,6 +6719,7 @@ function openStructureDetail(feat, highlightTrayId){
 
   modalContent.querySelectorAll('.sort-row [data-sort]').forEach(b=>b.addEventListener('click', ()=>{ traySortMode[feat.id]=b.dataset.sort; openStructureDetail(feat, highlightTrayId); }));
   document.getElementById('mAddPot').addEventListener('click', ()=> openAddContainer(feat, tierId));
+  if(feat.type==='cloche') wireClocheControls(feat);
   const showAllEmptyBtn = document.getElementById('btnShowAllEmpty');
   if(showAllEmptyBtn) showAllEmptyBtn.addEventListener('click', ()=>{
     document.getElementById('emptyTraysFullList').style.display = '';
@@ -6557,7 +6874,7 @@ function openTrayInfo(trayId){
       <span class="pdate">${potOnDue?('plant out '+dayLabel(potOnDue)):(p.stayInPlace?'staying here':'')}</span></div>`;
   }).join('') || '<p class="muted">Nothing sown here yet.</p>';
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${tray.name?escapeHTML(tray.name):(tray.number!=null?('Tray #'+tray.number):'Tray')}</h3>
-    <div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(feat&&feat.label?feat.label:tray.location)}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}</span></div>
+    <div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(feat&&feat.label?feat.label:tray.location)}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}${(tray.moves&&tray.moves.length)?` <span class="tiny-muted">· moved here ${dayLabel(tray.moves[tray.moves.length-1].date)}</span>`:''}</span><button class="btn small secondary" id="mMoveStruct" style="margin-left:8px;">Move to…</button></div>
     ${tray.createdBy?`<div class="planting-row"><span class="pname">Set up by</span><span class="pdate">${escapeHTML(tray.createdBy)}</span></div>`:''}
     ${tray.sizeLocked?`<p class="tiny-muted">🔒 Locked — size fixed. Still moveable.</p>`:''}
     <div class="row-heading" style="margin-top:0;">What's growing here</div>
@@ -6573,6 +6890,7 @@ function openTrayInfo(trayId){
   document.getElementById('mAddCrop').addEventListener('click', ()=> openSowIntoContainer(trayId));
   document.getElementById('mDelTray').addEventListener('click', ()=> deleteTray(trayId, feat ? ()=>openStructureDetail(feat) : goHome));
   if(multiTier) document.getElementById('mChangeTier').addEventListener('click', ()=> openChangeTier(trayId));
+  { const mv=document.getElementById('mMoveStruct'); if(mv) mv.addEventListener('click', ()=> openMoveTrayStructure(trayId)); }
   modalContent.querySelectorAll('[data-pinfo]').forEach(el=>el.addEventListener('click', ()=> openTrayPlantingInfo(trayId, el.dataset.pinfo)));
 }
 function openTrayPlantingInfo(trayId, plantingId){
@@ -6587,7 +6905,7 @@ function openTrayPlantingInfo(trayId, plantingId){
     <div class="planting-row"><span class="pname">Crop</span><input type="text" class="inline-edit" id="mEditCropName" list="cropSuggestions" value="${crop?escapeAttr(crop.name):''}"></div>
     <div id="trayCropSuggestBox" style="margin:-6px 0 8px;"></div>
     <div class="planting-row"><span class="pname">Planted</span><input type="date" class="inline-edit" id="mEditDate" value="${p.sownDate}"></div>
-    <div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(feat&&feat.label?feat.label:tray.location)}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}</span></div>
+    <div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(feat&&feat.label?feat.label:tray.location)}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}${(tray.moves&&tray.moves.length)?` <span class="tiny-muted">· moved here ${dayLabel(tray.moves[tray.moves.length-1].date)}</span>`:''}</span><button class="btn small secondary" id="mMoveStruct" style="margin-left:8px;">Move to…</button></div>
     <div class="planting-row"><span class="pname">Quantity left</span><input type="number" onfocus="this.select()" class="inline-edit" id="mEditQty" value="${p.quantity||1}" min="1"></div>
     ${crop && crop.sowToPotOn ? `<div class="toggle-row"><span>Stays here until harvest</span><label class="switch"><input type="checkbox" id="mStayInPlace" ${p.stayInPlace?'checked':''}><span class="slider"></span></label></div>` : ''}
     ${potOnDue?`<div class="planting-row"><span class="pname">Plant out due</span><span class="pdate">${dayLabel(potOnDue)}</span></div>`:''}
@@ -6640,6 +6958,7 @@ function openTrayPlantingInfo(trayId, plantingId){
   document.getElementById('mMove').addEventListener('click', ()=> startPlantOutFlow(tray, p));
   document.getElementById('mHarvest').addEventListener('click', ()=> startHarvestFlow({kind:'tray', tray, planting:p, crop}));
   if(multiTier) document.getElementById('mChangeTier').addEventListener('click', ()=> openChangeTier(trayId));
+  { const mv=document.getElementById('mMoveStruct'); if(mv) mv.addEventListener('click', ()=> openMoveTrayStructure(trayId)); }
   const delBtn = document.getElementById('mDelTray');
   if(delBtn) delBtn.addEventListener('click', ()=> deleteTray(trayId, feat ? ()=>openStructureDetail(feat) : goHome));
   const removeBtn = document.getElementById('mRemoveCrop');
@@ -7042,7 +7361,7 @@ function openHarvestModal(ctx){
     } else if(ctx.kind==='planting'){
       plantedDate = ctx.planting.date;
       method = ctx.planting.method==='direct' ? 'Direct sown' : `Transplanted from ${ctx.planting.fromLocation||'under cover'}`;
-      if(ctx.planting.pw && ctx.planting.ph) area = +(ctx.planting.pw*ctx.planting.ph).toFixed(2);
+      if(ctx.planting.pw && ctx.planting.ph) area = +plantingGrowingArea(ctx.planting).toFixed(2);
     }
     const weatherSummary = await fetchGrowingWeatherSummary(plantedDate, todayISO());
     const dueDateDiff = (ctx.kind==='planting' && ctx.planting.harvestDue) ? daysBetween(ctx.planting.harvestDue, todayISO()) : undefined;
