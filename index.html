@@ -809,7 +809,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.10.15';
+const APP_VERSION = '2026.10.10.16';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -3861,7 +3861,11 @@ function siblingRectsOf(boxEl){
     }
     rects.push(box);
   });
-  return rects;
+  // A neighbour this box already overlaps (even by a sliver - a couple of centimetres left over from
+  // rounding or an earlier resize) is ignored, otherwise every size and position would count as
+  // "overlapping" and the box couldn't be resized or moved at all. New overlaps are still prevented.
+  const me = {l:parseFloat(boxEl.style.left), t:parseFloat(boxEl.style.top), w:parseFloat(boxEl.style.width), h:parseFloat(boxEl.style.height)};
+  return rects.filter(r=>!rectOverlap(me.l, me.t, me.w, me.h, r));
 }
 function expandBoxToFit(l, t, w, h, fits, canvasW, canvasH){
   const step = Math.max(1, Math.min(canvasW, canvasH)/60);
