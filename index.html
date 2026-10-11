@@ -254,6 +254,13 @@
   @keyframes pillFlash{0%,100%{background:var(--leaf); color:#fff;} 50%{background:var(--leaf-light); color:#fff;}}
   .tier-pill{padding:6px 12px; border-radius:16px; border:1.5px solid var(--line); background:var(--paper); font-size:16px; font-weight:700; color:var(--soil);}
   .tier-pill.active{background:var(--leaf); color:#fff; border-color:var(--leaf);}
+  .tier-pill.show-all{border-style:dashed; margin-left:auto;}
+  .tier-block{margin-bottom:12px;}
+  .tier-block-head{display:flex; align-items:center; gap:8px; margin:0 0 4px; font-size:17px; color:var(--soil);}
+  .tier-block-head strong{color:var(--leaf);}
+  .tier-block-head .btn{margin-left:auto; padding:3px 12px; font-size:15px; min-height:0;}
+  .tier-block.drop-target .bed-picture{outline:3px solid var(--leaf); outline-offset:2px; animation:stripFlash 0.6s ease-in-out infinite;}
+  @keyframes stripFlash{0%,100%{outline-color:var(--leaf);} 50%{outline-color:var(--leaf-light);}}
   /* Costs tab */
   .cost-balance{background:var(--paper); border:2px solid var(--leaf); border-radius:var(--radius); padding:16px; margin-bottom:14px;}
   .cost-balance .big{font-family:'Zilla Slab', Georgia, serif; font-weight:700; font-size:26px; line-height:1.2; margin:4px 0 6px;}
@@ -812,7 +819,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.11.2';
+const APP_VERSION = '2026.10.11.3';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -2364,7 +2371,8 @@ function cancelBedPicker(){
 }
 let movingFeature = null;
 let outlineEditing = false;
-let activeTier = {}; // featId -> tierId, transient (not persisted)
+let activeTier = {}; // featId -> tierId, transient (not persisted) - the level last tapped, used when only one is wanted
+let shownTiers = {}; // featId -> tierIds showing as rows on the structure screen, transient (not persisted)
 let traySortMode = {}; // featId -> 'num'|'date'|'az', transient (not persisted)
 let cropsSubTab = 'crops'; // 'crops'|'compost', transient (not persisted) - which half of the Crops tab is showing
 let autoJumpedTiers = new Set(); // featIds that have already had their first-open smart tier-jump applied this session
@@ -4169,6 +4177,7 @@ function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onCha
   ppmLocal = Math.max(8, ppmLocal);
   const outerW = Math.round(bw*ppmLocal), outerH = Math.round(bh*ppmLocal);
   el.style.width = outerW+'px'; el.style.height = outerH+'px';
+  Object.assign(el.dataset, {ppm:ppmLocal, bw, bh, tw:trueW, th:trueH, ax:anchor.x, ay:anchor.y});
   if(!_isRetry && wrapEl){
     requestAnimationFrame(()=>{
       if(!document.getElementById(containerId)) return; // screen moved on already
@@ -4210,7 +4219,7 @@ function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onCha
   }
   rulerSvg += `</svg>`;
   let shapeOutlineSvg = '';
-  const outlineHolder = document.getElementById('bedPicShapeOutline');
+  const outlineHolder = document.getElementById(containerId+'ShapeOutline');
   if(obj.shape && obj.shape.length>=3){
     const outlineCol = obj.color || '#7E9A6D';
     const pts = obj.shape.map(p=>`${(p.x/bw*pxW).toFixed(1)},${(p.y/bh*pxH).toFixed(1)}`).join(' ');
@@ -6704,65 +6713,87 @@ function getTiers(feat){
   if(feat.tiers && feat.tiers.length) return feat.tiers;
   return [{id:'ground', label:'Ground level', w:feat.w, h:feat.h}];
 }
-function wireTierDropTargets(feat, currentTierId){
+// Moving a tray to another level: drag it onto that level's row (it lands where the finger lets go,
+// or the nearest free spot) or onto the level's button above (it keeps its position, or the nearest
+// free spot). The tray's own box stays inside its row while dragging; the target row or button
+// flashes to show where it will go. Rows are listed as [{tier, trays, picId}] in screen order.
+function wireTierDropTargets(feat, rows, onMoved){
   const pills = Array.from(document.querySelectorAll('.tier-row .tier-pill[data-tier]'));
-  if(!pills.length) return;
+  const blocks = Array.from(document.querySelectorAll('.tier-block[data-tierblock]'));
+  if(!pills.length && !blocks.length) return;
   const tiers = getTiers(feat);
   const locName = FEATURE_TYPES[feat.type].label;
-  const allTrays = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===locName) && (t.tierId||tiers[0].id)===currentTierId);
-  function findPillUnder(x,y){
-    return pills.find(p=>{ const r=p.getBoundingClientRect(); return x>=r.left && x<=r.right && y>=r.top && y<=r.bottom; });
-  }
-  document.querySelectorAll('#bedPic .crop-box').forEach(boxEl=>{
-    const idx = parseInt(boxEl.dataset.idx);
-    const tray = allTrays[idx];
-    if(!tray) return;
-    let dragging = false;
-    function onMove(ev){
-      if(!dragging) return;
-      pills.forEach(p=>p.classList.remove('drop-target'));
-      const hovered = findPillUnder(ev.clientX, ev.clientY);
-      if(hovered) hovered.classList.add('drop-target');
-    }
-    async function onUp(ev){
-      dragging = false;
-      document.removeEventListener('pointermove', onMove);
-      const dropped = findPillUnder(ev.clientX, ev.clientY);
-      pills.forEach(p=>p.classList.remove('drop-target'));
-      if(dropped && dropped.dataset.tier !== currentTierId){
-        const destTier = tiers.find(t=>t.id===dropped.dataset.tier);
-        const destTrays = STATE.trays.filter(t=>t.id!==tray.id && (t.featureId?t.featureId===feat.id:t.location===locName) && (t.tierId||tiers[0].id)===dropped.dataset.tier);
+  const under = (els, x, y)=> els.find(p=>{ const r=p.getBoundingClientRect(); return x>=r.left && x<=r.right && y>=r.top && y<=r.bottom; });
+  const clearMarks = ()=>{ pills.forEach(p=>p.classList.remove('drop-target')); blocks.forEach(p=>p.classList.remove('drop-target')); };
+  for(const row of rows){
+    const currentTierId = row.tier.id;
+    const targetAt = (x,y)=>{
+      const blk = under(blocks, x, y);
+      if(blk) return blk.dataset.tierblock!==currentTierId ? {el:blk, tierId:blk.dataset.tierblock, strip:true} : null;
+      const pill = under(pills, x, y);
+      return (pill && pill.dataset.tier!==currentTierId) ? {el:pill, tierId:pill.dataset.tier, strip:false} : null;
+    };
+    document.querySelectorAll(`#${row.picId} .crop-box`).forEach(boxEl=>{
+      const tray = row.trays[parseInt(boxEl.dataset.idx)];
+      if(!tray) return;
+      let dragging = false;
+      function onMove(ev){
+        if(!dragging) return;
+        clearMarks();
+        const t = targetAt(ev.clientX, ev.clientY);
+        if(t) t.el.classList.add('drop-target');
+      }
+      async function onUp(ev){
+        dragging = false;
+        document.removeEventListener('pointermove', onMove);
+        const dropped = targetAt(ev.clientX, ev.clientY);
+        clearMarks();
+        if(!dropped) return;
+        const destTier = tiers.find(t=>t.id===dropped.tierId); if(!destTier) return;
+        const destTrays = STATE.trays.filter(t=>t.id!==tray.id && (t.featureId?t.featureId===feat.id:t.location===locName) && (t.tierId||tiers[0].id)===destTier.id);
         const positioned = destTrays.filter(o=>o.px!=null && !o.allowOverlap);
-        function overlapsAny(px,py,pw,ph){
-          return positioned.some(o=> px<o.px+o.pw && px+pw>o.px && py<o.py+o.ph && py+ph>o.py);
+        const overlapsAny = (px,py,pw,ph)=> positioned.some(o=> px<o.px+o.pw-0.001 && px+pw>o.px+0.001 && py<o.py+o.ph-0.001 && py+ph>o.py+0.001);
+        const tw = tray.pw||0.7, th = tray.ph||0.7;
+        let newPx = tray.px, newPy = tray.py;
+        // Dropped on the row itself: centre it under the finger, kept on the staging where it fits.
+        if(dropped.strip){
+          const pic = dropped.el.querySelector('.bed-picture');
+          const d = pic ? pic.dataset : null;
+          if(d && d.ppm){
+            const r = pic.getBoundingClientRect(), ppm = +d.ppm;
+            let mx = (ev.clientX - r.left - 2)/ppm, my = (ev.clientY - r.top - 2)/ppm;
+            if(d.ax==='right') mx = +d.bw - mx;
+            if(d.ay==='bottom') my = +d.bh - my;
+            const fit = (v, size, room)=> size<=room ? Math.min(Math.max(0, v-size/2), room-size) : 0;
+            newPx = snapFine(fit(mx, tw, destTier.w)); newPy = snapFine(fit(my, th, destTier.h));
+          }
         }
-        let newPx=tray.px, newPy=tray.py;
-        if(!tray.allowOverlap && tray.px!=null && destTier){
-          const tw = tray.pw||0.7, th = tray.ph||0.7;
-          let placed = !overlapsAny(tray.px, tray.py, tw, th);
+        if(!tray.allowOverlap && newPx!=null){
+          let placed = !overlapsAny(newPx, newPy, tw, th);
           if(!placed){
             const rightEdge = positioned.length ? Math.max(...positioned.map(o=>o.px+o.pw)) : 0;
-            if(rightEdge+tw <= destTier.w && !overlapsAny(rightEdge, 0, tw, th)){ newPx=rightEdge; newPy=0; placed=true; }
+            if(rightEdge+tw <= destTier.w+0.001 && !overlapsAny(rightEdge, 0, tw, th)){ newPx=rightEdge; newPy=0; placed=true; }
           }
           if(!placed){
             const bottomEdge = positioned.length ? Math.max(...positioned.map(o=>o.py+o.ph)) : 0;
-            if(bottomEdge+th <= destTier.h && !overlapsAny(0, bottomEdge, tw, th)){ newPx=0; newPy=bottomEdge; placed=true; }
+            if(bottomEdge+th <= destTier.h+0.001 && !overlapsAny(0, bottomEdge, tw, th)){ newPx=0; newPy=bottomEdge; placed=true; }
           }
           if(!placed){ toast(`No room on ${escapeHTML(destTier.label)} without overlapping something already there`); return; }
         }
-        tray.tierId = dropped.dataset.tier; tray.px=newPx; tray.py=newPy;
+        tray.tierId = destTier.id; tray.px = newPx; tray.py = newPy;
         await put('trays', tray);
         await afterChange();
-        openStructureDetail(feat, tray.id);
+        toast(`Moved to ${destTier.label}`);
+        onMoved(tray, destTier.id);
       }
-    }
-    boxEl.addEventListener('pointerdown', (e)=>{
-      if(e.target.closest('.resize-handle-sm')) return;
-      dragging = true;
-      document.addEventListener('pointermove', onMove);
-      document.addEventListener('pointerup', onUp, {once:true});
+      boxEl.addEventListener('pointerdown', (e)=>{
+        if(e.target.closest('.resize-handle-sm')) return;
+        dragging = true;
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp, {once:true});
+      });
     });
-  });
+  }
 }
 function openStructureDetail(feat, highlightTrayId){
   feat = feat && featureById(feat.id);
@@ -6781,8 +6812,19 @@ function openStructureDetail(feat, highlightTrayId){
       if(betterTier) activeTier[feat.id] = betterTier.id;
     }
   }
+  // Several levels can show at once, each as its own row, always in the same order as the buttons.
+  let shown = (shownTiers[feat.id]||[]).filter(id=>tiers.some(t=>t.id===id));
+  if(!shown.length) shown = [activeTier[feat.id]];
+  if(highlightTrayId){
+    const ht = STATE.trays.find(t=>t.id===highlightTrayId);
+    const htTier = ht && (ht.tierId||tiers[0].id);
+    if(htTier && tiers.some(t=>t.id===htTier) && !shown.includes(htTier)) shown.push(htTier);
+  }
+  shownTiers[feat.id] = shown;
   const tierId = activeTier[feat.id];
   const tier = tiers.find(t=>t.id===tierId) || tiers[0];
+  const multiTier = tiers.length>1;
+  const trayTierId = t=> t.tierId||tiers[0].id;
   const allTrays = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===locName) && (t.tierId||tiers[0].id)===tierId);
   const everyTierTrays = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===locName));
 
@@ -6800,14 +6842,36 @@ function openStructureDetail(feat, highlightTrayId){
     const uppers = rest.filter(t=>/upper/i.test(t.label));
     const lowers = rest.filter(t=>/lower/i.test(t.label));
     const others = rest.filter(t=>!/upper/i.test(t.label) && !/lower/i.test(t.label));
-    const pillHTML = (t)=>`<button class="tier-pill ${t.id===tierId?'active':''}" data-tier="${t.id}">${escapeHTML(t.label)}</button>`;
-    const rowHTML = (group)=> group.length ? `<div class="tier-row">${group.map(pillHTML).join('')}</div>` : '';
-    return rowHTML(uppers) + rowHTML(lowers) + rowHTML(others) + (ground ? rowHTML([ground]) : '');
+    const pillHTML = (t)=>`<button class="tier-pill ${shown.includes(t.id)?'active':''}" data-tier="${t.id}">${escapeHTML(t.label)}</button>`;
+    const rowHTML = (group, extra)=> (group.length||extra) ? `<div class="tier-row">${group.map(pillHTML).join('')}${extra||''}</div>` : '';
+    const allShown = shown.length===tiers.length;
+    const showAll = tiers.length>2 ? `<button class="tier-pill show-all" id="btnShowAllTiers">${allShown?'Just one':'Show all'}</button>` : '';
+    return rowHTML(uppers) + rowHTML(lowers) + rowHTML(others) + rowHTML(ground ? [ground] : [], showAll);
   })();
   // Pulled out of the level-switcher row (and, for a single-level structure, off its own line
   // up top) down into the bottom action row alongside the two other "manage this structure"
   // buttons - it's tapped rarely enough that it doesn't need prime real estate near the trays.
   const addTierBtnHTML = `<button class="btn small secondary" id="btnAddTier">${tiers.length>1?'+ Staging':'+ Add staging / shelf'}</button>`;
+  const tierOrder = (()=>{
+    const rest = tiers.filter(t=>t.id!=='ground');
+    return [...rest.filter(t=>/upper/i.test(t.label)), ...rest.filter(t=>/lower/i.test(t.label)),
+      ...rest.filter(t=>!/upper/i.test(t.label) && !/lower/i.test(t.label)), ...tiers.filter(t=>t.id==='ground')];
+  })();
+  const shownRows = (multiTier ? tierOrder.filter(t=>shown.includes(t.id)) : [tier]).map((t,i)=>({
+    tier:t, picId:'bedPic'+(i?'_'+i:''),
+    trays: STATE.trays.filter(x=>(x.featureId?x.featureId===feat.id:x.location===locName) && trayTierId(x)===t.id)}));
+  const tierBlocksHTML = shownRows.map(r=>{
+    const growing = r.trays.filter(t=>!trayIsEmpty(t)).length;
+    const head = multiTier ? `<div class="tier-block-head"><strong>${escapeHTML(r.tier.label)}</strong><span class="tiny-muted">${growing} growing</span>${r.tier.id!=='ground'?`<button class="btn small secondary" data-edittier="${r.tier.id}">Edit</button>`:''}</div>` : '';
+    return `<div class="tier-block" ${multiTier?`data-tierblock="${r.tier.id}"`:''}>${head}<div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="${r.picId}"></div><div id="${r.picId}ShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div></div>`;
+  }).join('');
+  // With several levels showing, adding or sowing asks which one it's for.
+  const pickTier = (go)=>{
+    if(shownRows.length===1){ go(shownRows[0].tier.id); return; }
+    openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>On which level?</h3>${shownRows.map(r=>`<button class="btn secondary" data-pick="${r.tier.id}" style="display:block; width:100%; margin-bottom:8px;">${escapeHTML(r.tier.label)}</button>`).join('')}`);
+    document.getElementById('mBack').addEventListener('click', ()=> openStructureDetail(feat));
+    modalContent.querySelectorAll('[data-pick]').forEach(b=>b.addEventListener('click', ()=>{ activeTier[feat.id] = b.dataset.pick; go(b.dataset.pick); }));
+  };
 
   const listSource = tiers.length>1 ? everyTierTrays : allTrays;
   const sortMode = traySortMode[feat.id] || 'num';
@@ -6834,10 +6898,12 @@ function openStructureDetail(feat, highlightTrayId){
   // them — they keep their own always-by-number order (and the collapse-when-many behaviour)
   // regardless of how the growing trays above are sorted.
   const emptyTrays = listSource.filter(t=>trayIsEmpty(t)).sort((a,b)=>(a.number||0)-(b.number||0));
+  const levelOf = (t)=>{ if(!multiTier) return ''; const tt = tiers.find(x=>x.id===trayTierId(t)); return tt ? tt.label : ''; };
+  const withLevel = (t, txt)=>{ const l = levelOf(t); return l ? (txt ? `${txt} · ${escapeHTML(l)}` : escapeHTML(l)) : txt; };
   const trayRowHTML = (t)=>{
     const numTag = t.number!=null ? ` #${t.number}` : '';
     if(trayIsEmpty(t)){
-      return `<div class="planting-row"><div class="prow-main"><span class="pname" style="opacity:0.85;">Empty tray${numTag}</span></div>
+      return `<div class="planting-row"><div class="prow-main"><span class="pname" style="opacity:0.85;">Empty tray${numTag}</span>${levelOf(t)?`<span class="pdate">${withLevel(t,'')}</span>`:''}</div>
         <div class="prow-actions"><button class="btn small danger" data-deltray="${t.id}">Delete</button>
         <button class="btn small" data-sowinto="${t.id}">Sow into it</button></div></div>`;
     }
@@ -6846,14 +6912,14 @@ function openStructureDetail(feat, highlightTrayId){
       const potOnDue = c && c.sowToPotOn && !p.stayInPlace ? addDays(p.sownDate, c.sowToPotOn) : null;
       return `<div class="planting-row"><span class="fam-dot" style="background:${c?cropColor(c):'#8a8a7a'};"></span>
         <div class="prow-main"><span class="pname" style="cursor:pointer;" data-info="${t.id}">${(c && c.name)?escapeHTML(c.name):'Something'}${numTag}</span>
-        <span class="pdate">${potOnDue?('plant out '+dayLabel(potOnDue)):(p.stayInPlace?'staying here':'')}</span></div>
+        <span class="pdate">${withLevel(t, potOnDue?('plant out '+dayLabel(potOnDue)):(p.stayInPlace?'staying here':''))}</span></div>
         <div class="prow-actions"><button class="btn small danger" data-deltray="${t.id}">Delete</button>
         ${p.stayInPlace?'':`<button class="btn small" data-move="${t.id}">Plant out</button>`}</div></div>`;
     }
     // Several crops sharing one tray — one summary row; tap in to see and act on each separately.
     return `<div class="planting-row"><span class="fam-dot" style="background:#8a8a7a;"></span>
       <div class="prow-main"><span class="pname" style="cursor:pointer;" data-info="${t.id}">${escapeHTML(trayLabelText(t))}${numTag}</span>
-      <span class="pdate">${t.plantings.length} varieties</span></div>
+      <span class="pdate">${withLevel(t, t.plantings.length+' varieties')}</span></div>
       <div class="prow-actions"><button class="btn small danger" data-deltray="${t.id}">Delete</button>
       <button class="btn small" data-info="${t.id}">Open</button></div></div>`;
   };
@@ -6881,17 +6947,17 @@ function openStructureDetail(feat, highlightTrayId){
   openModal(`<h3>${info.icon} ${escapeHTML(feat.label||info.label)} <span style="display:inline-block; width:16px; height:16px; border-radius:4px; background:${feat.color||BED_COLORS[0]}; vertical-align:-2px;"></span></h3>
     ${stampHTML(feat)}${feat.type==='cloche' ? clocheControlsHTML(feat) : ''}
     ${tierRow}
-    ${tiers.length>1?`<p class="viewing-tier">Viewing: <strong>${escapeHTML(tier.label)}</strong></p>`:''}
-    <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
+    ${multiTier?`<p class="tiny-muted" style="margin:-4px 0 10px;">Tap a level to show or hide it.</p>`:''}
+    ${tierBlocksHTML}
     <div class="btn-row"><button class="btn small" id="mSow" style="flex:1;">Sow something</button><button class="btn small secondary" id="mAddPot" style="flex:1;">Add a tray/pot</button></div>
-    <p class="picture-help">${tiers.length>1?'Drag a tray up onto another level\'s tab to move it there. ':''}Drag a tray's box to where it sits, and its corner to resize it. Tap it for details.</p>
+    <p class="picture-help">${multiTier?'Drag a tray onto another level\'s row, or its button, to move it there. ':''}Drag a tray's box to where it sits, and its corner to resize it. Tap it for details.</p>
     <div class="tray-list">${rows}</div>
     ${findTrayRowHTML}
     ${sortRowHTML}
-    <div class="btn-row">${tierId!=='ground'?'<button class="btn small secondary" id="mEditTier">Edit staging</button>':''}<button class="btn small secondary" id="mEdit">Edit ${escapeHTML(info.label.toLowerCase())}</button>${addTierBtnHTML}</div>`, true);
+    <div class="btn-row"><button class="btn small secondary" id="mEdit">Edit ${escapeHTML(info.label.toLowerCase())}</button>${addTierBtnHTML}</div>`, true);
 
   modalContent.querySelectorAll('.sort-row [data-sort]').forEach(b=>b.addEventListener('click', ()=>{ traySortMode[feat.id]=b.dataset.sort; openStructureDetail(feat, highlightTrayId); }));
-  document.getElementById('mAddPot').addEventListener('click', ()=> openAddContainer(feat, tierId));
+  document.getElementById('mAddPot').addEventListener('click', ()=> pickTier(tid=> openAddContainer(feat, tid)));
   if(feat.type==='cloche') wireClocheControls(feat);
   const showAllEmptyBtn = document.getElementById('btnShowAllEmpty');
   if(showAllEmptyBtn) showAllEmptyBtn.addEventListener('click', ()=>{
@@ -6918,7 +6984,7 @@ function openStructureDetail(feat, highlightTrayId){
     document.getElementById('mFindTrayNum').addEventListener('keydown', (e)=>{ if(e.key==='Enter') doFindTray(); });
   }
 
-  renderPictureCanvas('bedPic', tier, allTrays,
+  for(const r of shownRows) renderPictureCanvas(r.picId, r.tier, r.trays,
     t=>{ return trayIsEmpty(t) ? 'Empty' : trayLabelText(t); },
     t=>{ if(trayIsEmpty(t)) return 'Other'; const c=cropById(t.plantings[0].cropId); return c?c.family:'Other'; },
     async (tray, vals)=>{ Object.assign(tray, vals); await put('trays', tray); await afterChange(); if(supa) schedulePush(); },
@@ -6928,9 +6994,23 @@ function openStructureDetail(feat, highlightTrayId){
     t=>{ if(t.colorOverride) return t.colorOverride; if(trayIsEmpty(t)) return '#8a8a7a'; const c=cropById(t.plantings[0].cropId); return c?cropColor(c):'#8a8a7a'; },
     t=> t.number, true
   );
-  if(tiers.length>1) wireTierDropTargets(feat, tierId);
+  if(multiTier) wireTierDropTargets(feat, shownRows, (tray, destId)=>{
+    if(!shownTiers[feat.id].includes(destId)) shownTiers[feat.id].push(destId);
+    openStructureDetail(feat, tray.id);
+  });
 
-  if(tiers.length>1) modalContent.querySelectorAll('[data-tier]').forEach(b=>b.addEventListener('click', ()=>{ activeTier[feat.id]=b.dataset.tier; openStructureDetail(feat, highlightTrayId); }));
+  if(multiTier) modalContent.querySelectorAll('.tier-row [data-tier]').forEach(b=>b.addEventListener('click', ()=>{
+    const id = b.dataset.tier, list = shownTiers[feat.id];
+    if(list.includes(id)){ if(list.length>1) shownTiers[feat.id] = list.filter(x=>x!==id); }
+    else { list.push(id); activeTier[feat.id] = id; }
+    if(!shownTiers[feat.id].includes(activeTier[feat.id])) activeTier[feat.id] = shownTiers[feat.id][0];
+    openStructureDetail(feat);
+  }));
+  const showAllTiersBtn = document.getElementById('btnShowAllTiers');
+  if(showAllTiersBtn) showAllTiersBtn.addEventListener('click', ()=>{
+    shownTiers[feat.id] = shownTiers[feat.id].length===tiers.length ? [activeTier[feat.id]] : tiers.map(t=>t.id);
+    openStructureDetail(feat);
+  });
   document.getElementById('btnAddTier').addEventListener('click', ()=>{
     openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Add staging</h3>
       <div class="form-row"><div><label>Label</label><input type="text" id="mLabel" placeholder="e.g. Middle shelf"></div></div>
@@ -6946,11 +7026,12 @@ function openStructureDetail(feat, highlightTrayId){
       feat.tiers = newTiers;
       await put('features', feat); await afterChange();
       activeTier[feat.id] = newTiers[newTiers.length-1].id;
+      shownTiers[feat.id] = (shownTiers[feat.id]||[]).concat([activeTier[feat.id]]);
       openStructureDetail(feat);
     });
   });
-  const editTierBtn = document.getElementById('mEditTier');
-  if(editTierBtn) editTierBtn.addEventListener('click', ()=>{
+  modalContent.querySelectorAll('[data-edittier]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const tier = tiers.find(t=>t.id===btn.dataset.edittier); if(!tier) return;
     openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit staging</h3>
       <div class="form-row"><div><label>Label</label><input type="text" id="mLabel" value="${escapeAttr(tier.label)}"></div></div>
       ${dimensionFieldsHTML("mW","mH","Width","Depth", tier.w, tier.h)}
@@ -6972,11 +7053,12 @@ function openStructureDetail(feat, highlightTrayId){
         feat.tiers = tiers.filter(t=>t.id!==tier.id);
         await put('features', feat);
         activeTier[feat.id] = feat.tiers[0] ? feat.tiers[0].id : 'ground';
+        shownTiers[feat.id] = (shownTiers[feat.id]||[]).filter(id=>id!==tier.id);
         await afterChange();
         openStructureDetail(feat);
       }
     });
-  });
+  }));
   modalContent.querySelectorAll('[data-move]').forEach(b=>b.addEventListener('click', ()=>{
     const t = STATE.trays.find(tt=>tt.id===b.dataset.move);
     if(!t || trayIsEmpty(t)) return;
@@ -6986,7 +7068,7 @@ function openStructureDetail(feat, highlightTrayId){
   modalContent.querySelectorAll('[data-info]').forEach(b=>b.addEventListener('click', ()=> openTrayOrPlanting(b.dataset.info)));
   modalContent.querySelectorAll('[data-sowinto]').forEach(b=>b.addEventListener('click', ()=> openSowIntoContainer(b.dataset.sowinto)));
   modalContent.querySelectorAll('[data-deltray]').forEach(b=>b.addEventListener('click', ()=> deleteTray(b.dataset.deltray, ()=>openStructureDetail(feat))));
-  document.getElementById('mSow').addEventListener('click', ()=> openSowTray(locName, feat, tierId));
+  document.getElementById('mSow').addEventListener('click', ()=> pickTier(tid=> openSowTray(locName, feat, tid)));
   document.getElementById('mEdit').addEventListener('click', ()=>{
     requireUnlock(()=>{
     const featSwatches = BED_COLORS.map(c=>`<div class="swatch ${c===feat.color?'picked':''}" data-c="${c}" style="background:${c};"></div>`).join('');
