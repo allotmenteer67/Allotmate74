@@ -751,7 +751,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.10.10';
+const APP_VERSION = '2026.10.10.12';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -3381,8 +3381,7 @@ const f = featureById(clocheFix.id);
 el.innerHTML = `<div class="alert placing" style="flex-wrap:wrap; gap:8px;">
 <span style="flex:1 1 100%;">⛺ Drag or turn ${escapeHTML(f?(f.label||'the cloche'):'the cloche')} to where it really is. Everything else is locked meanwhile.</span>
 <button class="btn small secondary" id="btnFixTurn">↻ Turn</button>
-<label style="display:flex; align-items:center; gap:6px; margin:0;"><input type="checkbox" id="chkFixOk"> This is the correct place</label>
-<button class="btn small" id="btnFixConfirm">Confirm</button>
+<button class="btn small" id="btnFixConfirm">Confirm — this is the correct place</button>
 <button class="btn small secondary" id="btnFixCancel">Cancel</button></div>`;
 document.getElementById('btnFixTurn').addEventListener('click', ()=>{ const ff=featureById(clocheFix.id); if(ff) turnClocheInPlace(ff, true); });
 document.getElementById('btnFixConfirm').addEventListener('click', confirmClocheFix);
@@ -4262,7 +4261,7 @@ ${showResize?`<div class="resize-handle-sm" style="width:${handleSize}px; height
 });
 html += pictureCutoutsAndClochesHTML(obj, items, effectivePos, ppmLocal, bw, bh, anchor);
 el.innerHTML = html;
-el.querySelectorAll('[data-clocheover]').forEach(c=>c.addEventListener('click', (e)=>{ e.stopPropagation(); const f=featureById(c.dataset.clocheover); if(f) openStructureDetail(f); }));
+el.querySelectorAll('[data-clocheover]').forEach(c=>wireClocheOverlayDrag(c, obj, ppmLocal, anchor));
 el.querySelectorAll('.crop-box').forEach(boxEl=>{
 const idx = parseInt(boxEl.dataset.idx);
 wireCropBox(boxEl, items[idx], ppmLocal, {w:bw,h:bh}, onChange, onTap, obj.shape, anchor);
@@ -4499,7 +4498,7 @@ const isComposting = (o.type==='container'||o.type==='basket') && o.composting;
 const showHatch = isComposting && Math.min(w,h) >= COMPOST_HATCH_MIN_PX;
 const featFallbackBg = o.type==='container' ? '#EFE7DA' : (o.type==='basket' ? '#F3ECD9' : '#EAF0E2');
 const featFallbackBorder = o.type==='container' ? 'var(--soil)' : (o.type==='basket' ? 'var(--mustard)' : 'var(--leaf-light)');
-const featBg = mapObjBackgroundCSS(showHatch, o.color, featFallbackBg, featFallbackBorder) + (o.round ? ' border-radius:50%;' : '') + (o.type==='cloche' ? ' background:rgba(206,224,233,0.62); border:2px dashed #435760; z-index:3;' + (clocheFix && clocheFix.id===o.id ? ' box-shadow:0 0 0 3px #2B3A40;' : '') : '');
+const featBg = mapObjBackgroundCSS(showHatch, o.color, featFallbackBg, featFallbackBorder) + (o.round ? ' border-radius:50%;' : '') + (o.type==='cloche' ? ` background:${clocheFill(o)}; border:2px dashed ${o.color||'#435760'}; z-index:3;` + (clocheFix && clocheFix.id===o.id ? ' box-shadow:0 0 0 3px #2B3A40;' : '') : '');
 const featEligible = (placingMode && (o.type==='container'||o.type==='basket')) ? ' placeable' : '';
 html += `<div class="mapObj type-${o.type}${featEligible}" data-kind="feature" data-type="${o.type}" data-id="${o.id}" data-locked="${mapLockedNow(o)?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${featBg}">
 ${lockBadge}${overdueBadge}<span class="icon">${iconHTML}</span><span class="lbl">${escapeHTML(o.label||info.label)}</span></div>`;
@@ -4734,9 +4733,8 @@ const why = clocheClashes(f, x, y, f.w, f.h);
 if(why){ toast(`Can't put it there — ${why}.`); renderAll(); return; }
 f.x=x; f.y=y; f.movedBy=who();
 await clocheCover(f);
-f.locked = true;   // re-locks itself after every move
 await put('features', f); await afterChange();
-toast(`${f.label||'Cloche'} moved and locked again`);
+toast(`${f.label||'Cloche'} moved`);
 return;
 }
 }
@@ -4807,7 +4805,7 @@ cloche put down in the wrong place can be corrected later and everything it cove
 A crop covered completely is set aside (not growing, not harvested, not a failure) until then.
 Cut-outs are fixed to the ground in the bed, not to the crop, so moving the crop's box doesn't
 drag the hole with it. A real move or turn leaves the old patch free; only "Put in the wrong
-place?" gives it back. The cloche re-locks itself after every move. */
+place?" gives it back. Its lock is on its own front screen and stays as it is set. */
 let clocheFix = null;   // {id, x, y, w, h, turned} while correcting a cloche's position
 function mapLockedNow(o){ return clocheFix ? o.id!==clocheFix.id : !!o.locked; }
 function rectIntersect(a,b){
@@ -4897,35 +4895,58 @@ const cx = f.x+f.w/2, cy = f.y+f.h/2;
 const nx = snapMap(cx-f.h/2), ny = snapMap(cy-f.w/2);
 const why = clocheClashes(f, nx, ny, f.h, f.w);
 if(why){ toast(`Can't turn it there — ${why}.`); return false; }
-const ow = f.w; f.w = f.h; f.h = ow; f.x = nx; f.y = ny; f.turned = !f.turned;
+const ow = f.w, oh = f.h;
+f.w = oh; f.h = ow; f.x = nx; f.y = ny; f.turned = !f.turned;
+await turnClocheContents(f, oh, !fixing);
 if(fixing){ renderAll(); return true; }
 await clocheCover(f);
-f.locked = true;
 await put('features', f); await afterChange();
-toast(`${f.label||'Cloche'} turned and locked again`);
+toast(`${f.label||'Cloche'} turned`);
 return true;
 }
+// Turning a cloche turns everything in it: each shelf area swaps its width and length, and every
+// tray or pot keeps its place relative to the cloche - a quarter turn clockwise, same as the cloche.
+// oldH is the cloche's length before the turn (for its default ground area).
+async function turnClocheContents(f, oldH, save){
+const custom = (f.tiers && f.tiers.length) ? f.tiers : null;
+const oldHeights = {};
+if(custom) custom.forEach(t=>{ oldHeights[t.id] = t.h; const tw = t.w; t.w = t.h; t.h = tw; });
+for(const t of STATE.trays.filter(t=>t.featureId===f.id)){
+if(t.px!=null && t.py!=null && t.pw!=null && t.ph!=null){
+const H = custom ? (oldHeights[t.tierId] ?? oldHeights[custom[0].id]) : oldH;
+const npx = Math.max(0, H - (t.py + t.ph)), npy = t.px;
+const pw = t.pw;
+t.px = snapFine(npx); t.py = snapFine(npy); t.pw = t.ph; t.ph = pw;
+}
+if(save) await put('trays', t);
+}
+}
 function startClocheFix(f){
-clocheFix = {id:f.id, x:f.x, y:f.y, w:f.w, h:f.h, turned:!!f.turned};
+clocheFix = {id:f.id, x:f.x, y:f.y, w:f.w, h:f.h, turned:!!f.turned,
+tiers: f.tiers ? JSON.parse(JSON.stringify(f.tiers)) : null,
+trays: STATE.trays.filter(t=>t.featureId===f.id).map(t=>({id:t.id, px:t.px, py:t.py, pw:t.pw, ph:t.ph}))};
 goHome();
 }
 function cancelClocheFix(){
 const f = clocheFix && featureById(clocheFix.id);
-if(f){ f.x=clocheFix.x; f.y=clocheFix.y; f.w=clocheFix.w; f.h=clocheFix.h; f.turned=clocheFix.turned; }
+if(f){
+f.x=clocheFix.x; f.y=clocheFix.y; f.w=clocheFix.w; f.h=clocheFix.h; f.turned=clocheFix.turned;
+if(clocheFix.tiers) f.tiers = clocheFix.tiers;
+for(const snap of clocheFix.trays){ const t = STATE.trays.find(x=>x.id===snap.id); if(t) Object.assign(t, {px:snap.px, py:snap.py, pw:snap.pw, ph:snap.ph}); }
+}
 clocheFix = null; renderAll();
 }
 async function confirmClocheFix(){
-const ok = document.getElementById('chkFixOk');
-if(!ok || !ok.checked){ toast('Tick "This is the correct place" first'); return; }
 const f = featureById(clocheFix.id); if(!f){ clocheFix=null; renderAll(); return; }
 const why = clocheClashes(f, f.x, f.y, f.w, f.h);
 if(why){ toast(`Can't put it there — ${why}.`); return; }
 const since = f.placementSince || todayISO();
 const res = await clocheRestore(f);
 await clocheCover(f, since);
-f.locked = true; clocheFix = null;
+for(const t of STATE.trays.filter(t=>t.featureId===f.id)) await put('trays', t);   // any turn made while fixing
+clocheFix = null;
 await put('features', f); await afterChange();
-toast(res.gaveWay ? `Fixed — ${res.crops} crop${res.crops===1?'':'s'} given back, around anything planted there since` : `Fixed — ${res.crops} crop${res.crops===1?'':'s'} given back`);
+toast(!res.crops ? 'Position fixed' : (res.gaveWay ? `Fixed — ${res.crops} crop${res.crops===1?'':'s'} given back, around anything planted there since` : `Fixed — ${res.crops} crop${res.crops===1?'':'s'} given back`));
 }
 function placeClocheAt(cx, cy){
 const stored = STATE.features.filter(f=>f.type==='cloche' && f.offPlot);
@@ -4935,15 +4956,15 @@ let x = snapMap(cx-f.w/2), y = snapMap(cy-f.h/2);
 x = Math.min(Math.max(x, tb.minX), tb.maxX-f.w); y = Math.min(Math.max(y, tb.minY), tb.maxY-f.h);
 const why = clocheClashes(f, x, y, f.w, f.h);
 if(why){ toast(`Can't put it there — ${why}.`); return; }
-f.x = x; f.y = y; f.offPlot = false; f.locked = true;
+f.x = x; f.y = y; f.offPlot = false;
 await clocheCover(f);
 await put('features', f); await afterChange(); closeModal();
-toast(`${f.label} placed and locked`);
+toast(`${f.label} placed`);
 };
 const makeNew = ()=>{
 const n = STATE.features.filter(f=>f.type==='cloche').length + 1;
 const [w,h] = DEFAULT_SIZE.cloche;
-doPlace({id:uid(), type:'cloche', label:`Cloche ${n}`, w, h, locked:true, openToSoil:false, turned:false, createdBy:who()});
+doPlace({id:uid(), type:'cloche', label:`Cloche ${n}`, w, h, locked:false, openToSoil:false, turned:false, createdBy:who()});
 };
 if(!stored.length){ makeNew(); return; }
 openModal(`<h3>Which cloche?</h3>${stored.map(f=>`<button class="btn secondary" data-putback="${f.id}" style="display:block; width:100%; margin-bottom:8px;">Put back ${escapeHTML(f.label||'Cloche')}</button>`).join('')}<button class="btn" id="mNewCloche" style="width:100%;">A new cloche</button>`);
@@ -4956,7 +4977,7 @@ const fmt = v=>String(+(+v).toFixed(2));
 const beds = bedsUnderCloche(f).map(b=>b.name);
 return `<p class="tiny-muted" style="margin:-4px 0 8px;">${fmt(w)} × ${fmt(h)} m${f.turned?' · turned':''}${f.offPlot?' · off the plot':(beds.length?` · on ${escapeHTML(beds.join(', '))}`:'')}</p>
 ${f.offPlot ? `<p class="muted">Stored off the plot. To put it back, tap an empty spot on the map and choose Cloche.</p>` : `
-<div class="toggle-row"><span>${f.locked?'Locked':'Unlocked — drag it on the map'}<br><span class="tiny-muted">re-locks itself after a move</span></span><label class="switch"><input type="checkbox" id="mClocheLock" ${f.locked?'checked':''}><span class="slider"></span></label></div>
+<div class="toggle-row"><span>${f.locked?'Locked':'Unlocked'}<br><span class="tiny-muted">${f.locked?'can\'t be moved by accident':'drag it on the plot or on the bed'}</span></span><label class="switch"><input type="checkbox" id="mClocheLock" ${f.locked?'checked':''}><span class="slider"></span></label></div>
 <div class="btn-row" style="margin:8px 0 4px;"><button class="btn small secondary" id="mClocheTurn">↻ Turn</button><button class="btn small secondary" id="mClocheWrong">Put in the wrong place?</button></div>
 <p class="tiny-muted" style="margin:0 0 8px;">${f.locked?'Unlock to drag or turn it. ':''}Whatever it lands on is cut out; where it was is left as free space.</p>`}
 <div class="toggle-row"><span>Open to the soil<br><span class="tiny-muted">crops can be planted in the ground under it</span></span><label class="switch"><input type="checkbox" id="mClocheSoil" ${f.openToSoil?'checked':''}><span class="slider"></span></label></div>
@@ -4997,6 +5018,43 @@ modalContent.querySelectorAll('[data-dest]').forEach(b=>b.addEventListener('clic
 document.getElementById('mKeepIn').addEventListener('click', ()=> takeOff(null));
 });
 }
+// The cloche's own colour, see-through so the bed shows under it; the old grey-blue if none is set.
+function clocheFill(f){ return (f.color && /^#[0-9a-fA-F]{6}$/.test(f.color)) ? f.color+'99' : 'rgba(206,224,233,0.62)'; }
+// On the bed's own picture an unlocked cloche can be dragged just as on the plot (a tap still opens
+// it). It stays touching this bed; to take it right off the bed, use the plot view.
+function wireClocheOverlayDrag(c, bed, ppm, anchor){
+const f = featureById(c.dataset.clocheover); if(!f) return;
+if(f.locked) c.style.touchAction = 'pan-x pan-y'; else blockTouchScroll(c);
+c.addEventListener('pointerdown', (e)=>{
+if(!e.isPrimary) return;
+e.stopPropagation();
+const sx = e.clientX, sy = e.clientY, l0 = parseFloat(c.style.left), t0 = parseFloat(c.style.top);
+let moved = false;
+if(!f.locked){ e.preventDefault(); try{ c.setPointerCapture(e.pointerId); }catch(err){} }
+const mv = (ev)=>{
+if(f.locked) return;
+const dx = ev.clientX-sx, dy = ev.clientY-sy;
+if(Math.abs(dx)>5 || Math.abs(dy)>5) moved = true;
+if(!moved) return;
+ev.preventDefault();
+c.style.left = (l0+dx)+'px'; c.style.top = (t0+dy)+'px'; c.style.opacity = '0.85';
+};
+const up = async (ev)=>{
+document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up);
+if(ev.type==='pointercancel') return;
+if(!moved){ openStructureDetail(f); return; }
+let dxm = (parseFloat(c.style.left)-l0)/ppm, dym = (parseFloat(c.style.top)-t0)/ppm;
+if(anchor && anchor.x==='right') dxm = -dxm;
+if(anchor && anchor.y==='bottom') dym = -dym;
+let nx = snapMap(f.x+dxm), ny = snapMap(f.y+dym);
+nx = Math.min(Math.max(nx, bed.x-f.w+0.1), bed.x+bed.w-0.1);
+ny = Math.min(Math.max(ny, bed.y-f.h+0.1), bed.y+bed.h-0.1);
+await moveObject('feature', f.id, nx, ny);
+openBedDetail(bed.id);
+};
+document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', up);
+});
+}
 function clocheRowsHTML(bed){
 const cl = clochesOverBed(bed);
 if(!cl.length) return '';
@@ -5021,7 +5079,7 @@ out += `<div class="cut-hole" style="left:${r.l}px; top:${r.t}px; width:${r.w}px
 for(const f of clochesOverBed(bed)){
 const local = clocheLocalRect(f, bed); if(!local) continue;
 const r = toPx(local);
-out += `<div class="cloche-over" data-clocheover="${f.id}" style="left:${r.l}px; top:${r.t}px; width:${r.w}px; height:${r.h}px;">${escapeHTML(f.label||'Cloche')}</div>`;
+out += `<div class="cloche-over" data-clocheover="${f.id}" style="left:${r.l}px; top:${r.t}px; width:${r.w}px; height:${r.h}px; background:${clocheFill(f)}; border-color:${f.color||'#435760'};">${escapeHTML(f.label||'Cloche')}${f.locked?' 🔒':''}</div>`;
 }
 return out;
 }
