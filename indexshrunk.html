@@ -752,7 +752,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.10.16';
+const APP_VERSION = '2026.10.10.17';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -4251,7 +4251,22 @@ if(!isEmpty && label==='Fallow' && it.date){
 const weeks = Math.floor(daysBetween(it.date, todayISO())/7);
 extraLines = [`since ${monthYearLabel(it.date)} · ${weeks} week${weeks===1?'':'s'}`, `${weeks} week${weeks===1?'':'s'}`];
 }
-const { html: content, centered, boxStyle, noLock } = cropBoxContentHTML(label, icon, w, h, num, dotHTML, extraLines);
+// When a cloche or a cut-out patch covers part of a crop, its name goes in the largest part still
+// showing, rather than in the corner where it would be hidden underneath.
+let labelW = w, labelH = h, labelPadStyle = '';
+const pBox = (it.cutouts && it.cutouts.length) ? plantingBox(it) : null;
+if(pBox){
+const pieces = subtractRects([pBox], it.cutouts);
+if(pieces.length){
+const best = pieces.reduce((a,r)=> r.pw*r.ph > a.pw*a.ph ? r : a);
+const offL = anchor.x==='right' ? (pBox.px+pBox.pw-best.px-best.pw)*ppmLocal : (best.px-pBox.px)*ppmLocal;
+const offT = anchor.y==='bottom' ? (pBox.py+pBox.ph-best.py-best.ph)*ppmLocal : (best.py-pBox.py)*ppmLocal;
+labelW = Math.max(10, best.pw*ppmLocal); labelH = Math.max(10, best.ph*ppmLocal);
+const padR = Math.max(0, w-offL-labelW), padB = Math.max(0, h-offT-labelH);
+labelPadStyle = `padding:${Math.max(0,offT)+6}px ${padR+7}px ${padB+2}px ${Math.max(0,offL)+7}px;`;
+}
+}
+const { html: content, centered, boxStyle, noLock } = cropBoxContentHTML(label, icon, labelW, labelH, num, dotHTML, extraLines);
 const alignStyle = labelAlign[idx] ? `align-items:${labelAlign[idx]};` : '';
 // The resize handle is a fixed 20x20px icon, which used to always fit because nothing could be
 // resized narrower than ~30px anyway (see the drag-floor fix above). Now a box genuinely can be
@@ -4260,7 +4275,7 @@ const alignStyle = labelAlign[idx] ? `align-items:${labelAlign[idx]};` : '';
 // Scale the icon to the box's own size once the box is the smaller of the two.
 const handleSize = Math.max(10, Math.min(20, w, h));
 const holesAttr = (it.cutouts && it.cutouts.length) ? ` data-holes="${it.cutouts.map(c=>{ const l=anchor.x==='right'?(bw-c.px-c.pw)*ppmLocal:c.px*ppmLocal, t=anchor.y==='bottom'?(bh-c.py-c.ph)*ppmLocal:c.py*ppmLocal; return [l,t,c.pw*ppmLocal,c.ph*ppmLocal].map(v=>v.toFixed(1)).join(','); }).join(';')}"` : '';
-html += `<div${holesAttr} class="crop-box${hl}${isEmpty?' empty':''}${centered?' icon-centered':''}${(!centered&&anchor.y==='bottom')?' anchor-y-bottom':''}${(!centered&&anchor.x==='right')?' anchor-x-right':''}" data-idx="${idx}" data-allowoverlap="${it.allowOverlap?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${colStyle} ${alignStyle} ${boxStyle}">
+html += `<div${holesAttr} class="crop-box${hl}${isEmpty?' empty':''}${centered?' icon-centered':''}${(!centered&&anchor.y==='bottom')?' anchor-y-bottom':''}${(!centered&&anchor.x==='right')?' anchor-x-right':''}" data-idx="${idx}" data-allowoverlap="${it.allowOverlap?1:0}" style="left:${left}px; top:${top}px; width:${w}px; height:${h}px; ${colStyle} ${alignStyle} ${boxStyle} ${labelPadStyle}">
 ${content}${(it.locked && !noLock)?' 🔒':''}
 ${showResize?`<div class="resize-handle-sm" style="width:${handleSize}px; height:${handleSize}px; ${col?`background:${col};`:''}"></div>`:''}</div>`;
 });
