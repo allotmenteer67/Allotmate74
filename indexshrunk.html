@@ -80,6 +80,7 @@ font-size:15px; font-weight:700; color:var(--soil); overflow:hidden; touch-actio
 .mapObj .icon{line-height:1;}
 .mapObj .lbl{max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 2px;}
 .mapObj.shaped{border:none; background:transparent; border-radius:0; overflow:visible;}
+.crop-box .resize-handle-sm{z-index:6;}  /* a crop's resize corner stays reachable even with a cloche or cut-out over it */
 .cut-hole{position:absolute; border:1.5px dotted var(--slate); pointer-events:none; z-index:3;}
 .cloche-over{position:absolute; border:2px dashed #435760; background:rgba(206,224,233,0.62); z-index:4; display:flex; align-items:center; justify-content:center; font-size:13px; color:#2B3A40; text-align:center; cursor:pointer; overflow:hidden; border-radius:3px;}
 .mapObj.type-greenhouse,.mapObj.type-polytunnel,.mapObj.type-cloche{background:#EAF2F1; border-color:var(--slate);}
@@ -751,7 +752,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.10.14';
+const APP_VERSION = '2026.10.10.15';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
