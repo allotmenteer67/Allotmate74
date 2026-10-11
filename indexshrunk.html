@@ -284,6 +284,9 @@ so Delete and the second action always land in the same place relative to each o
 .tray-list .btn.small{padding:5px 9px; font-size:15.5px;}
 .sort-row{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:10px 0;}
 .planting-row .inline-edit{font-size:17px; font-family:inherit; color:var(--ink); border:1.5px solid var(--line); border-radius:6px; padding:5px 8px; width:auto; max-width:140px; margin-left:auto; text-align:right;}
+/* A crop name can be long ("Lettuce Mesclun Mixed"), so its box takes whatever room the row has. */
+.planting-row .pname.fit{flex:none;}
+.planting-row .inline-edit.wide{flex:1; max-width:none; min-width:0;}
 .row-heading{font-size:15px; text-transform:uppercase; font-weight:700; opacity:0.85; margin-top:10px;}
 .warn-note{font-size:16.5px; color:var(--brick); margin-top:8px; background:#F7E9E4; padding:8px 10px; border-radius:var(--radius);}
 .pairing-row-details{border-bottom:1px solid var(--line-soft); margin-bottom:2px;}
@@ -752,7 +755,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.10.17';
+const APP_VERSION = '2026.10.11.2';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -969,8 +972,11 @@ if(changed && supa) schedulePush();
 return result;
 }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
-function todayISO(){ return new Date().toISOString().slice(0,10); }
-function addDays(iso,n){ const d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+// Dates are the gardener's own calendar date. These used to go through UTC, which in British Summer
+// Time made "today" still yesterday until 1am, and made addDays land one day short all summer.
+function localISO(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function todayISO(){ return localISO(new Date()); }
+function addDays(iso,n){ const d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return localISO(d); }
 // A history/harvest record's own date, safe to sort on. Several places that READ these records
 // already cope with the date being absent, but the sorts that run first didn't — so one record
 // missing a date (an old or hand-edited backup, a part-written record) threw inside Array.sort,
@@ -4251,11 +4257,26 @@ if(!isEmpty && label==='Fallow' && it.date){
 const weeks = Math.floor(daysBetween(it.date, todayISO())/7);
 extraLines = [`since ${monthYearLabel(it.date)} · ${weeks} week${weeks===1?'':'s'}`, `${weeks} week${weeks===1?'':'s'}`];
 }
-// When a cloche or a cut-out patch covers part of a crop, its name goes in the largest part still
-// showing, rather than in the corner where it would be hidden underneath.
+// When a cloche or a cut-out patch covers the spot where a crop's name normally sits, the name goes
+// in the largest part still showing. Only then: once the cloche moves off (or the patch is given
+// back) the name goes straight back to its usual place.
 let labelW = w, labelH = h, labelPadStyle = '';
 const pBox = (it.cutouts && it.cutouts.length) ? plantingBox(it) : null;
+let nameCovered = false;
 if(pBox){
+const usual = cropBoxContentHTML(label, icon, w, h, num, dotHTML, extraLines);
+const rw = Math.min(w, usual.centered ? 34 : label.length*9 + 34 + (num!=null?24:0)), rh = Math.min(h, 26);
+const atBottom = labelAlign[idx] ? labelAlign[idx]==='flex-end' : anchor.y==='bottom';
+const spot = usual.centered ? {l:(w-rw)/2, t:(h-rh)/2, w:rw, h:rh}
+: {l: anchor.x==='right' ? w-rw : 0, t: atBottom ? h-rh : 0, w:rw, h:rh};
+for(const c of it.cutouts){
+const i = rectIntersect(pBox, c); if(!i) continue;
+const holeL = anchor.x==='right' ? (pBox.px+pBox.pw-i.px-i.pw)*ppmLocal : (i.px-pBox.px)*ppmLocal;
+const holeT = anchor.y==='bottom' ? (pBox.py+pBox.ph-i.py-i.ph)*ppmLocal : (i.py-pBox.py)*ppmLocal;
+if(holeL < spot.l+spot.w && holeL+i.pw*ppmLocal > spot.l && holeT < spot.t+spot.h && holeT+i.ph*ppmLocal > spot.t){ nameCovered = true; break; }
+}
+}
+if(pBox && nameCovered){
 const pieces = subtractRects([pBox], it.cutouts);
 if(pieces.length){
 const best = pieces.reduce((a,r)=> r.pw*r.ph > a.pw*a.ph ? r : a);
@@ -4914,7 +4935,7 @@ if(f.placementId && f.placementSince===todayISO()) await clocheRestore(f);
 // made by an older version, or on another device). Returns true if anything changed.
 async function clocheSameDayCleanup(){
 const today = todayISO(); let changed = false;
-const placementOf = id=>{ const f = featureById(id); return f ? f.placementId : null; };
+const placementOf = id=>{ const f = featureById(id); return (f && !f.offPlot) ? f.placementId : null; };
 for(const bed of STATE.beds){
 let touched = false;
 for(const pl of (bed.plantings||[])){
@@ -5067,6 +5088,7 @@ if(destId){
 const dest = featureById(destId);
 for(const t of trays) await moveTrayToStructure(t, dest, true);
 }
+await clocheGiveBackIfSameDay(f);
 f.offPlot = true; f.locked = true;
 await put('features', f); await afterChange(); closeModal();
 toast(`${f.label||'Cloche'} taken off the plot`);
@@ -5606,7 +5628,7 @@ function objectDisplayLabel(obj, storeKind){
 if(storeKind==='beds') return obj.name;
 if(storeKind==='trays'){
 const host = obj.featureId ? featureById(obj.featureId) : null;
-return (obj.number!=null?('Tray #'+obj.number+' — '):'Tray — ') + (host?(host.label||(FEATURE_TYPES[host.type]&&FEATURE_TYPES[host.type].label)):obj.location);
+return (obj.number!=null?('Tray #'+obj.number+' — '):'Tray — ') + (host?(host.label||(FEATURE_TYPES[host.type]&&FEATURE_TYPES[host.type].label)):trayWhereLabel(obj));
 }
 return obj.label||(FEATURE_TYPES[obj.type]&&FEATURE_TYPES[obj.type].label)||'Container';
 }
@@ -6566,8 +6588,16 @@ if(await confirmDialog('Remove this tree from the map? Its harvest history stays
 /* ---- Greenhouse / Polytunnel structure detail (with optional tiers) ---- */
 function featureForTray(tray){
 if(!tray) return undefined;
-if(tray.featureId){ const f = STATE.features.find(f=>f.id===tray.featureId); if(f) return f; }
+if(tray.featureId) return STATE.features.find(f=>f.id===tray.featureId);   // gone means gone - see trayHostGone
 return STATE.features.find(f=>FEATURE_TYPES[f.type] && FEATURE_TYPES[f.type].label===tray.location);
+}
+// A tray left behind by a structure removed before 2026.10.11.1 (removing one now moves or deletes its
+// trays). Shown as "Cloche (removed)" so it can be found, then moved or deleted from its own screen.
+function trayHostGone(tray){ return !!(tray && tray.featureId && !featureById(tray.featureId)); }
+function trayWhereLabel(tray){
+const host = tray.featureId ? featureById(tray.featureId) : null;
+if(host) return host.label || tray.location;
+return trayHostGone(tray) ? `${tray.location} (removed)` : tray.location;
 }
 function getTiers(feat){
 if(feat.tiers && feat.tiers.length) return feat.tiers;
@@ -6884,9 +6914,45 @@ feat.locked = document.getElementById('mLocked').checked;
 await put('features',feat); await afterChange(); openStructureDetail(feat);
 });
 document.getElementById('mDel').addEventListener('click', async ()=>{
-if(await confirmDialog(`Remove this ${info.label.toLowerCase()} from your map?`, ()=>openStructureDetail(feat))){ await del('features',feat.id); await afterChange(); closeModal(); }
+removeStructure(feat);
 });
 });
+});
+}
+// Removing a greenhouse, polytunnel or cloche. Its trays never get left behind pointing at something
+// that's gone: they're moved somewhere else or deleted with it, in one go (one Undo puts it all back).
+// A cloche removed on the day it was put down gives back the ground it was standing on.
+async function removeStructure(feat){
+const name = feat.label || (FEATURE_TYPES[feat.type]||{}).label || 'this';
+const reopen = ()=>{ const f = featureById(feat.id); if(f) openStructureDetail(f); };
+const all = STATE.trays.filter(t=>t.featureId===feat.id);
+const growing = all.filter(t=>!trayIsEmpty(t));
+const finish = async (destId)=>{
+if(feat.type==='cloche') await clocheGiveBackIfSameDay(feat);
+const dest = destId ? featureById(destId) : null;
+for(const t of all){
+if(dest && !trayIsEmpty(t)){ await moveTrayToStructure(t, dest, true); continue; }
+await tombstoneEach(t.plantings); await tombstoneEach(t.treatments);
+await del('trays', t.id);
+for(const task of STATE.tasks.filter(k=>k.linkedTrayId===t.id && !k.done)){ task.done = true; await put('tasks', task); }
+}
+await del('features', feat.id); await afterChange(); closeModal();
+toast(dest ? `${name} removed — trays moved to ${dest.label||FEATURE_TYPES[dest.type].label}` : `${name} removed`);
+};
+if(!growing.length){
+if(await confirmDialog(`Remove ${escapeHTML(name)} from your map?`, reopen)) finish(null);
+return;
+}
+const dests = STATE.features.filter(o=>o.id!==feat.id && (o.type==='greenhouse' || o.type==='polytunnel' || (o.type==='cloche' && !o.offPlot)));
+const n = growing.length, trays = `tray${n===1?'':'s'}`;
+openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Remove ${escapeHTML(name)}</h3>
+<p class="muted" style="margin-top:-4px;">It has ${n} ${trays} with crops in. Where are they going?</p>
+${dests.map(o=>`<button class="btn secondary" data-dest="${o.id}" style="display:block; width:100%; margin-bottom:8px;">Move to ${escapeHTML(o.label||FEATURE_TYPES[o.type].label)}</button>`).join('')}
+<button class="btn danger" id="mDelTrays" style="display:block; width:100%; margin-top:14px;">Delete the ${trays} too</button>`);
+document.getElementById('mBack').addEventListener('click', reopen);
+modalContent.querySelectorAll('[data-dest]').forEach(b=>b.addEventListener('click', ()=> finish(b.dataset.dest)));
+document.getElementById('mDelTrays').addEventListener('click', async ()=>{
+if(await confirmDialog(`Delete ${escapeHTML(name)} and its ${n} ${trays}? Whatever's growing in them will be lost — harvest first if you want a record.`, ()=>removeStructure(feat), 'Delete', true)) finish(null);
 });
 }
 // A tray with one crop in it opens straight to that crop's details (openTrayPlantingInfo) —
@@ -6910,7 +6976,7 @@ return `<div class="planting-row"><span class="fam-dot" style="background:${c?cr
 <span class="pdate">${potOnDue?('plant out '+dayLabel(potOnDue)):(p.stayInPlace?'staying here':'')}</span></div>`;
 }).join('') || '<p class="muted">Nothing sown here yet.</p>';
 openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${tray.name?escapeHTML(tray.name):(tray.number!=null?('Tray #'+tray.number):'Tray')}</h3>
-<div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(feat&&feat.label?feat.label:tray.location)}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}${(tray.moves&&tray.moves.length)?` <span class="tiny-muted">· moved here ${dayLabel(tray.moves[tray.moves.length-1].date)}</span>`:''}</span><button class="btn small secondary" id="mMoveStruct" style="margin-left:8px;">Move to…</button></div>
+<div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(feat&&feat.label?feat.label:trayWhereLabel(tray))}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}${(tray.moves&&tray.moves.length)?` <span class="tiny-muted">· moved here ${dayLabel(tray.moves[tray.moves.length-1].date)}</span>`:''}</span><button class="btn small secondary" id="mMoveStruct" style="margin-left:8px;">Move to…</button></div>
 ${tray.createdBy?`<div class="planting-row"><span class="pname">Set up by</span><span class="pdate">${escapeHTML(tray.createdBy)}</span></div>`:''}
 ${tray.sizeLocked?`<p class="tiny-muted">🔒 Locked — size fixed. Still moveable.</p>`:''}
 <div class="row-heading" style="margin-top:0;">What's growing here</div>
@@ -6938,10 +7004,10 @@ const feat = featureForTray(tray);
 const multiTier = feat && getTiers(feat).length>1;
 const hasSiblings = tray.plantings.length>1;
 openModal(`<button class="back-link" id="mBack">&larr; ${hasSiblings?'Back to tray':'Back'}</button><h3>${tray.name?escapeHTML(tray.name):(tray.number!=null?('Tray #'+tray.number):((crop && crop.name)?escapeHTML(crop.name):'Planting'))}</h3>
-<div class="planting-row"><span class="pname">Crop</span><input type="text" class="inline-edit" id="mEditCropName" list="cropSuggestions" value="${crop?escapeAttr(crop.name):''}"></div>
+<div class="planting-row"><span class="pname fit">Crop</span><input type="text" class="inline-edit wide" id="mEditCropName" list="cropSuggestions" value="${crop?escapeAttr(crop.name):''}"></div>
 <div id="trayCropSuggestBox" style="margin:-6px 0 8px;"></div>
 <div class="planting-row"><span class="pname">Planted</span><input type="date" class="inline-edit" id="mEditDate" value="${p.sownDate}"></div>
-<div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(feat&&feat.label?feat.label:tray.location)}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}${(tray.moves&&tray.moves.length)?` <span class="tiny-muted">· moved here ${dayLabel(tray.moves[tray.moves.length-1].date)}</span>`:''}</span><button class="btn small secondary" id="mMoveStruct" style="margin-left:8px;">Move to…</button></div>
+<div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(feat&&feat.label?feat.label:trayWhereLabel(tray))}${multiTier?(', '+escapeHTML((getTiers(feat).find(t=>t.id===(tray.tierId||getTiers(feat)[0].id))||{}).label||'')):''}${(tray.moves&&tray.moves.length)?` <span class="tiny-muted">· moved here ${dayLabel(tray.moves[tray.moves.length-1].date)}</span>`:''}</span><button class="btn small secondary" id="mMoveStruct" style="margin-left:8px;">Move to…</button></div>
 <div class="planting-row"><span class="pname">Quantity left</span><input type="number" onfocus="this.select()" class="inline-edit" id="mEditQty" value="${p.quantity||1}" min="1"></div>
 ${crop && crop.sowToPotOn ? `<div class="toggle-row"><span>Stays here until harvest</span><label class="switch"><input type="checkbox" id="mStayInPlace" ${p.stayInPlace?'checked':''}><span class="slider"></span></label></div>` : ''}
 ${potOnDue?`<div class="planting-row"><span class="pname">Plant out due</span><span class="pdate">${dayLabel(potOnDue)}</span></div>`:''}
@@ -7486,6 +7552,7 @@ for(const f of STATE.features) if((f.plantings||[]).some(p=>p.active && p.cropId
 for(const t of STATE.trays.filter(t=>(t.plantings||[]).some(p=>p.cropId===cropId))){
 const host = t.featureId ? featureById(t.featureId) : null;
 if(host && !spots.some(s=>s.id===host.id)) spots.push({id:host.id, kind:'structure', name:host.label||t.location});
+else if(trayHostGone(t)) spots.push({id:t.id, kind:'tray', name:trayWhereLabel(t)});
 }
 return spots;
 }
@@ -7498,8 +7565,7 @@ const spots = [];
 // whereIsCropNowDetailed (just above) already got this right; this is the same fix, just for
 // the plain string list the Crops tab itself actually reads from.
 for(const t of STATE.trays.filter(t=>(t.plantings||[]).some(p=>p.cropId===cropId))){
-const host = t.featureId ? featureById(t.featureId) : null;
-spots.push(host ? (host.label||t.location) : t.location);
+spots.push(trayWhereLabel(t));
 }
 for(const b of STATE.beds) if((b.plantings||[]).some(p=>p.active && p.cropId===cropId)) spots.push(b.name);
 for(const f of STATE.features) if((f.plantings||[]).some(p=>p.active && p.cropId===cropId)) spots.push(f.label);
@@ -7950,6 +8016,7 @@ modalContent.querySelectorAll('[data-jump]').forEach(b=>b.addEventListener('clic
 const [id, kind] = b.dataset.jump.split('|');
 if(kind==='beds') openBedDetail(id);
 else if(kind==='structure') openStructureDetail(featureById(id));
+else if(kind==='tray') openTrayOrPlanting(id);
 else openContainerDetail(id);
 }));
 modalContent.querySelectorAll('.swatch').forEach(s=>s.addEventListener('click', ()=>{
@@ -8026,7 +8093,7 @@ for(const p of (tray.plantings||[])){
 const crop = cropById(p.cropId);
 const name = crop?crop.name:'';
 if(searchTextMatch(name,t)){
-buckets.planted.push({title:name||'Planting', subtitle:`${tray.location}${tray.number!=null?' #'+tray.number:''} \u00B7 sown ${dayLabel(p.sownDate)}`, onClick:()=>openTrayPlantingInfo(tray.id, p.id)});
+buckets.planted.push({title:name||'Planting', subtitle:`${trayWhereLabel(tray)}${tray.number!=null?' #'+tray.number:''} \u00B7 sown ${dayLabel(p.sownDate)}`, onClick:()=>openTrayPlantingInfo(tray.id, p.id)});
 }
 }
 }
