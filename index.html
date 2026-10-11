@@ -808,7 +808,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.10.12';
+const APP_VERSION = '2026.10.10.14';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -4342,6 +4342,7 @@ function renderPictureCanvas(containerId, obj, items, getLabel, getFamily, onCha
   html += pictureCutoutsAndClochesHTML(obj, items, effectivePos, ppmLocal, bw, bh, anchor);
   el.innerHTML = html;
   el.querySelectorAll('[data-clocheover]').forEach(c=>wireClocheOverlayDrag(c, obj, ppmLocal, anchor));
+  el.querySelectorAll('[data-giveback]').forEach(h=>h.addEventListener('click', (e)=>{ e.stopPropagation(); const [pid,cid]=h.dataset.giveback.split('|'); giveBackPatch(obj.id, pid, cid); }));
   el.querySelectorAll('.crop-box').forEach(boxEl=>{
     const idx = parseInt(boxEl.dataset.idx);
     wireCropBox(boxEl, items[idx], ppmLocal, {w:bw,h:bh}, onChange, onTap, obj.shape, anchor);
@@ -4817,6 +4818,7 @@ async function moveObject(kind,id,x,y){
       if(clocheFix && clocheFix.id===id){ f.x=x; f.y=y; renderAll(); return; }   // fixing: nothing changes until confirmed
       const why = clocheClashes(f, x, y, f.w, f.h);
       if(why){ toast(`Can't put it there — ${why}.`); renderAll(); return; }
+      await clocheGiveBackIfSameDay(f);
       f.x=x; f.y=y; f.movedBy=who();
       await clocheCover(f);
       await put('features', f); await afterChange();
@@ -4969,6 +4971,46 @@ async function clocheRestore(f){
   }
   return result;
 }
+// Moving a cloche again on the same day it was put down counts as adjusting where it sits: the spot it
+// leaves is given back. Only ground it has stood on into another day stays cut out.
+async function clocheGiveBackIfSameDay(f){
+  if(f.placementId && f.placementSince===todayISO()) await clocheRestore(f);
+}
+// On loading, give back any of today's patches a cloche has already moved on from (covers changes
+// made by an older version, or on another device). Returns true if anything changed.
+async function clocheSameDayCleanup(){
+  const today = todayISO(); let changed = false;
+  const placementOf = id=>{ const f = featureById(id); return f ? f.placementId : null; };
+  for(const bed of STATE.beds){
+    let touched = false;
+    for(const pl of (bed.plantings||[])){
+      const keep = (pl.cutouts||[]).filter(c=>!(c.clocheId && c.since===today && placementOf(c.clocheId)!==c.placementId));
+      if(pl.cutouts && keep.length!==pl.cutouts.length){ pl.cutouts = keep; touched = true; }
+      if(!pl.active && pl.coveredBy && pl.coveredBy.clocheId && pl.coveredBy.since===today && placementOf(pl.coveredBy.clocheId)!==pl.coveredBy.placementId && !plantingFullyCut(pl)){
+        pl.coveredBy = null; pl.active = true; touched = true;
+      }
+    }
+    if(touched){ await put('beds', bed); changed = true; }
+  }
+  return changed;
+}
+async function giveBackPatch(bedId, plantingId, cutId){
+  const bed = bedById(bedId); if(!bed) return;
+  const pl = (bed.plantings||[]).find(p=>p.id===plantingId); if(!pl) return;
+  const c = cropById(pl.cropId);
+  if(!(await confirmDialog(`Give this patch back to ${escapeHTML(c?c.name:'the crop')}?`, ()=>openBedDetail(bedId), 'Give it back'))) return;
+  pl.cutouts = (pl.cutouts||[]).filter(x=>x.id!==cutId);
+  await put('beds', bed); await afterChange(); openBedDetail(bedId);
+}
+async function giveBackCrop(bedId, plantingId){
+  const bed = bedById(bedId); if(!bed) return;
+  const pl = (bed.plantings||[]).find(p=>p.id===plantingId); if(!pl) return;
+  const c = cropById(pl.cropId);
+  if(!(await confirmDialog(`Bring ${escapeHTML(c?c.name:'this crop')} back into the bed?`, ()=>openBedDetail(bedId), 'Bring it back'))) return;
+  pl.cutouts = (pl.cutouts||[]).filter(x=>!(x.clocheId && pl.coveredBy && x.placementId===pl.coveredBy.placementId));
+  pl.coveredBy = null; pl.active = true;
+  await put('beds', bed); await afterChange(); openBedDetail(bedId);
+}
 function clocheClashes(f, x, y, w, h){
   const tb = getTightBounds();
   if(x < tb.minX-0.001 || y < tb.minY-0.001 || x+w > tb.maxX+0.001 || y+h > tb.maxY+0.001) return 'it would go past the edge of the plot';
@@ -4981,6 +5023,7 @@ async function turnClocheInPlace(f, fixing){
   const nx = snapMap(cx-f.h/2), ny = snapMap(cy-f.w/2);
   const why = clocheClashes(f, nx, ny, f.h, f.w);
   if(why){ toast(`Can't turn it there — ${why}.`); return false; }
+  if(!fixing) await clocheGiveBackIfSameDay(f);
   const ow = f.w, oh = f.h;
   f.w = oh; f.h = ow; f.x = nx; f.y = ny; f.turned = !f.turned;
   await turnClocheContents(f, oh, !fixing);
@@ -5143,8 +5186,11 @@ function wireClocheOverlayDrag(c, bed, ppm, anchor){
 }
 function clocheRowsHTML(bed){
   const cl = clochesOverBed(bed);
-  if(!cl.length) return '';
-  return `<div class="row-heading">Cloches on this bed</div>` + cl.map(f=>{
+  // Crops set aside under a cloche that has since moved on - hidden from the bed, so listed here to bring back.
+  const setAside = (bed.plantings||[]).filter(p=>!p.active && p.coveredBy && !(p.coveredBy.clocheId && (()=>{ const f=featureById(p.coveredBy.clocheId); return f && !f.offPlot && f.placementId===p.coveredBy.placementId; })()));
+  const asideHTML = setAside.length ? `<div class="row-heading">Covered by a cloche earlier</div>` + setAside.map(p=>{ const c=cropById(p.cropId); return `<div class="planting-row"><span class="pname">${escapeHTML(c?c.name:'Crop')}</span><button class="btn small secondary" data-givebackcrop="${p.id}">Give back</button></div>`; }).join('') : '';
+  if(!cl.length) return asideHTML;
+  return asideHTML + `<div class="row-heading">Cloches on this bed</div>` + cl.map(f=>{
     const n = STATE.trays.filter(t=>t.featureId===f.id && !trayIsEmpty(t)).length;
     return `<div class="planting-row" style="cursor:pointer;" data-clocherow="${f.id}"><span class="pname">${ICON_CLOCHE} ${escapeHTML(f.label||'Cloche')}</span><span class="pdate">${f.openToSoil?'open to the soil':'with base'}${n?` · ${n} tray${n===1?'':'s'}`:''}</span></div>`;
   }).join('');
@@ -5159,7 +5205,13 @@ function pictureCutoutsAndClochesHTML(obj, items, effectivePos, ppmLocal, bw, bh
     for(const c of it.cutouts){
       const i = rectIntersect(box, c); if(!i) continue;
       const r = toPx(i);
-      out += `<div class="cut-hole" style="left:${r.l}px; top:${r.t}px; width:${r.w}px; height:${r.h}px; background:var(--card,#fff);"></div>`;
+      // A patch still under its cloche is covered by the cloche's own outline; any other patch can be
+      // tapped to give it back to the crop.
+      const cl = c.clocheId && featureById(c.clocheId);
+      const stillUnder = cl && !cl.offPlot && cl.placementId===c.placementId;
+      out += stillUnder
+        ? `<div class="cut-hole" style="left:${r.l}px; top:${r.t}px; width:${r.w}px; height:${r.h}px; background:var(--card,#fff);"></div>`
+        : `<div class="cut-hole" data-giveback="${it.id}|${c.id}" style="left:${r.l}px; top:${r.t}px; width:${r.w}px; height:${r.h}px; background:var(--card,#fff); pointer-events:auto; cursor:pointer;"></div>`;
     }
   });
   for(const f of clochesOverBed(bed)){
@@ -5169,10 +5221,22 @@ function pictureCutoutsAndClochesHTML(obj, items, effectivePos, ppmLocal, bw, bh
   }
   return out;
 }
+// A tray or pot arriving in a cloche is quietly laid with its long side along the cloche's long side,
+// the way it would be set down. Only on arrival, only when that way round fits, and never for a
+// greenhouse or polytunnel (their staging is laid out deliberately, overhangs and all).
+function orientForCloche(feat, tier, w, h){
+  if(!feat || feat.type!=='cloche' || !tier || !w || !h) return {w, h};
+  if(Math.abs(tier.w-tier.h) < 0.01 || Math.abs(w-h) < 0.001) return {w, h};
+  const wantWide = tier.w > tier.h;
+  if((w > h) === wantWide) return {w, h};
+  if(h > tier.w+0.001 || w > tier.h+0.001) return {w, h};
+  return {w:h, h:w};
+}
 async function moveTrayToStructure(tray, dest, quiet){
   const tiers = getTiers(dest); const tier = tiers[0];
   const occupied = STATE.trays.filter(t=>t.id!==tray.id && t.featureId===dest.id && (t.tierId||tiers[0].id)===tier.id);
-  const slot = nextFreeSlot(tier.w, tier.h, occupied, Math.min(tray.pw||0.38, tier.w), Math.min(tray.ph||0.24, tier.h));
+  const sz = orientForCloche(dest, tier, tray.pw||0.38, tray.ph||0.24);
+  const slot = nextFreeSlot(tier.w, tier.h, occupied, Math.min(sz.w, tier.w), Math.min(sz.h, tier.h));
   tray.featureId = dest.id; tray.location = FEATURE_TYPES[dest.type].label; tray.tierId = tier.id;
   tray.px = slot.px; tray.py = slot.py; tray.pw = slot.pw; tray.ph = slot.ph;
   tray.moves = (tray.moves||[]).concat([{id:uid(), date:todayISO(), toId:dest.id, toLabel:dest.label||FEATURE_TYPES[dest.type].label}]);
@@ -6004,6 +6068,7 @@ function openBedDetail(bedId, highlightId){
     </div>`, true);
   modalContent.querySelectorAll('[data-hostedcontainer]').forEach(el=>el.addEventListener('click', ()=> openContainerDetail(el.dataset.hostedcontainer)));
   modalContent.querySelectorAll('[data-clocherow]').forEach(el=>el.addEventListener('click', ()=>{ const f=featureById(el.dataset.clocherow); if(f) openStructureDetail(f); }));
+  modalContent.querySelectorAll('[data-givebackcrop]').forEach(el=>el.addEventListener('click', ()=> giveBackCrop(bed.id, el.dataset.givebackcrop)));
   wireTreatmentRows(bed,'beds', ()=>openBedDetail(bedId), null, undefined);
 
   renderPictureCanvas('bedPic', bed, active,
@@ -7124,6 +7189,7 @@ async function createEmptyContainer(feat, tierId, w, h){
   const tiers = getTiers(feat);
   const tier = tiers.find(t=>t.id===tierId) || tiers[0];
   const occupied = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===info.label) && (t.tierId||tiers[0].id)===tier.id);
+  ({w, h} = orientForCloche(feat, tier, w, h));
   const slot = nextFreeSlot(tier.w, tier.h, occupied, w, h);
   // Left unnumbered on purpose — an empty tray just gets placed wherever it physically sits, no
   // hunting for a specific one required, so there's nothing to number yet. It gets its real number
@@ -10793,6 +10859,7 @@ function openInviteHomeScreenFirst(su, sk, sc, sn){
   db = await openDB();
   await loadAll();
   await backfillMissingPositions();
+  if(await clocheSameDayCleanup()) await loadAll();
   lastSnapshot = snapshotState();
   renderAll();
   // If we're offline right at launch (exactly your airplane-mode test), fetchWeather() never even
