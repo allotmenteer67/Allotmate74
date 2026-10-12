@@ -205,6 +205,11 @@
   details.more-toggle summary::-webkit-details-marker{display:none;}
   details.more-toggle summary::marker{display:none; content:'';}
   .treatments-box{border:1.5px solid var(--line); border-radius:var(--radius); padding:10px 12px; margin-top:12px; background:var(--card);}
+  /* Inside a treatments box: green for one crop's own, amber for the whole bed's - the same colours on every screen. */
+  .treat-inner{border:1.5px solid; border-radius:var(--radius); padding:6px 10px 4px; margin-top:10px;}
+  .treat-inner .planting-row:last-child{border-bottom:none;}
+  .treat-inner.treat-crop{border-color:var(--leaf-light); background:#EEF2E6;}
+  .treat-inner.treat-bed{border-color:var(--mustard); background:#F7EFDF;}
   .timing-row{display:flex; align-items:center; gap:8px; margin-top:8px; font-size:17px; flex-wrap:wrap;} .timing-row input{width:70px;}
   /* Each timing on a crop's screen sits in its own box, its label above its number, so the three
      don't run together and it's clear which number belongs to which. */
@@ -819,7 +824,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.12.3';
+const APP_VERSION = '2026.10.12.6';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -1323,7 +1328,7 @@ const KNOWN_CROPS = [
   // BROAD BEANS - spring- and autumn-sown (group 'broadbean'). Spring: RHS - sown February to April for
   // summer harvests; Promesse de Fleurs - February-April sowings ready mid-June to August; Seedaholic
   // 8-10 weeks (an outlier). 21 + 90 / 100 kept.
-  {name:'Broad Bean', group:'broadbean', family:'Legumes', sowToPotOn:21, transplantToHarvest:90, directSowToHarvest:100, tender:false, repeatHarvest:true, words:['broad bean','broad beans'], varieties:['Aquadulce','Super Aquadulce','The Sutton','Long Pod','Green Longpod','Duet','Red Epicure','Witkiem Manita'], underCoverMonth:2, directSowMonth:3},
+  {name:'Broad Bean', group:'broadbean', family:'Legumes', sowToPotOn:21, transplantToHarvest:90, directSowToHarvest:100, tender:false, repeatHarvest:true, words:['broad bean','broad beans','fava bean','fava beans'], varieties:['Aquadulce','Super Aquadulce','The Sutton','Long Pod','Green Longpod','Duet','Red Epicure','Witkiem Manita'], underCoverMonth:2, directSowMonth:3},
   // Autumn-sown: RHS - sow October-November (Aquadulce) for a harvest in May and June; SimplySeed -
   // autumn sowings (Super Aquadulce, The Sutton) harvested from June. Mid-November to early June is
   // about 200 days; pot-raised over winter, about 4 months then 80. Aquadulce, The Sutton and Witkiem
@@ -1929,11 +1934,13 @@ function matchCropWithConfidence(typed){
     for(const k of KNOWN_CROPS){
       for(const w of k.words){
         let score = lower.includes(w) ? w.length + 0.5 : 0;
-        if(!exactOnly){
-          for(const t of tokens) score = Math.max(score, wordCloseness(w, t));
+        if(!exactOnly) for(const t of tokens) score = Math.max(score, wordCloseness(w, t));
+        {
           // A crop name of several words ("runner bean", "broad bean") was only ever compared against single
           // typed words, so one slip like "Runner beens" fell through to French Bean ('beans' is one letter off).
-          // Compare it with the same number of typed words in a row instead.
+          // Compare it with the same number of typed words in a row instead. This counts alongside exact
+          // words, not only after them: with a slip in the first word ("Runer beans", "Brod beans") the
+          // plain word "beans" was found exactly and French Bean won before the longer name was looked at.
           if(w.includes(' ')){
             const n = w.split(' ').length;
             for(let i=0; i+n<=tokens.length; i++){
@@ -3099,6 +3106,13 @@ async function fetchCorrectedForecast(){
 function correctedDayFor(date){
   return LAST_CORRECTED?.daily?.[date] || null;
 }
+// Cloude builds its feed from the current hour onwards, so its "today" only covers the rest of
+// today (at 3pm, today's high is really this evening's). Fine for warnings about what's still to
+// come, but not as today's high, low or rainfall - for those, today stays on Open-Meteo's whole-day
+// figures, and Cloude's are used from tomorrow on, where each day is complete.
+function correctedWholeDayFor(date){
+  return date > todayISO() ? correctedDayFor(date) : null;
+}
 async function fetchWeather(showErrors){
   if(STATE.settings.lat==null || STATE.settings.lon==null){ document.getElementById('alertsBox').innerHTML=''; return; }
   try{
@@ -3126,7 +3140,7 @@ function wIcon(code){
 function getTodayWeatherSnapshot(){
   if(!LAST_WEATHER) return null;
   const idx = LAST_WEATHER.daily.time.indexOf(todayISO()); if(idx<0) return null;
-  const cday = correctedDayFor(todayISO());
+  const cday = correctedWholeDayFor(todayISO());
   return { tempMax:Math.round(cday?.temperature?.max ?? LAST_WEATHER.daily.temperature_2m_max[idx]),
     tempMin:Math.round(cday?.temperature?.min ?? LAST_WEATHER.daily.temperature_2m_min[idx]),
     rain:Math.round(cday?.rain ?? LAST_WEATHER.daily.precipitation_sum[idx]), icon:wIcon(LAST_WEATHER.daily.weathercode[idx]) };
@@ -3261,7 +3275,8 @@ async function processWeather(data){
     // correctedFrostLikelyFor.
     const cday = correctedDayFor(days[i]);
     const dayRain = cday?.rain ?? rain[i];
-    const dayWind = cday?.wind ?? wind[i];
+    // Cloude's feed gives wind in mph (its own native unit); everything here is km/h.
+    const dayWind = cday?.wind!=null ? cday.wind*MPH_TO_KMH : wind[i];
     const correctedFrost = correctedFrostLikelyFor(days[i], thFrost);
     const frostLikely = correctedFrost!==null ? correctedFrost : (tmin[i]<=thFrost && frostConditionsLikely(codes[i], wind[i]));
     const severe = frostLikely || dayRain>=thRain || dayWind>=thWind || [95,96,99].includes(codes[i]);
@@ -3284,7 +3299,7 @@ async function processWeather(data){
         const tender = exposedTenderCrops();
         tip = tender.length ? `Cover or bring in: ${tender.join(', ')}.` : `Worth covering anything tender if you can.`;
       } else if([95,96,99].includes(codes[i])){ type='storm'; fact=`⛈️ Stormy weather expected ${wk}.`; tip=`Secure canes, cloches and anything loose.`; }
-      else if(rain[i]>=thRain){ type='rain'; fact=`🌧️ Heavy rain expected ${wk}.`; tip=`Check drainage and hold off watering.`; }
+      else if(dayRain>=thRain){ type='rain'; fact=`🌧️ Heavy rain expected ${wk}.`; tip=`Check drainage and hold off watering.`; }
       else { type='wind'; fact=`💨 Strong winds expected ${wk}.`; tip=`Secure canes, cloches and greenhouse vents.`; }
       const msg = wantsTips ? `${fact} ${tip}` : fact;
       alerts.push({key:days[i]+type, type, msg});
@@ -3342,8 +3357,12 @@ document.getElementById('wxBtn').addEventListener('click', ()=>{
     // later day in this 7-day strip simply won't show one - same "leave it out rather than guess"
     // approach as everywhere else Cloude's feed is used.
     const soilRange = formatSoilRange(correctedDayFor(days[i])?.soilTemperature);
+    // Cloude's corrected figures for whole days it covers (tomorrow on), so this strip agrees with
+    // the warnings and with Cloude itself; today and later days stay on Open-Meteo.
+    const cw = correctedWholeDayFor(days[i]);
+    const dayMax = cw?.temperature?.max ?? tmax[i], dayMin = cw?.temperature?.min ?? tmin[i], dayRain = cw?.rain ?? rain[i];
     cards += `<div class="wcard"><div class="d">${new Date(days[i]+'T00:00:00').toLocaleDateString('en-GB',{weekday:'short'})} ${new Date(days[i]+'T00:00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</div>
-      <div class="icon">${wIcon(codes[i])}</div><div class="t">${Math.round(tmax[i])}&deg;/${Math.round(tmin[i])}&deg;</div><div class="t muted">${Math.round(rain[i])}mm</div>${soilRange?`<div class="t muted">Soil ${soilRange}</div>`:''}</div>`;
+      <div class="icon">${wIcon(codes[i])}</div><div class="t">${Math.round(dayMax)}&deg;/${Math.round(dayMin)}&deg;</div><div class="t muted">${Math.round(dayRain)}mm</div>${soilRange?`<div class="t muted">Soil ${soilRange}</div>`:''}</div>`;
   }
   openModal(`<h3>Weather this week</h3><div class="weather-strip">${cards}</div>`);
 });
@@ -3358,6 +3377,8 @@ window.addEventListener('offline', ()=>{ renderOfflineWeatherAlerts(); });
 // can now hold more than one, so plant-out always acts on one planting at a time).
 function startPlantOutFlow(tray, planting){
   const crop = cropById(planting.cropId);
+  // Only one there - nothing to split, so straight on to choosing where it goes (as harvesting does).
+  if((planting.quantity||1)<=1){ enterPlacingMode(tray, planting, {partial:false}); return; }
   openModal(`<h3>Planting out ${escapeHTML(crop?crop.name:'this')}</h3>
     <p class="muted">There are ${planting.quantity||1} in this tray right now.</p>
     <div class="btn-row">
@@ -6096,7 +6117,7 @@ function treatmentsSectionHTML(obj, storeKind, filterMode, heading, opts){
     hint = `Applies to everything in this ${noun}. To log for one crop, tap the crop.`;
   } else if(forOneCrop){
     if(!boxHeading && opts.cropName) boxHeading = `${opts.cropName}: feed & treatments`;
-    hint = isArray ? `Just ${cropName} here. Whole-${noun} treatments are marked.` : `Just this crop. Whole-${noun} treatments are marked.`;
+    hint = isArray ? `Just ${cropName} here.` : `Just this crop.`;
     buttonLabel = `Log for ${cropName} only`;
   } else if(isArray){
     hint = `${cropName} is planted more than once here, so a tap logs for the whole ${noun}.`;
@@ -6106,37 +6127,47 @@ function treatmentsSectionHTML(obj, storeKind, filterMode, heading, opts){
     : filterMode==='bedwide' ? all.filter(t=>!t.plantingId)
     : Array.isArray(filterMode) ? all.filter(t=>!t.plantingId || filterMode.includes(t.plantingId))
     : all.filter(t=>!t.plantingId || t.plantingId===filterMode);
-  const sorted = filtered.slice().reverse();
   const cutoff = addDays(todayISO(), -365);
-  const recent = sorted.filter(t=>t.date>=cutoff);
-  const older = sorted.filter(t=>t.date<cutoff);
   const sourceText = t => t.sourceKind==='bought' ? ' (bought in)' : t.sourceLabel ? ` (from ${escapeHTML(t.sourceLabel)})` : '';
-  const rowHTML = t => `<div class="planting-row" style="cursor:pointer;" data-edittreatment="${t.id}"><span class="pname">${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}${sourceText(t)}${t.reason?' — '+escapeHTML(t.reason):''}${(filterMode && filterMode!=='bedwide' && !t.plantingId)?` <span class="tiny-muted">(whole ${noun})</span>`:''}</span><span class="pdate">${dayLabel(t.date)}${t.by?' &middot; '+escapeHTML(t.by):''}</span></div>`;
-  const recentHTML = recent.map(rowHTML).join('');
-  const olderHTML = older.length ? `<details class="timings more-toggle"><summary>+ Show ${older.length} more (older than a year)</summary><div style="margin-top:8px;">${older.map(rowHTML).join('')}</div></details>` : '';
-  const presentTypes = new Set(filtered.map(t=>t.type));
-  const typeButtons = TREATMENT_TYPES.map(t=>`<button class="btn small ${presentTypes.has(t)?'':'secondary'}" data-quicktreatment="${t}" title="${presentTypes.has(t)?'Already logged — tap to add another':'Tap to log this'}">${t}${presentTypes.has(t)?' ✓':''}</button>`).join('');
-  // On a whole-bed box, treatments logged on single crops don't appear in the list, so say they exist
-  // and let a tap open the crop.
+  const whatText = t => `${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}${sourceText(t)}${t.reason?' — '+escapeHTML(t.reason):''}`;
+  const rowHTML = t => `<div class="planting-row" style="cursor:pointer;" data-edittreatment="${t.id}"><span class="pname">${whatText(t)}</span><span class="pdate">${dayLabel(t.date)}${t.by?' &middot; '+escapeHTML(t.by):''}</span></div>`;
+  // Newest first, the last year showing and anything older one tap away.
+  const listHTML = (items, row, emptyText)=>{
+    const sorted = items.slice().reverse();
+    const recent = sorted.filter(t=>t.date>=cutoff), older = sorted.filter(t=>t.date<cutoff);
+    const olderHTML = older.length ? `<details class="timings more-toggle"><summary>+ Show ${older.length} more (older than a year)</summary><div style="margin-top:8px;">${older.map(row).join('')}</div></details>` : '';
+    return (recent.map(row).join('') || (older.length || !emptyText ? '' : `<p class="muted">${emptyText}</p>`)) + olderHTML;
+  };
+  // Treatments are kept apart by where they apply, the same colour each time: green for one crop,
+  // amber for the whole bed (or container, or tray). On a crop's own box the whole-bed ones sit in
+  // an amber box under its own; on the whole-bed box the single-crop ones sit in a green box.
+  const splitCrop = (forOneCrop || isArray) && filterMode!==undefined;
+  const ownItems = splitCrop ? filtered.filter(t=>t.plantingId) : filtered;
+  const bedItems = splitCrop ? filtered.filter(t=>!t.plantingId) : [];
+  let mainHTML = listHTML(ownItems, rowHTML, (bedItems.length ? '' : 'Nothing logged yet.'));
+  if(splitCrop && !ownItems.length && bedItems.length) mainHTML = `<p class="muted">Nothing logged for ${escapeHTML(cropName)} alone yet.</p>`;
+  const bedBoxHTML = bedItems.length ? `<div class="treat-inner treat-bed"><div class="row-heading" style="margin-top:0; color:#854F0B;">From the whole ${noun}</div>${listHTML(bedItems, rowHTML)}</div>` : '';
   let singlesHTML = '';
   if(isBedwide){
-    const per = {};
-    (obj.treatments||[]).forEach(t=>{
-      if(!t.plantingId) return;
-      const pl = (obj.plantings||[]).find(x=>x.id===t.plantingId);
-      if(!pl || !pl.active) return;
+    const plantingName = {};
+    for(const pl of (obj.plantings||[])){
+      if(storeKind!=='trays' && !pl.active) continue;
       const cr = cropById(pl.cropId);
-      if(!cr || cr.name==='Fallow' || cr.name==='Path') return;
-      (per[pl.id] = per[pl.id] || {id:pl.id, name:cr.name, n:0}).n++;
-    });
-    const list = Object.values(per);
-    if(list.length) singlesHTML = `<div class="tiny-muted" style="margin-top:8px;">Also logged on single crops:</div><div class="swatch-row" style="flex-wrap:wrap; margin-top:4px;">${list.map(x=>`<button type="button" class="btn small secondary" data-opentreatplanting="${x.id}">${escapeHTML(x.name)} ${x.n} &rsaquo;</button>`).join('')}</div>`;
+      if(!cr || cr.name==='Fallow' || cr.name==='Path') continue;
+      plantingName[pl.id] = cr.name;
+    }
+    const singles = (obj.treatments||[]).filter(t=>t.plantingId && plantingName[t.plantingId]);
+    const singleRow = t => `<div class="planting-row" style="cursor:pointer;" data-opentreatplanting="${t.plantingId}"><span class="pname"><strong>${escapeHTML(plantingName[t.plantingId])}</strong>: ${whatText(t)}</span><span class="pdate">${dayLabel(t.date)}${t.by?' &middot; '+escapeHTML(t.by):''}</span></div>`;
+    if(singles.length && !ownItems.length) mainHTML = `<p class="muted">Nothing logged for the whole ${noun} yet.</p>`;
+    if(singles.length) singlesHTML = `<div class="treat-inner treat-crop"><div class="row-heading" style="margin-top:0; color:var(--leaf);">Just single crops</div>${listHTML(singles, singleRow)}</div>`;
   }
+  const presentTypes = new Set((splitCrop ? ownItems : filtered).map(t=>t.type));
+  const typeButtons = TREATMENT_TYPES.map(t=>`<button class="btn small ${presentTypes.has(t)?'':'secondary'}" data-quicktreatment="${t}" title="${presentTypes.has(t)?'Already logged — tap to add another':'Tap to log this'}">${t}${presentTypes.has(t)?' ✓':''}</button>`).join('');
   return `<div class="treatments-box">
     <div class="row-heading" style="margin-top:0;">${boxHeading?escapeHTML(boxHeading):'Feed &amp; treatments'}</div>
     ${hint?`<p class="tiny-muted" style="margin:0 0 6px;">${escapeHTML(hint)}</p>`:''}
-    ${recentHTML || (older.length ? '' : '<p class="muted">Nothing logged yet.</p>')}
-    ${olderHTML}
+    ${mainHTML}
+    ${bedBoxHTML}
     ${singlesHTML}
     <div class="tiny-muted" style="margin-top:10px;">${escapeHTML(buttonLabel)}</div>
     <div class="swatch-row" style="flex-wrap:wrap; margin-top:4px;">${typeButtons}</div></div>`;
@@ -7323,12 +7354,29 @@ function openStructureDetail(feat, highlightTrayId){
         errEl.style.display = '';
         return;
       }
+      const cap = capToPlotSize(readDimensionField('mW',feat.w)||feat.w, readDimensionField('mH',feat.h)||feat.h);
+      const nw = Math.max(0.3, snapMap(cap.w)), nh = Math.max(0.3, snapMap(cap.h));
+      // A cloche on the plot that changes size: whatever it now covers is cut out, as if it had just
+      // been put there (keeping the date it went down), and anything it no longer covers is given back.
+      const reCover = feat.type==='cloche' && !feat.offPlot && (Math.abs(nw-feat.w)>0.001 || Math.abs(nh-feat.h)>0.001);
+      if(reCover){
+        const why = clocheClashes(feat, feat.x, feat.y, nw, nh);
+        if(why){
+          const errEl = document.getElementById('nameError');
+          errEl.textContent = `Can't make it that size where it stands — ${why}.`;
+          errEl.style.display = '';
+          return;
+        }
+      }
       feat.label = newLabel;
       feat.color = pickedColor;
-      { const cap = capToPlotSize(readDimensionField('mW',feat.w)||feat.w, readDimensionField('mH',feat.h)||feat.h);
-        feat.w = Math.max(0.3, snapMap(cap.w));
-        feat.h = Math.max(0.3, snapMap(cap.h)); }
       feat.locked = document.getElementById('mLocked').checked;
+      if(reCover){
+        const since = feat.placementSince || todayISO();
+        await clocheRestore(feat);
+        feat.w = nw; feat.h = nh;
+        await clocheCover(feat, since);
+      } else { feat.w = nw; feat.h = nh; }
       await put('features',feat); await afterChange(); openStructureDetail(feat);
     });
     document.getElementById('mDel').addEventListener('click', async ()=>{
