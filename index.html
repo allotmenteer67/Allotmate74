@@ -819,7 +819,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.12.1';
+const APP_VERSION = '2026.10.12.3';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -5106,6 +5106,7 @@ async function turnClocheContents(f, oldH, save){
       const npx = Math.max(0, H - (t.py + t.ph)), npy = t.px;
       const pw = t.pw;
       t.px = snapFine(npx); t.py = snapFine(npy); t.pw = t.ph; t.ph = pw;
+      if(Math.abs(t.pw-t.ph)>0.001){ if(t.turnedFromUsual) delete t.turnedFromUsual; else t.turnedFromUsual = true; }
     }
     if(save) await put('trays', t);
   }
@@ -5113,7 +5114,7 @@ async function turnClocheContents(f, oldH, save){
 function startClocheFix(f){
   clocheFix = {id:f.id, x:f.x, y:f.y, w:f.w, h:f.h, turned:!!f.turned,
     tiers: f.tiers ? JSON.parse(JSON.stringify(f.tiers)) : null,
-    trays: STATE.trays.filter(t=>t.featureId===f.id).map(t=>({id:t.id, px:t.px, py:t.py, pw:t.pw, ph:t.ph}))};
+    trays: STATE.trays.filter(t=>t.featureId===f.id).map(t=>({id:t.id, px:t.px, py:t.py, pw:t.pw, ph:t.ph, turnedFromUsual:!!t.turnedFromUsual}))};
   goHome();
 }
 function cancelClocheFix(){
@@ -5121,7 +5122,7 @@ function cancelClocheFix(){
   if(f){
     f.x=clocheFix.x; f.y=clocheFix.y; f.w=clocheFix.w; f.h=clocheFix.h; f.turned=clocheFix.turned;
     if(clocheFix.tiers) f.tiers = clocheFix.tiers;
-    for(const snap of clocheFix.trays){ const t = STATE.trays.find(x=>x.id===snap.id); if(t) Object.assign(t, {px:snap.px, py:snap.py, pw:snap.pw, ph:snap.ph}); }
+    for(const snap of clocheFix.trays){ const t = STATE.trays.find(x=>x.id===snap.id); if(!t) continue; Object.assign(t, {px:snap.px, py:snap.py, pw:snap.pw, ph:snap.ph}); if(snap.turnedFromUsual) t.turnedFromUsual = true; else delete t.turnedFromUsual; }
   }
   clocheFix = null; renderAll();
 }
@@ -5189,7 +5190,7 @@ function storeCloche(f, back){
   const putAway = async (destId)=>{
     if(destId){
       const dest = featureById(destId);
-      for(const t of trays) await moveTrayToStructure(t, dest, true);
+      if(dest && !(await moveAllTraysOrSay(trays, dest))) return;
     }
     await clocheGiveBackIfSameDay(f);
     const beds = bedsUnderCloche(f).map(b=>b.name);
@@ -5310,17 +5311,96 @@ function orientForCloche(feat, tier, w, h){
   if(h > tier.w+0.001 || w > tier.h+0.001) return {w, h};
   return {w:h, h:w};
 }
-async function moveTrayToStructure(tray, dest, quiet, tierId){
+// Where a tray or pot can go, at its own real size - never shrunk to fit. A little give is allowed,
+// the way pots really get squeezed in: each may overlap a neighbour, or the cloche's far edge, by
+// about 10% of its own width (3-5 cm). Something genuinely bigger than a cloche is refused outright.
+// Greenhouse and tunnel staging can also take a tray hanging off the aisle side, as it always could,
+// as long as at least half of it is on the shelf. Floor space (and a cloche) can't be overhung.
+function traySqueeze(w, h){ return Math.min(0.05, Math.max(0.03, 0.1*Math.min(w, h))); }
+function cmText(v){ return Math.round(v*100); }
+function trayFitSpot(dest, tier, occupied, w, h){
+  const W = tier.w, H = tier.h;
+  const strict = dest.type==='cloche' || tier.id==='ground';
+  const sq = traySqueeze(w, h);
+  if(strict && (w > W+sq+0.001 || h > H+sq+0.001)) return {error:'big'};
+  const others = occupied.filter(o=>o.px!=null && o.py!=null && o.pw!=null && o.ph!=null && !o.allowOverlap);
+  const clash = (px,py,give)=> others.some(o=>{
+    const ow = Math.min(px+w, o.px+o.pw) - Math.max(px, o.px), oh = Math.min(py+h, o.py+o.ph) - Math.max(py, o.py);
+    return ow > give+0.001 && oh > give+0.001;
+  });
+  const step = W*H > 2 ? 0.02 : 0.01;
+  const tryPass = (give, maxX, maxY)=>{
+    for(let py=0; py<=maxY+0.0001; py+=step){
+      for(let px=0; px<=maxX+0.0001; px+=step){
+        const x = snapFine(px), y = snapFine(py);
+        if(!clash(x, y, give)) return {px:x, py:y, pw:w, ph:h};
+      }
+    }
+    return null;
+  };
+  return (W>=w-0.001 && H>=h-0.001 ? tryPass(0, W-w, H-h) : null)                 // fits cleanly
+    || tryPass(sq, Math.max(0, W-w+sq), Math.max(0, H-h+sq))                         // squeezed in
+    || (!strict ? tryPass(sq, Math.max(0, W-w/2), Math.max(0, H-h/2)) : null)       // hanging off staging
+    || {error:'room'};
+}
+function trayFitMessage(tray, dest, why){
+  const what = trayShortName(tray), where = dest.label||FEATURE_TYPES[dest.type].label;
+  const cap = what.charAt(0).toUpperCase()+what.slice(1);
+  return why==='big'
+    ? `${cap} (${cmText(tray.pw||0)} × ${cmText(tray.ph||0)} cm) is too big for ${where}${dest.type==='cloche'?` (${clocheSizeText(dest)})`:''}`
+    : `No room left for ${what} in ${where}`;
+}
+// Works out where each tray would go, one after another, before anything is changed.
+function planTrayMoves(trays, dest, tierId){
   const tiers = getTiers(dest); const tier = tiers.find(t=>t.id===tierId) || tiers[0];
-  const occupied = STATE.trays.filter(t=>t.id!==tray.id && t.featureId===dest.id && (t.tierId||tiers[0].id)===tier.id);
-  const sz = orientForCloche(dest, tier, tray.pw||0.38, tray.ph||0.24);
-  const slot = nextFreeSlot(tier.w, tier.h, occupied, Math.min(sz.w, tier.w), Math.min(sz.h, tier.h));
+  const ids = new Set(trays.map(t=>t.id));
+  const occupied = STATE.trays.filter(t=>!ids.has(t.id) && t.featureId===dest.id && (t.tierId||tiers[0].id)===tier.id).map(t=>({...t}));
+  const placed = [], failed = [];
+  for(const tray of trays){
+    // A tray turned to sit in a cloche is turned back to its usual way round when it leaves, and
+    // every move starts from that usual way round (turnedFromUsual marks one currently turned).
+    const w0 = tray.turnedFromUsual ? (tray.ph||0.24) : (tray.pw||0.38), h0 = tray.turnedFromUsual ? (tray.pw||0.38) : (tray.ph||0.24);
+    const first = orientForCloche(dest, tier, w0, h0);
+    let spot = trayFitSpot(dest, tier, occupied, first.w, first.h), size = first;
+    if(spot.error && Math.abs(w0-h0)>0.001){                 // try it the other way round
+      const other = {w:first.h, h:first.w};
+      const spot2 = trayFitSpot(dest, tier, occupied, other.w, other.h);
+      if(!spot2.error || spot.error==='big'){ spot = spot2; size = other; }
+    }
+    if(spot.error){ failed.push({tray, why:spot.error}); continue; }
+    placed.push({tray, tier, slot:spot, turned: Math.abs(w0-h0)>0.001 && Math.abs(size.w-w0)>0.001});
+    occupied.push({px:spot.px, py:spot.py, pw:size.w, ph:size.h});
+  }
+  return {placed, failed, tier, tiers};
+}
+async function applyTrayMove(tray, dest, tier, slot, turned){
   tray.featureId = dest.id; tray.location = FEATURE_TYPES[dest.type].label; tray.tierId = tier.id;
   tray.px = slot.px; tray.py = slot.py; tray.pw = slot.pw; tray.ph = slot.ph;
+  if(turned) tray.turnedFromUsual = true; else delete tray.turnedFromUsual;
   tray.moves = (tray.moves||[]).concat([{id:uid(), date:todayISO(), toId:dest.id, toLabel:dest.label||FEATURE_TYPES[dest.type].label}]);
   await put('trays', tray);
+  const tiers = getTiers(dest);
   if(tiers.length>1 && shownTiers[dest.id] && !shownTiers[dest.id].includes(tier.id)) shownTiers[dest.id].push(tier.id);
-  if(!quiet){ await afterChange(); toast(`Moved to ${dest.label||FEATURE_TYPES[dest.type].label}${tiers.length>1?', '+tier.label:''}`); }
+}
+// Returns true if it moved. If it can't go there, it stays where it is and says why.
+async function moveTrayToStructure(tray, dest, quiet, tierId){
+  const plan = planTrayMoves([tray], dest, tierId);
+  if(plan.failed.length){ toast(trayFitMessage(tray, dest, plan.failed[0].why)); return false; }
+  const p = plan.placed[0];
+  await applyTrayMove(tray, dest, p.tier, p.slot, p.turned);
+  if(!quiet){ await afterChange(); toast(`Moved to ${dest.label||FEATURE_TYPES[dest.type].label}${plan.tiers.length>1?', '+p.tier.label:''}`); }
+  return true;
+}
+// Moving a whole set (out of a cloche being stored or removed): all of them or none.
+async function moveAllTraysOrSay(trays, dest){
+  const plan = planTrayMoves(trays, dest);
+  if(plan.failed.length){
+    const f = plan.failed[0];
+    toast(plan.failed.length===1 ? trayFitMessage(f.tray, dest, f.why) : `${plan.failed.length} of the trays won't fit in ${dest.label||FEATURE_TYPES[dest.type].label} — pick somewhere else`);
+    return false;
+  }
+  for(const p of plan.placed) await applyTrayMove(p.tray, dest, p.tier, p.slot, p.turned);
+  return true;
 }
 // Staging levels in the order the structure screen shows them: uppers, lowers, anything else, ground.
 function tierDisplayOrder(tiers){
@@ -5339,7 +5419,7 @@ function trayShortName(t){
 // Into a structure with staging, it asks which level; otherwise it just goes.
 function moveTrayAskLevel(trayId, dest){
   const tiers = getTiers(dest);
-  const go = async (tid)=>{ const t = STATE.trays.find(x=>x.id===trayId); if(!t) return; await moveTrayToStructure(t, dest, false, tid); openTrayOrPlanting(trayId); };
+  const go = async (tid)=>{ const t = STATE.trays.find(x=>x.id===trayId); if(!t) return; if(await moveTrayToStructure(t, dest, false, tid)) openTrayOrPlanting(trayId); };
   if(tiers.length<2){ go(tiers[0].id); return; }
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>On which level of ${escapeHTML(dest.label||FEATURE_TYPES[dest.type].label)}?</h3>
     ${tierDisplayOrder(tiers).map(t=>`<button class="btn secondary" data-lvl="${t.id}" style="display:block; width:100%; margin-bottom:8px;">${escapeHTML(t.label)}</button>`).join('')}`);
@@ -5439,10 +5519,15 @@ function openBringTraysIn(clocheId){
   goEl.addEventListener('click', async ()=>{
     const picked = Array.from(st.picked).map(id=>STATE.trays.find(t=>t.id===id)).filter(t=>t && t.featureId!==clocheId);
     if(!picked.length){ toast('Tick the trays to bring in first'); return; }
-    for(const t of picked) await moveTrayToStructure(t, cloche, true);
-    st.picked = new Set();
+    const plan = planTrayMoves(picked, cloche);
+    for(const p of plan.placed) await applyTrayMove(p.tray, cloche, p.tier, p.slot, p.turned);
+    st.picked = new Set(plan.failed.map(f=>f.tray.id));
     await afterChange();
-    toast(`Brought ${picked.length} tray${picked.length===1?'':'s'} into ${cloche.label||'the cloche'}`);
+    const n = plan.placed.length, where = cloche.label||'the cloche';
+    if(!plan.failed.length) toast(`Brought ${n} tray${n===1?'':'s'} into ${where}`);
+    else if(plan.failed.length===1) toast((n?`Brought ${n} in. `:'') + trayFitMessage(plan.failed[0].tray, cloche, plan.failed[0].why));
+    else toast(`${n?`Brought ${n} in. `:''}${plan.failed.length} wouldn't fit in ${where}`);
+    if(!n){ openBringTraysIn(clocheId); return; }
     const c = featureById(clocheId); if(c) openStructureDetail(c);
   });
   refresh();
@@ -7271,10 +7356,11 @@ async function removeStructure(feat, forGood){
   const all = STATE.trays.filter(t=>t.featureId===feat.id);
   const growing = all.filter(t=>!trayIsEmpty(t));
   const finish = async (destId)=>{
-    if(feat.type==='cloche') await clocheGiveBackIfSameDay(feat);
     const dest = destId ? featureById(destId) : null;
+    if(dest && !(await moveAllTraysOrSay(growing, dest))) return;
+    if(feat.type==='cloche') await clocheGiveBackIfSameDay(feat);
     for(const t of all){
-      if(dest && !trayIsEmpty(t)){ await moveTrayToStructure(t, dest, true); continue; }
+      if(dest && !trayIsEmpty(t)) continue;
       await tombstoneEach(t.plantings); await tombstoneEach(t.treatments);
       await del('trays', t.id);
       for(const task of STATE.tasks.filter(k=>k.linkedTrayId===t.id && !k.done)){ task.done = true; await put('tasks', task); }
@@ -7435,9 +7521,9 @@ function openChangeTier(trayId){
     if(newTierId===curTierId){ openTrayOrPlanting(trayId); return; }
     const newTier = tiers.find(t=>t.id===newTierId);
     const occupied = STATE.trays.filter(t=>t.id!==tray.id && (t.featureId?t.featureId===feat.id:t.location===tray.location) && (t.tierId||tiers[0].id)===newTierId);
-    const size = {w:Math.min(tray.pw||1, newTier.w), h:Math.min(tray.ph||0.5, newTier.h)};
-    const slot = nextFreeSlot(newTier.w, newTier.h, occupied, size.w, size.h);
-    tray.tierId = newTierId; tray.px=slot.px; tray.py=slot.py; tray.pw=slot.pw; tray.ph=slot.ph;
+    const slot = trayFitSpot(feat, newTier, occupied, tray.pw||0.38, tray.ph||0.24);
+    if(slot.error){ toast(trayFitMessage(tray, {...feat, label:newTier.label}, slot.error)); return; }
+    tray.tierId = newTierId; tray.px=slot.px; tray.py=slot.py;
     await put('trays', tray); await afterChange();
     toast(`Moved to ${newTier.label}`);
     openTrayOrPlanting(trayId);
@@ -7512,7 +7598,12 @@ async function createEmptyContainer(feat, tierId, w, h){
   const tier = tiers.find(t=>t.id===tierId) || tiers[0];
   const occupied = STATE.trays.filter(t=>(t.featureId?t.featureId===feat.id:t.location===info.label) && (t.tierId||tiers[0].id)===tier.id);
   ({w, h} = orientForCloche(feat, tier, w, h));
-  const slot = nextFreeSlot(tier.w, tier.h, occupied, w, h);
+  const slot = trayFitSpot(feat, tier, occupied, w, h);
+  if(slot.error){
+    const where = feat.label||info.label;
+    toast(slot.error==='big' ? `A ${cmText(w)} × ${cmText(h)} cm tray or pot is too big for ${where}` : `No room left for it in ${where}`);
+    return;
+  }
   // Left unnumbered on purpose — an empty tray just gets placed wherever it physically sits, no
   // hunting for a specific one required, so there's nothing to number yet. It gets its real number
   // (whatever's actually painted on the tray picked up) when something's actually sown into it.
