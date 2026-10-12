@@ -210,6 +210,11 @@
   .treat-inner .planting-row:last-child{border-bottom:none;}
   .treat-inner.treat-crop{border-color:var(--leaf-light); background:#EEF2E6;}
   .treat-inner.treat-bed{border-color:var(--mustard); background:#F7EFDF;}
+  /* Purple for a treatment on part of a bed - the same colour as its shaded area on the bed picture. */
+  .treat-inner.treat-part{border-color:#AFA9EC; background:#EEEDFE;}
+  .ta-banner{background:#EEEDFE; color:#3C3489; border:1.5px solid #AFA9EC; border-radius:var(--radius); padding:8px 12px; font-size:16px; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;}
+  .ta-readout{font-size:17px; font-weight:700; margin-top:8px; min-height:22px;}
+  .ta-pic{touch-action:none; -webkit-user-select:none; user-select:none;}
   .timing-row{display:flex; align-items:center; gap:8px; margin-top:8px; font-size:17px; flex-wrap:wrap;} .timing-row input{width:70px;}
   /* Each timing on a crop's screen sits in its own box, its label above its number, so the three
      don't run together and it's clear which number belongs to which. */
@@ -824,7 +829,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.12.6';
+const APP_VERSION = '2026.10.12.8';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -1556,17 +1561,20 @@ const KNOWN_CROPS = [
   // mostly bought as plants or cuttings and sources don't agree on a first picking from seed, so they
   // still have no harvest reminder.
   // Basil: Garden Organic school sheet - from 12 weeks; Dundee allotment and Spear & Jackson herb
-  // planners - about 3 months; Gardeners' World - about 6 weeks (an outlier). 42 + 42, or 84 sown
-  // outdoors after May (RHS).
-  {name:'Basil', family:null, sowToPotOn:42, transplantToHarvest:42, directSowToHarvest:84, tender:true, repeatHarvest:true, words:['basil'], varieties:['Batik','British','Cinnamon','Dark Red Opal','Greek','Lemon','Spicy Sabre','Sweet Genovese','Genovese'], underCoverMonth:3, directSowMonth:6},
-  // Parsley: Gardeners' World (flat leaf) - about 3 months; Dundee and Spear & Jackson - 3 months. 84 sown
-  // in place, or 42 + 42.
+  // planners - about 3 months; Gardeners' World - about 6 weeks. Checked further (12 Oct): Sow Seeds
+  // (Sweet Genovese) 6-8 weeks from sowing; Waitrose Garden - sow April to early June, pick from
+  // July; Johnny's 74 days sown in place. First picking about 10 weeks: was 42 + 42 / 84, now
+  // 42 + 28 = 70 from a tray, or 77 sown outdoors after May (RHS) - a little slower outside.
+  {name:'Basil', family:null, sowToPotOn:42, transplantToHarvest:28, directSowToHarvest:77, tender:true, repeatHarvest:true, words:['basil'], varieties:['Batik','British','Cinnamon','Dark Red Opal','Greek','Lemon','Spicy Sabre','Sweet Genovese','Genovese'], underCoverMonth:3, directSowMonth:6},
+  // Parsley: Gardeners' World (flat leaf) - about 3 months; Dundee and Spear & Jackson - 3 months; Sow
+  // Seeds (checked 12 Oct) 10-12 weeks. 84 sown in place, or 42 + 42, kept.
   {name:'Parsley', family:null, sowToPotOn:42, transplantToHarvest:42, directSowToHarvest:84, tender:false, repeatHarvest:true, words:['parsley'], varieties:['Italian Giant','Moss Curled','Plain Leaf'], underCoverMonth:3, directSowMonth:4},
   // Coriander: Gardeners' World 6-8 weeks; Garden Organic 8 weeks for leaf. 56. SimplySeed - doesn't
   // transplant (bolts if the roots are disturbed), so sow in place; no pot-on figure. Hardy annual (RHS
   // sows it outdoors from March), so no longer marked tender (was).
   {name:'Coriander', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:56, tender:false, repeatHarvest:true, words:['coriander','cilantro'], varieties:['Cruiser'], underCoverMonth:null, directSowMonth:4},
-  // Chives: Garden Organic - from 12 weeks; Spear & Jackson - 3 months. 42 + 42 / 84. Garlic chives grown
+  // Chives: Garden Organic - from 12 weeks; Spear & Jackson - 3 months; Marshalls (checked 12 Oct) -
+  // sow March, harvest from June. 42 + 42 / 84 kept. Garlic chives grown
   // the same way - 'garlic chive' added so it doesn't land on Garlic.
   {name:'Chives', family:null, sowToPotOn:42, transplantToHarvest:42, directSowToHarvest:84, tender:false, repeatHarvest:true, words:['chive','garlic chive'], varieties:[], underCoverMonth:3, directSowMonth:4},
   {name:'Mint', family:null, sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:null, tender:false, repeatHarvest:true, words:['mint'], varieties:[], underCoverMonth:3, directSowMonth:4},
@@ -1624,7 +1632,9 @@ const KNOWN_CROPS = [
   {name:'Rocket', family:'Brassicas', sowToPotOn:21, transplantToHarvest:21, directSowToHarvest:35, tender:false, repeatHarvest:true, words:['rocket','arugula','wild rocket','salad rocket'], varieties:['Dragons Fire','Uber'], underCoverMonth:3, directSowMonth:4},
   // Mizuna, mibuna and mustard leaves: Sow Seeds - baby leaves in about 3 weeks; Seedaholic 3-4 weeks;
   // RHS - whole rosettes after six to eight weeks. First picking as cut-and-come-again leaves: 30 (was
-  // 40), or 21 + 14 from a tray (previously none).
+  // 40), or 21 + 14 from a tray (previously none). Shared figures checked (12 Oct): mibuna - Kings
+  // 30-40 days baby leaf, Seedaholic 25; mustard - Premier Seeds about 20 days baby leaf, High Mowing
+  // (Red Lace) 20. All within about ten days of 30, so kept shared.
   {name:'Mizuna', family:'Brassicas', sowToPotOn:21, transplantToHarvest:14, directSowToHarvest:30, tender:false, repeatHarvest:true, words:['mizuna'], varieties:['Red Empire'], underCoverMonth:2, directSowMonth:3},
   {name:'Mibuna', family:'Brassicas', sowToPotOn:21, transplantToHarvest:14, directSowToHarvest:30, tender:false, repeatHarvest:true, words:['mibuna'], varieties:[], underCoverMonth:2, directSowMonth:3},
   {name:'Mustard Leaves', family:'Brassicas', sowToPotOn:21, transplantToHarvest:14, directSowToHarvest:30, tender:false, repeatHarvest:true, words:['mustard leaves','mustard greens','mustard'], varieties:['Red Lace'], underCoverMonth:2, directSowMonth:3},
@@ -1643,8 +1653,11 @@ const KNOWN_CROPS = [
   {name:'Radicchio', family:'Other', sowToPotOn:28, transplantToHarvest:92, directSowToHarvest:120, tender:false, repeatHarvest:false, words:['radicchio','red chicory'], varieties:['Rossa di Verona'], underCoverMonth:6, directSowMonth:6},
   // Marrow: RHS - marrows are tender plants (this was wrongly marked not tender, so it got no frost
   // warnings) and are courgettes grown on; Garden Organic 10-14 weeks; SimplySeed from 9 weeks. Was a
-  // 21/35/45 placeholder; now 28 + 49, or 77 sown in place (11 weeks).
-  {name:'Marrow', family:'Cucurbits', sowToPotOn:28, transplantToHarvest:49, directSowToHarvest:77, tender:true, repeatHarvest:true, words:['marrow'], varieties:['Bush Baby','Tiger Cross','Green Bush'], underCoverMonth:4, directSowMonth:5},
+  // 21/35/45 placeholder, then 28 + 49 / 77. Checked further (12 Oct): Marshalls - first marrows in
+  // about 12-14 weeks; Kings (Tiger Cross) - sow April-May under glass, harvest July-October; RHS -
+  // outdoor sowings crop later than indoor ones. Now 28 + 56 = 84 (12 weeks) from a pot, or 91
+  // (13 weeks) sown in place in late May.
+  {name:'Marrow', family:'Cucurbits', sowToPotOn:28, transplantToHarvest:56, directSowToHarvest:91, tender:true, repeatHarvest:true, words:['marrow'], varieties:['Bush Baby','Tiger Cross','Green Bush'], underCoverMonth:4, directSowMonth:5},
   // Florence fennel: RHS - bulbs take three or four months (baby bulbs from about six weeks); GIY 14-16
   // weeks; Gardeners' World about 14 weeks; Sow Seeds (Rondo) 70-80 days. Was a 21/35/45 placeholder;
   // now 100 sown in place (June, as RHS and SimplySeed advise), or 21 + 80 from modules - it must be
@@ -3116,7 +3129,7 @@ function correctedWholeDayFor(date){
 async function fetchWeather(showErrors){
   if(STATE.settings.lat==null || STATE.settings.lon==null){ document.getElementById('alertsBox').innerHTML=''; return; }
   try{
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${STATE.settings.lat}&longitude=${STATE.settings.lon}&daily=temperature_2m_min,temperature_2m_max,precipitation_sum,windspeed_10m_max,weathercode&timezone=auto&forecast_days=7`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${STATE.settings.lat}&longitude=${STATE.settings.lon}&daily=temperature_2m_min,temperature_2m_max,precipitation_sum,windspeed_10m_max,weathercode&hourly=temperature_2m,cloudcover,windspeed_10m&timezone=auto&forecast_days=7`;
     // Run together rather than one-after-the-other — Cloude's fetch
     // failing or being slow must never delay or block the existing
     // Open-Meteo call, so its own errors are swallowed inside
@@ -3203,6 +3216,32 @@ function correctedFrostLikelyFor(date, thFrost){
   const cf = LAST_CORRECTED?.frost;
   if(!cf || cf.night!==date || cf.minTemp==null || cf.cloud==null || cf.wind==null) return null; // not available for this date — caller falls back
   return cf.minTemp<=thFrost && cf.cloud<FROST_CLOUD_THRESHOLD_CORRECTED && (cf.wind*MPH_TO_KMH)<FROST_WIND_THRESHOLD;
+}
+// The night already under way. Cloude's check above only ever looks at the coming 22:00-07:00
+// night, so between midnight and 7am the night you're actually in went unchecked - at 2am its
+// "next night" is tonight, not the next five hours. For those hours, Open-Meteo's hourly figures
+// for what's left of the night (this hour up to 7am) are checked the same way: coldest hour at
+// or below your own frost setting, with cloud under 40% and wind under 20 km/h on average.
+// Anything missing in the hourly figures means no warning, rather than a guess.
+function frostBeforeSevenLikely(data, thFrost, now){
+  now = now || new Date();
+  const hourNow = now.getHours();
+  if(hourNow>=7) return false;
+  const h = data && data.hourly;
+  if(!h || !Array.isArray(h.time)) return false;
+  const today = localISO(now);
+  const idx = [];
+  h.time.forEach((t,i)=>{
+    if(typeof t!=='string' || t.slice(0,10)!==today) return;
+    const hr = parseInt(t.slice(11,13),10);
+    if(hr>=hourNow && hr<7) idx.push(i);
+  });
+  if(!idx.length) return false;
+  const pick = arr => Array.isArray(arr) ? idx.map(i=>arr[i]).filter(v=>typeof v==='number') : [];
+  const temps = pick(h.temperature_2m), clouds = pick(h.cloudcover), winds = pick(h.windspeed_10m);
+  if(temps.length!==idx.length || clouds.length!==idx.length || winds.length!==idx.length) return false;
+  const avg = arr => arr.reduce((a,b)=>a+b,0)/arr.length;
+  return Math.min(...temps)<=thFrost && avg(clouds)<FROST_CLOUD_THRESHOLD_CORRECTED && avg(winds)<FROST_WIND_THRESHOLD;
 }
 // True only if at least one saved day is today or later - a two-day-old snapshot whose "today"
 // has already passed isn't a stand-in for a live forecast, it's just stale, so it's better to show
@@ -3304,6 +3343,14 @@ async function processWeather(data){
       const msg = wantsTips ? `${fact} ${tip}` : fact;
       alerts.push({key:days[i]+type, type, msg});
     }
+  }
+  // Frost before 7am this morning - see frostBeforeSevenLikely above. Its own key, so it never
+  // stands in for (or gets dismissed along with) tonight's warning.
+  if(frostBeforeSevenLikely(data, thFrost)){
+    const fact = `❄️ Frost likely before 7am.`;
+    const tender = exposedTenderCrops();
+    const tip = tender.length ? `Cover or bring in: ${tender.join(', ')}.` : `Worth covering anything tender if you can.`;
+    alerts.unshift({key:todayISO()+'frost-early', type:'frost', msg: wantsTips ? `${fact} ${tip}` : fact});
   }
   if(wantsTips){
     const soonRain = days.slice(0,3).reduce((sum,d,i)=> sum + (correctedDayFor(d)?.rain ?? rain[i]), 0);
@@ -4992,6 +5039,99 @@ function subtractRect(a,h){
 }
 function subtractRects(list, holes){ for(const h of (holes||[])) list = list.flatMap(a=>subtractRect(a,h)); return list; }
 function plantingBox(p){ return (p.px!=null && p.py!=null && p.pw!=null && p.ph!=null) ? {px:p.px, py:p.py, pw:p.pw, ph:p.ph} : null; }
+// ---- Treatments on part of a bed ----
+// A bed treatment can cover just part of the bed: one or more boxes (t.areas), measured in metres
+// from the bed's top-left corner - the same way crop boxes in the bed picture are measured. Only
+// beds have this; containers, trays and trees are always treated whole.
+function treatmentAreas(t){ return (t && Array.isArray(t.areas)) ? t.areas.filter(a=>a && a.pw>0 && a.ph>0) : []; }
+function isPartTreatment(t){ return treatmentAreas(t).length>0; }
+// Trimmed to the bed's current size, so a bed made smaller later never shows an area hanging off it.
+function clipAreaToBed(a, bed){
+  const w = bed.w||2, h = bed.h||1;
+  const l = Math.max(0,a.px), t = Math.max(0,a.py), r = Math.min(w,a.px+a.pw), b = Math.min(h,a.py+a.ph);
+  return (r-l>0.001 && b-t>0.001) ? {px:l, py:t, pw:r-l, ph:b-t} : null;
+}
+function bedTreatmentAreas(bed, t){ return treatmentAreas(t).map(a=>clipAreaToBed(a,bed)).filter(Boolean); }
+// Where each crop sits in the bed, exactly as the bed picture draws it - a crop that's never been
+// dragged has no saved position, so it gets the same automatic spot the picture gives it.
+function bedPlantingBoxes(bed){
+  const bw = bed.w||2, bh = bed.h||1;
+  const items = (bed.plantings||[]).filter(p=>p.active);
+  const placed = items.map(plantingBox).filter(Boolean);
+  const out = {};
+  items.forEach(it=>{
+    const b = plantingBox(it);
+    if(b){ out[it.id] = b; return; }
+    const slot = nextFreeSlot(bw, bh, placed, Math.min(bw/2,1.5), Math.min(bh/3,0.6), bed.shape);
+    out[it.id] = slot; placed.push(slot);
+  });
+  return out;
+}
+// Does a treatment reach this crop? A whole-bed one always does; a part-bed one only if one of its
+// boxes overlaps the crop's box at all (edges merely touching don't count - the area editor snaps
+// to crop and path edges, so a box drawn up to a path stops exactly at it).
+function treatmentReachesPlanting(bed, t, plantingId, boxes){
+  if(!isPartTreatment(t)) return true;
+  boxes = boxes || bedPlantingBoxes(bed);
+  let box = boxes[plantingId];
+  if(!box){ const p = (bed.plantings||[]).find(pp=>pp.id===plantingId); box = p ? plantingBox(p) : null; }
+  if(!box) return false;
+  return bedTreatmentAreas(bed, t).some(a=>rectIntersect(a, box));
+}
+// Static drawing of a bed with its crops and the treated boxes shaded purple, used by the area
+// editor, the "see where" screen and the small preview on the treatment form. Pixel sizes, with
+// the bed's own top-left at 0,0 - the same way round as the bed picture.
+function bedAreaPictureSVG(bed, areas, opts){
+  opts = opts || {};
+  const bw = bed.w||2, bh = bed.h||1;
+  const availW = Math.max(180, opts.width||320), availH = opts.height || Math.max(160, Math.min(window.innerHeight*0.45, 420));
+  const ppm = Math.max(8, Math.min(availW/bw, availH/bh));
+  const W = +(bw*ppm).toFixed(1), H = +(bh*ppm).toFixed(1);
+  const X = v=>(v*ppm).toFixed(1);
+  const ground = STATE.settings.groundColor || GROUND_COLORS[0];
+  const hasShape = bed.shape && bed.shape.length>=3;
+  const shapePts = hasShape ? bed.shape.map(p=>`${X(p.x)},${X(p.y)}`).join(' ') : '';
+  const clipId = 'taClip'+Math.random().toString(36).slice(2,8);
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="display:block; margin:0 auto; overflow:visible;">`;
+  if(hasShape) svg += `<defs><clipPath id="${clipId}"><polygon points="${shapePts}"/></clipPath></defs>`;
+  const clipAttr = hasShape ? ` clip-path="url(#${clipId})"` : '';
+  svg += `<g${clipAttr}><rect x="0" y="0" width="${W}" height="${H}" fill="${ground}"/>`;
+  const boxes = bedPlantingBoxes(bed);
+  for(const p of (bed.plantings||[]).filter(pp=>pp.active)){
+    const b = boxes[p.id]; if(!b) continue;
+    const c = cropById(p.cropId);
+    const col = p.colorOverride || (c ? cropColor(c) : '#8a8a7a');
+    const name = (c && c.name) ? c.name : '?';
+    const w = b.pw*ppm, h = b.ph*ppm;
+    svg += `<rect x="${X(b.px)}" y="${X(b.py)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${col}22" stroke="${col}" stroke-width="1.5"/>`;
+    const fs = Math.min(13, h-4);
+    const fsV = Math.min(13, w-4);
+    if(fs>=9 && name.length*fs*0.55 < w-6) svg += `<text x="${X(b.px+b.pw/2)}" y="${(b.py*ppm+h/2+fs*0.35).toFixed(1)}" font-size="${fs}" text-anchor="middle" fill="#2b2b2b">${escapeHTML(name)}</text>`;
+    // A narrow strip (a path, usually) gets its name running up the strip instead, as the bed picture does.
+    else if(fsV>=9 && name.length*fsV*0.55 < h-6){ const cx=(b.px*ppm+w/2+fsV*0.35).toFixed(1), cy=(b.py*ppm+h/2).toFixed(1); svg += `<text x="${cx}" y="${cy}" font-size="${fsV}" text-anchor="middle" fill="#2b2b2b" transform="rotate(-90 ${cx} ${cy})">${escapeHTML(name)}</text>`; }
+  }
+  (areas||[]).forEach((a,i)=>{
+    const sel = opts.selected===i;
+    svg += `<rect x="${X(a.px)}" y="${X(a.py)}" width="${X(a.pw)}" height="${X(a.ph)}" fill="rgba(83,74,183,0.35)" stroke="#534AB7" stroke-width="${sel?3:2}"${(opts.editing && !sel)?' stroke-dasharray="6 4"':''}/>`;
+  });
+  if(opts.label && areas && areas.length){
+    const big = areas.reduce((m,a)=> a.pw*a.ph > m.pw*m.ph ? a : m);
+    const w = big.pw*ppm, h = big.ph*ppm, fs = Math.min(14, h-4);
+    // Along the top of the box, so it never sits on top of a crop's name (those are centred).
+    if(fs>=9 && h>=fs*2.4 && opts.label.length*fs*0.62 < w-10) svg += `<text x="${(big.px*ppm+6).toFixed(1)}" y="${(big.py*ppm+fs+4).toFixed(1)}" font-size="${fs}" font-weight="700" text-anchor="start" fill="#26215C">${escapeHTML(opts.label)}</text>`;
+  }
+  svg += `</g>`;
+  svg += hasShape ? `<polygon points="${shapePts}" fill="none" stroke="${bed.color||'#7E9A6D'}" stroke-width="2"/>`
+    : `<rect x="1" y="1" width="${(W-2).toFixed(1)}" height="${(H-2).toFixed(1)}" fill="none" stroke="${bed.color||'#7E9A6D'}" stroke-width="2"/>`;
+  if(opts.selected!=null && opts.selected>=0 && areas && areas[opts.selected]){
+    const a = areas[opts.selected];
+    for(const [cx,cy] of [[a.px,a.py],[a.px+a.pw,a.py],[a.px,a.py+a.ph],[a.px+a.pw,a.py+a.ph]]){
+      svg += `<circle cx="${X(cx)}" cy="${X(cy)}" r="8" fill="#534AB7" stroke="#fff" stroke-width="2"/>`;
+    }
+  }
+  svg += `</svg>`;
+  return {svg, ppm};
+}
 function plantingGrowingArea(p){
   const b = plantingBox(p); if(!b) return (p.pw||0)*(p.ph||0);
   return subtractRects([b], p.cutouts).reduce((a,r)=>a+r.pw*r.ph, 0);
@@ -6142,11 +6282,21 @@ function treatmentsSectionHTML(obj, storeKind, filterMode, heading, opts){
   // amber for the whole bed (or container, or tray). On a crop's own box the whole-bed ones sit in
   // an amber box under its own; on the whole-bed box the single-crop ones sit in a green box.
   const splitCrop = (forOneCrop || isArray) && filterMode!==undefined;
-  const ownItems = splitCrop ? filtered.filter(t=>t.plantingId) : filtered;
-  const bedItems = splitCrop ? filtered.filter(t=>!t.plantingId) : [];
-  let mainHTML = listHTML(ownItems, rowHTML, (bedItems.length ? '' : 'Nothing logged yet.'));
-  if(splitCrop && !ownItems.length && bedItems.length) mainHTML = `<p class="muted">Nothing logged for ${escapeHTML(cropName)} alone yet.</p>`;
+  // Part of a bed (purple): kept out of the whole-bed lists. On the bed's own box they get their own
+  // box; on a crop's box, only the ones whose area actually reaches that crop show, in their own box.
+  const isPart = t => storeKind==='beds' && !t.plantingId && isPartTreatment(t);
+  const cropIds = isArray ? filterMode : (forOneCrop ? [filterMode] : []);
+  const boxesNow = (storeKind==='beds' && splitCrop) ? bedPlantingBoxes(obj) : null;
+  const partItems = isBedwide ? filtered.filter(isPart)
+    : splitCrop ? filtered.filter(t=>isPart(t) && cropIds.some(id=>treatmentReachesPlanting(obj, t, id, boxesNow))) : [];
+  const ownItems = splitCrop ? filtered.filter(t=>t.plantingId) : filtered.filter(t=>!isPart(t));
+  const bedItems = splitCrop ? filtered.filter(t=>!t.plantingId && !isPart(t)) : [];
+  let mainHTML = listHTML(ownItems, rowHTML, ((bedItems.length || partItems.length) ? '' : 'Nothing logged yet.'));
+  if(splitCrop && !ownItems.length && (bedItems.length || partItems.length)) mainHTML = `<p class="muted">Nothing logged for ${escapeHTML(cropName)} alone yet.</p>`;
+  if(isBedwide && !ownItems.length && partItems.length) mainHTML = `<p class="muted">Nothing logged for the whole ${noun} yet.</p>`;
   const bedBoxHTML = bedItems.length ? `<div class="treat-inner treat-bed"><div class="row-heading" style="margin-top:0; color:#854F0B;">From the whole ${noun}</div>${listHTML(bedItems, rowHTML)}</div>` : '';
+  const partRow = t => `<div class="planting-row" style="cursor:pointer;" data-viewtreatarea="${t.id}"><span class="pname">${whatText(t)}</span><span class="pdate">${dayLabel(t.date)}${t.by?' &middot; '+escapeHTML(t.by):''}</span></div>`;
+  const partBoxHTML = partItems.length ? `<div class="treat-inner treat-part"><div class="row-heading" style="margin-top:0; color:#3C3489;">${isBedwide?`Part of the ${noun}`:`From part of the ${noun}`}</div><p class="tiny-muted" style="margin:0 0 4px;">Tap one to see where.</p>${listHTML(partItems, partRow)}</div>` : '';
   let singlesHTML = '';
   if(isBedwide){
     const plantingName = {};
@@ -6159,15 +6309,18 @@ function treatmentsSectionHTML(obj, storeKind, filterMode, heading, opts){
     const singles = (obj.treatments||[]).filter(t=>t.plantingId && plantingName[t.plantingId]);
     const singleRow = t => `<div class="planting-row" style="cursor:pointer;" data-opentreatplanting="${t.plantingId}"><span class="pname"><strong>${escapeHTML(plantingName[t.plantingId])}</strong>: ${whatText(t)}</span><span class="pdate">${dayLabel(t.date)}${t.by?' &middot; '+escapeHTML(t.by):''}</span></div>`;
     if(singles.length && !ownItems.length) mainHTML = `<p class="muted">Nothing logged for the whole ${noun} yet.</p>`;
+
     if(singles.length) singlesHTML = `<div class="treat-inner treat-crop"><div class="row-heading" style="margin-top:0; color:var(--leaf);">Just single crops</div>${listHTML(singles, singleRow)}</div>`;
   }
-  const presentTypes = new Set((splitCrop ? ownItems : filtered).map(t=>t.type));
+  // ✓ counts only this level: on the bed's own box, part-bed entries don't tick "whole bed" buttons.
+  const presentTypes = new Set(ownItems.map(t=>t.type));
   const typeButtons = TREATMENT_TYPES.map(t=>`<button class="btn small ${presentTypes.has(t)?'':'secondary'}" data-quicktreatment="${t}" title="${presentTypes.has(t)?'Already logged — tap to add another':'Tap to log this'}">${t}${presentTypes.has(t)?' ✓':''}</button>`).join('');
   return `<div class="treatments-box">
     <div class="row-heading" style="margin-top:0;">${boxHeading?escapeHTML(boxHeading):'Feed &amp; treatments'}</div>
     ${hint?`<p class="tiny-muted" style="margin:0 0 6px;">${escapeHTML(hint)}</p>`:''}
     ${mainHTML}
     ${bedBoxHTML}
+    ${partBoxHTML}
     ${singlesHTML}
     <div class="tiny-muted" style="margin-top:10px;">${escapeHTML(buttonLabel)}</div>
     <div class="swatch-row" style="flex-wrap:wrap; margin-top:4px;">${typeButtons}</div></div>`;
@@ -6446,6 +6599,13 @@ function openBedDetail(bedId, highlightId){
       const newH = Math.max(0.3, snapMap(cap.h));
       if(bed.shape && (newW!==bed.w || newH!==bed.h)) bed.shape = scaleLocalShape(bed.shape, bed.w, bed.h, newW, newH);
       bed.w = newW; bed.h = newH;
+      // A part-bed treatment's area is trimmed to the bed's new size. One left with nothing inside
+      // the bed at all keeps its boxes as they were, rather than quietly turning into a whole-bed one.
+      for(const t of (bed.treatments||[])){
+        if(!isPartTreatment(t)) continue;
+        const trimmed = treatmentAreas(t).map(a=>clipAreaToBed(a,bed)).filter(Boolean).map(a=>({px:snapFine(a.px), py:snapFine(a.py), pw:snapFine(a.pw), ph:snapFine(a.ph)}));
+        if(trimmed.length) t.areas = trimmed;
+      }
       bed.locked = document.getElementById('mLocked').checked;
       await put('beds',bed); await afterChange(); closeModal();
     });
@@ -6722,20 +6882,42 @@ function openEditPlanting(bedId, plantingId, kind){
     }
   });
 }
-function openAddTreatment(obj, storeKind, onDone, existingId, cropForSuggestions, plantingId, presetType){
+// draft: what's been typed so far, carried across a trip to the area editor and back, so marking
+// where it went never loses the rest of the form. Nothing is saved until Save.
+function openAddTreatment(obj, storeKind, onDone, existingId, cropForSuggestions, plantingId, presetType, draft){
   const existing = existingId ? (obj.treatments||[]).find(t=>t.id===existingId) : null;
   const issues = commonIssuesFor(cropForSuggestions);
-  const isCompost = existing ? existing.type==='Compost' : presetType==='Compost';
+  const startType = draft ? draft.type : (existing ? existing.type : presetType);
+  const isCompost = startType==='Compost';
   const sources = compostSourceOptions();
-  const sourceOptionsHTML = `<option value="bought" ${existing&&existing.sourceKind==='bought'?'selected':''}>Bought in</option>`
-    + sources.map(s=>`<option value="${s.sourceKind}:${s.sourceId}:${s.batchId}" ${existing&&existing.batchId===s.batchId?'selected':''}>${escapeHTML(s.label)}</option>`).join('');
+  const startSource = draft ? draft.source : (existing ? (existing.sourceKind==='bought' ? 'bought' : (existing.batchId ? `${existing.sourceKind}:${existing.sourceId}:${existing.batchId}` : '')) : '');
+  const sourceOptionsHTML = `<option value="bought" ${startSource==='bought'?'selected':''}>Bought in</option>`
+    + sources.map(s=>{ const v=`${s.sourceKind}:${s.sourceId}:${s.batchId}`; return `<option value="${v}" ${(startSource && startSource.endsWith(':'+s.batchId))?'selected':''}>${escapeHTML(s.label)}</option>`; }).join('');
+  const startNotes = draft ? draft.notes : (existing ? (existing.notes||'') : '');
+  const startReason = draft ? draft.reason : (existing ? (existing.reason||'') : '');
+  const startDate = draft ? draft.date : (existing ? existing.date : todayISO());
+  // "Where in the bed?" - only for a bed's own treatments (not one crop's, and never a container,
+  // tray or tree, which are always treated whole).
+  const forOneCropOnly = existing ? !!existing.plantingId : !!plantingId;
+  const offerWhere = storeKind==='beds' && !forOneCropOnly;
+  let areas = draft ? (draft.areas||[]).map(a=>({...a})) : treatmentAreas(existing).map(a=>({...a}));
+  let where = draft ? draft.where : (areas.length ? 'part' : 'all');
+  const bedName = obj.name||obj.label||'the bed';
+  const whereHTML = offerWhere ? `<div class="form-row"><div><label>Where in ${escapeHTML(bedName)}?</label>
+      <div class="swatch-row" style="margin-top:4px;">
+        <button type="button" class="btn small ${where==='all'?'':'secondary'}" id="mWhereAll">All of it</button>
+        <button type="button" class="btn small ${where==='part'?'':'secondary'}" id="mWherePart">Part of it</button>
+      </div>
+      ${(where==='part' && areas.length) ? `<div id="mWherePic" style="margin-top:8px;"></div><button type="button" class="btn small secondary" id="mChangeArea" style="margin-top:6px;">Change area</button>` : ''}
+    </div></div>` : '';
   openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${existing?'Edit treatment':'Add a treatment'}</h3>
-    <div class="form-row"><div><label>Type</label><select id="mType">${TREATMENT_TYPES.map(t=>`<option ${(existing?existing.type===t:presetType===t)?'selected':''}>${t}</option>`).join('')}</select></div></div>
+    <div class="form-row"><div><label>Type</label><select id="mType">${TREATMENT_TYPES.map(t=>`<option ${startType===t?'selected':''}>${t}</option>`).join('')}</select></div></div>
     <div class="form-row" id="compostSourceRow" style="display:${isCompost?'':'none'};"><div><label>Source</label><select id="mSource">${sourceOptionsHTML}</select></div></div>
-    <div class="form-row"><div><label>Name / product (optional)</label><input type="text" id="mNotes" placeholder="e.g. Horse manure, Roundup" value="${existing?escapeAttr(existing.notes||''):''}"></div></div>
-    <div class="form-row"><div><label>Why (optional)</label><input type="text" id="mReason" list="reasonSuggestions" placeholder="e.g. aphids, general feed" value="${existing?escapeAttr(existing.reason||''):''}"></div></div>
+    ${whereHTML}
+    <div class="form-row"><div><label>Name / product (optional)</label><input type="text" id="mNotes" placeholder="e.g. Horse manure, Roundup" value="${escapeAttr(startNotes)}"></div></div>
+    <div class="form-row"><div><label>Why (optional)</label><input type="text" id="mReason" list="reasonSuggestions" placeholder="e.g. aphids, general feed" value="${escapeAttr(startReason)}"></div></div>
     ${issues.length?`<div class="swatch-row" id="issueChipRow" style="margin:-6px 0 12px; flex-wrap:wrap;">${issues.map(i=>`<button type="button" class="btn small secondary" data-issue="${escapeAttr(i)}">${escapeHTML(i)}</button>`).join('')}</div>`:''}
-    <div class="form-row"><div><label id="mDateLabel">${isCompost?'Date added':'Date'}</label><input type="date" id="mDate" value="${existing?existing.date:todayISO()}"></div></div>
+    <div class="form-row"><div><label id="mDateLabel">${isCompost?'Date added':'Date'}</label><input type="date" id="mDate" value="${escapeAttr(startDate)}"></div></div>
     <button class="btn big" id="mSave">Save</button>
     ${existing?`<button class="btn danger" id="mDelTreat" style="margin-top:24px;">Remove this treatment</button>`:''}`, true);
   document.getElementById('mBack').addEventListener('click', onDone);
@@ -6751,6 +6933,32 @@ function openAddTreatment(obj, storeKind, onDone, existingId, cropForSuggestions
     dateLabel.textContent = nowCompost ? 'Date added' : 'Date';
   });
   modalContent.querySelectorAll('[data-issue]').forEach(b=>b.addEventListener('click', ()=>{ document.getElementById('mReason').value = b.dataset.issue; }));
+  const currentDraft = (overrides)=>Object.assign({
+    type: typeEl.value, source: document.getElementById('mSource').value,
+    notes: document.getElementById('mNotes').value, reason: document.getElementById('mReason').value,
+    date: document.getElementById('mDate').value, where, areas
+  }, overrides||{});
+  const reopen = d => openAddTreatment(obj, storeKind, onDone, existingId, cropForSuggestions, plantingId, presetType, d);
+  if(offerWhere){
+    const openEditor = ()=>{
+      const d = currentDraft();
+      openTreatmentAreaEditor(obj, d.areas, d.type,
+        newAreas => reopen({...d, where:'part', areas:newAreas}),
+        () => reopen({...d, where: d.areas.length ? d.where : 'all'}));
+    };
+    document.getElementById('mWhereAll').addEventListener('click', ()=>{ if(where!=='all') reopen(currentDraft({where:'all'})); });
+    document.getElementById('mWherePart').addEventListener('click', ()=>{
+      if(!areas.length) openEditor();
+      else if(where!=='part') reopen(currentDraft({where:'part'}));
+    });
+    const changeBtn = document.getElementById('mChangeArea');
+    if(changeBtn) changeBtn.addEventListener('click', openEditor);
+    const picEl = document.getElementById('mWherePic');
+    if(picEl){
+      const pic = bedAreaPictureSVG(obj, areas.map(a=>clipAreaToBed(a,obj)).filter(Boolean), {width: Math.max(180,(picEl.clientWidth||300)-4), height:150});
+      picEl.innerHTML = pic.svg;
+    }
+  }
   document.getElementById('mSave').addEventListener('click', async ()=>{
     const reason = document.getElementById('mReason').value.trim();
     await rememberTreatmentReason(reason);
@@ -6761,22 +6969,161 @@ function openAddTreatment(obj, storeKind, onDone, existingId, cropForSuggestions
       if(sv==='bought') rec.sourceKind = 'bought';
       else { const [k,id,batchId] = sv.split(':'); const src = sources.find(s=>s.batchId===batchId); rec.sourceKind=k; rec.sourceId=id; rec.batchId=batchId; rec.sourceLabel = src?src.label:undefined; }
     }
+    // Part of the bed: its boxes go with it. Switched back to "All of it", they're dropped.
+    if(offerWhere && where==='part' && areas.length) rec.areas = areas.map(a=>({px:snapFine(a.px), py:snapFine(a.py), pw:snapFine(a.pw), ph:snapFine(a.ph)}));
     if(existing){ const idx=obj.treatments.findIndex(t=>t.id===existing.id); obj.treatments[idx]=rec; }
     else obj.treatments.push(rec);
     await put(storeKind, obj); await afterChange(); onDone();
   });
   if(existing) document.getElementById('mDelTreat').addEventListener('click', async ()=>{
-    if(await confirmDialog('Remove this treatment?', onDone)){
+    if(await confirmDialog('Remove this treatment?', ()=>reopen(currentDraft()))){
       obj.treatments = obj.treatments.filter(t=>t.id!==existing.id);
       await recordTombstone(existing.id);
       await put(storeKind, obj); await afterChange(); onDone();
     }
   });
 }
+// Marking where a part-bed treatment went: drag a box across the bed picture, its corners to
+// resize it, or the box itself to move it. Edges snap to a crop's or path's edge, the bed's edge
+// or another box's edge when within 10cm, so a box lines up with the section it was meant for.
+// Boxes can cross paths. "Add another box" makes L shapes and the like. Nothing is kept until
+// "Use this area" - and even then nothing is saved until Save on the treatment form.
+const TREATMENT_AREA_SNAP_M = 0.10;
+const TREATMENT_AREA_MIN_M = 0.05;
+function openTreatmentAreaEditor(bed, startAreas, whatLabel, onUse, onBack){
+  const bw = bed.w||2, bh = bed.h||1;
+  let areas = (startAreas||[]).map(a=>clipAreaToBed(a,bed)).filter(Boolean);
+  let sel = areas.length ? areas.length-1 : -1;
+  let adding = !areas.length;
+  let ppm = 40, drag = null;
+  const what = (whatLabel||'treatment').toLowerCase();
+  openModal(`<button class="back-link" id="taBack">&larr; Back</button>
+    <h3>Where did the ${escapeHTML(what)} go?</h3>
+    <div class="ta-banner" id="taBanner"></div>
+    <div id="taWrap" style="margin-top:10px;"><div id="taPic" class="ta-pic"></div></div>
+    <div class="ta-readout" id="taReadout"></div>
+    <div class="btn-row" id="taTools"></div>
+    <p class="muted" id="taErr" style="color:var(--danger,#b33); display:none;"></p>
+    <button class="btn big" id="taUse" style="margin-top:10px;">Use this area</button>`, true);
+  const picEl = document.getElementById('taPic');
+  const boxes = Object.values(bedPlantingBoxes(bed));
+  const linesFor = (axis, skip)=>{
+    const l = axis==='x' ? [0,bw] : [0,bh];
+    for(const b of boxes){ if(axis==='x') l.push(b.px, b.px+b.pw); else l.push(b.py, b.py+b.ph); }
+    areas.forEach((a,i)=>{ if(i===skip) return; if(axis==='x') l.push(a.px, a.px+a.pw); else l.push(a.py, a.py+a.ph); });
+    return l;
+  };
+  const nearest = (v, lines)=>{ let best=null, bd=TREATMENT_AREA_SNAP_M+1e-9; for(const c of lines){ const d=Math.abs(v-c); if(d<=bd){ bd=d; best=c; } } return best; };
+  const snapTo = (v, lines, max)=>{ const n = nearest(v, lines); return Math.max(0, Math.min(max, snapFine(n!=null ? n : v))); };
+  function draw(){
+    const W = Math.max(200, (document.getElementById('taWrap').clientWidth||320)-4);
+    const pic = bedAreaPictureSVG(bed, areas, {width:W, selected:sel, editing:true});
+    ppm = pic.ppm; picEl.innerHTML = pic.svg;
+    const banner = document.getElementById('taBanner');
+    banner.textContent = adding ? (areas.length ? 'Drag across the bed for the next box' : `Drag across ${bed.name||'the bed'} where it went`)
+      : (sel>=0 ? 'Drag the box to move it, or a corner to resize' : 'Tap a box to change it');
+    const a = sel>=0 ? areas[sel] : null;
+    document.getElementById('taReadout').textContent = a ? `${formatDistance(a.pw)} × ${formatDistance(a.ph)}${areas.length>1?` · ${areas.length} boxes`:''}` : (areas.length>1 ? `${areas.length} boxes` : '');
+    const tools = document.getElementById('taTools');
+    tools.innerHTML = `${(!adding && areas.length)?'<button class="btn secondary" id="taAdd">+ Add another box</button>':''}${a?'<button class="btn secondary" id="taRemove">Remove this box</button>':''}`;
+    const addBtn = document.getElementById('taAdd'); if(addBtn) addBtn.addEventListener('click', ()=>{ adding = true; sel = -1; draw(); });
+    const remBtn = document.getElementById('taRemove'); if(remBtn) remBtn.addEventListener('click', ()=>{ areas.splice(sel,1); sel = areas.length ? areas.length-1 : -1; adding = !areas.length; draw(); });
+  }
+  const toM = e=>{
+    const svg = picEl.querySelector('svg'); const r = svg.getBoundingClientRect();
+    return {x: Math.max(0, Math.min(bw, (e.clientX-r.left)/ppm)), y: Math.max(0, Math.min(bh, (e.clientY-r.top)/ppm)), rx:(e.clientX-r.left), ry:(e.clientY-r.top)};
+  };
+  picEl.addEventListener('pointerdown', e=>{
+    e.preventDefault();
+    document.getElementById('taErr').style.display='none';
+    const m = toM(e);
+    drag = null;
+    if(sel>=0 && !adding){
+      const a = areas[sel];
+      const corners = [[a.px,a.py],[a.px+a.pw,a.py],[a.px,a.py+a.ph],[a.px+a.pw,a.py+a.ph]];
+      const ci = corners.findIndex(([cx,cy])=>Math.hypot(cx*ppm-m.rx, cy*ppm-m.ry)<=22);
+      if(ci>=0){ const [ox,oy] = corners[3-ci]; drag = {mode:'resize', ox, oy}; }
+    }
+    if(!drag && !adding){
+      for(let i=areas.length-1;i>=0;i--){ const a=areas[i]; if(m.x>=a.px && m.x<=a.px+a.pw && m.y>=a.py && m.y<=a.py+a.ph){ sel=i; drag={mode:'move', dx:m.x-a.px, dy:m.y-a.py}; break; } }
+    }
+    if(!drag && adding){
+      const x0 = snapTo(m.x, linesFor('x',-1), bw), y0 = snapTo(m.y, linesFor('y',-1), bh);
+      areas.push({px:x0, py:y0, pw:0, ph:0}); sel = areas.length-1;
+      drag = {mode:'draw', ox:x0, oy:y0};
+    }
+    if(!drag){ sel = -1; draw(); return; }
+    try{ picEl.setPointerCapture(e.pointerId); }catch(err){}
+    draw();
+  });
+  picEl.addEventListener('pointermove', e=>{
+    if(!drag || sel<0) return;
+    e.preventDefault();
+    const m = toM(e), a = areas[sel];
+    if(drag.mode==='draw' || drag.mode==='resize'){
+      const x = snapTo(m.x, linesFor('x',sel), bw), y = snapTo(m.y, linesFor('y',sel), bh);
+      a.px = Math.min(drag.ox, x); a.pw = Math.abs(x-drag.ox);
+      a.py = Math.min(drag.oy, y); a.ph = Math.abs(y-drag.oy);
+    } else if(drag.mode==='move'){
+      let nx = Math.max(0, Math.min(bw-a.pw, m.x-drag.dx)), ny = Math.max(0, Math.min(bh-a.ph, m.y-drag.dy));
+      const lx = linesFor('x',sel), ly = linesFor('y',sel);
+      const sl = nearest(nx, lx), sr = nearest(nx+a.pw, lx);
+      if(sl!=null && (sr==null || Math.abs(sl-nx)<=Math.abs(sr-nx-a.pw))) nx = sl; else if(sr!=null) nx = sr-a.pw;
+      const st = nearest(ny, ly), sb = nearest(ny+a.ph, ly);
+      if(st!=null && (sb==null || Math.abs(st-ny)<=Math.abs(sb-ny-a.ph))) ny = st; else if(sb!=null) ny = sb-a.ph;
+      a.px = snapFine(Math.max(0, Math.min(bw-a.pw, nx))); a.py = snapFine(Math.max(0, Math.min(bh-a.ph, ny)));
+    }
+    draw();
+  });
+  const endDrag = e=>{
+    if(!drag) return;
+    const mode = drag.mode; drag = null;
+    const a = sel>=0 ? areas[sel] : null;
+    if(a && (a.pw<TREATMENT_AREA_MIN_M || a.ph<TREATMENT_AREA_MIN_M)){
+      if(mode==='draw'){ areas.splice(sel,1); sel = areas.length ? areas.length-1 : -1; }
+      else { a.pw = Math.max(a.pw, TREATMENT_AREA_MIN_M); a.ph = Math.max(a.ph, TREATMENT_AREA_MIN_M); a.px = Math.min(a.px, bw-a.pw); a.py = Math.min(a.py, bh-a.ph); }
+    } else if(mode==='draw'){ adding = false; }
+    draw();
+  };
+  picEl.addEventListener('pointerup', endDrag);
+  picEl.addEventListener('pointercancel', endDrag);
+  document.getElementById('taBack').addEventListener('click', onBack);
+  document.getElementById('taUse').addEventListener('click', ()=>{
+    if(!areas.length){ const er=document.getElementById('taErr'); er.textContent='Drag a box across the bed first.'; er.style.display=''; return; }
+    onUse(areas.map(a=>({px:snapFine(a.px), py:snapFine(a.py), pw:snapFine(a.pw), ph:snapFine(a.ph)})));
+  });
+  draw();
+}
+// Seeing where a part-bed treatment went: the bed picture with its boxes shaded. Nothing here can
+// be dragged - changing the area means Edit, then Change area. From a history record (no Edit),
+// it's drawn on the bed as it is now.
+function openTreatmentAreaView(bed, t, onBack, onEdit){
+  const what = `${t.type}${t.notes?': '+t.notes:''}`;
+  openModal(`<button class="back-link" id="tvBack">&larr; Back</button>
+    <h3>${escapeHTML(bed.name||bed.label||'Bed')}</h3>
+    <div class="ta-banner"><span>${escapeHTML(what)} &middot; ${dayLabel(t.date)}</span>
+      <span style="display:flex; gap:6px;">${onEdit?'<button class="btn small secondary" id="tvEdit">Edit</button>':''}<button class="btn small" id="tvDone">Done</button></span></div>
+    <div id="tvWrap" style="margin-top:10px;"><div id="tvPic"></div></div>`, true);
+  const W = Math.max(200, (document.getElementById('tvWrap').clientWidth||320)-4);
+  document.getElementById('tvPic').innerHTML = bedAreaPictureSVG(bed, bedTreatmentAreas(bed, t), {width:W, label:t.type}).svg;
+  document.getElementById('tvBack').addEventListener('click', onBack);
+  document.getElementById('tvDone').addEventListener('click', onBack);
+  if(onEdit) document.getElementById('tvEdit').addEventListener('click', onEdit);
+}
+// From a bed's or crop's treatments box: show a part-bed treatment's area, with Edit.
+function openLiveTreatmentArea(bed, treatmentId, onDone, cropForSuggestions){
+  const show = ()=>{
+    const t = (bed.treatments||[]).find(x=>x.id===treatmentId);
+    if(!t || !isPartTreatment(t)){ onDone(); return; }
+    openTreatmentAreaView(bed, t, onDone, ()=> openAddTreatment(bed, 'beds', show, treatmentId, cropForSuggestions, undefined));
+  };
+  show();
+}
 function wireTreatmentRows(obj, storeKind, onDone, cropForSuggestions, plantingId, root){
   root = root || modalContent;
   root.querySelectorAll('[data-opentreatplanting]').forEach(el=>el.addEventListener('click', ()=> openPlantingInfo(obj.id, el.dataset.opentreatplanting, storeKind==='features' ? 'features' : 'beds')));
   root.querySelectorAll('[data-edittreatment]').forEach(el=>el.addEventListener('click', ()=> openAddTreatment(obj, storeKind, onDone, el.dataset.edittreatment, cropForSuggestions, plantingId)));
+  root.querySelectorAll('[data-viewtreatarea]').forEach(el=>el.addEventListener('click', ()=> openLiveTreatmentArea(obj, el.dataset.viewtreatarea, onDone, cropForSuggestions)));
   root.querySelectorAll('[data-quicktreatment]').forEach(el=>el.addEventListener('click', async ()=>{
     // Every type, Compost included, logs instantly on tap - consistent with quick, on-site data
     // entry rather than forcing a detour through a form before anything's recorded. Compost's
@@ -7861,7 +8208,8 @@ function openHarvestModal(ctx){
     document.getElementById('mRHNo').addEventListener('click', ()=>answer(false));
     return;
   }
-  const bedTreatments = ctx.kind==='planting' ? (ctx.bed.treatments||[]).filter(t=>!t.plantingId || t.plantingId===ctx.planting.id) : (ctx.kind==='tree' ? (ctx.feature.treatments||[]) : (ctx.kind==='tray' ? (ctx.tray.treatments||[]).filter(t=>!t.plantingId || t.plantingId===ctx.planting.id) : []));
+  // A part-bed treatment goes into this crop's record only if its area reaches the crop.
+  const bedTreatments = ctx.kind==='planting' ? (ctx.bed.treatments||[]).filter(t=>(!t.plantingId || t.plantingId===ctx.planting.id) && treatmentReachesPlanting(ctx.bed, t, ctx.planting.id)) : (ctx.kind==='tree' ? (ctx.feature.treatments||[]) : (ctx.kind==='tray' ? (ctx.tray.treatments||[]).filter(t=>!t.plantingId || t.plantingId===ctx.planting.id) : []));
   const wx = getTodayWeatherSnapshot();
   const showFinish = rh===true && ctx.kind!=='tree';
   const weightUnit = STATE.settings.units==='imperial' ? 'lb' : 'kg';
@@ -7954,6 +8302,7 @@ function openHarvestModal(ctx){
     const rec = { id:uid(), cropId:crop?crop.id:null, cropName:crop?crop.name:'Unknown', family:crop?crop.family:'Other',
       source:ctx.kind, locationLabel: ctx.kind==='tray'?ctx.tray.location:(ctx.kind==='tree'?(ctx.feature.label||'Tree'):ctx.bed.name),
       treeId: ctx.kind==='tree'?ctx.feature.id:undefined,
+      bedId: (ctx.kind==='planting' && STATE.beds.some(b=>b.id===ctx.bed.id)) ? ctx.bed.id : undefined,
       plantedDate, method, area, weatherSummary, dueDateDiff, partial:isPartial, amount,
       harvestDate: todayISO(), rating:chosen, notes, treatments:bedTreatments, weather:wx, by:who() };
     await put('harvests', rec);
@@ -8941,7 +9290,7 @@ function renderHistoryCropLookup(wrap){
     const ratingHTML = ratingPct!=null ? `<span class="rating-pill" style="background:${gradeColor(Math.max(1,Math.round(ratingPct/10)),10)};">${ratingPct}%</span>` : (h.removed ? `<span class="tiny-muted" style="color:var(--brick); font-weight:700;">Removed</span>` : '');
     const wx = h.weatherSummary;
     const wxLine = wx ? `<div>\u2600\uFE0F Avg ${wx.meanTempMax}\u00B0/${wx.meanTempMin}\u00B0, ${wx.totalRain}mm rain over ${wx.days} days</div>` : '';
-    const treatLine = h.removed ? '' : ((h.treatments&&h.treatments.length) ? `<div>\uD83E\uDDEA ${h.treatments.map(t=>escapeHTML(t.type)).join(', ')}</div>` : '<div>\uD83E\uDDEA Nothing logged</div>');
+    const treatLine = h.removed ? '' : ((h.treatments&&h.treatments.length) ? `<div>\uD83E\uDDEA ${h.treatments.map(t=>escapeHTML(t.type)+(isPartTreatment(t)?' (part)':'')).join(', ')}</div>` : '<div>\uD83E\uDDEA Nothing logged</div>');
     const dueLine = (h.dueDateDiff!=null) ? `<div>\uD83D\uDCC5 ${h.dueDateDiff===0?'harvested on the due date':(h.dueDateDiff<0?`${Math.abs(h.dueDateDiff)} day${Math.abs(h.dueDateDiff)===1?'':'s'} early`:`${h.dueDateDiff} day${h.dueDateDiff===1?'':'s'} late`)}</div>` : '';
     const amountLine = h.amount ? `<div>\u2696\uFE0F ${formatAmount(h.amount)}</div>` : '';
     const reasonLine = (h.removed && h.reason) ? `<div>${escapeHTML(h.reason)}</div>` : '';
@@ -9106,10 +9455,14 @@ function openHistoryDetail(hid){
     ${h.amount?`<div class="planting-row"><span class="pname">Amount</span><span class="pdate">${escapeHTML(formatAmount(h.amount))}</span></div>`:''}
     ${h.notes?`<div class="planting-row"><span class="pname">Notes</span><span class="pdate">${escapeHTML(h.notes)}</span></div>`:''}
     ${h.weatherSummary?`<div class="planting-row"><span class="pname">Weather while growing</span><span class="pdate">avg ${h.weatherSummary.meanTempMax}&deg;/${h.weatherSummary.meanTempMin}&deg;, ${h.weatherSummary.totalRain}mm over ${h.weatherSummary.days} days</span></div>`:''}
-    ${(h.treatments&&h.treatments.length)?`<div class="row-heading">Treatments used</div>${h.treatments.map(t=>`<div class="muted" style="font-size:15px;">${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}</div>`).join('')}`:''}
+    ${(h.treatments&&h.treatments.length)?`<div class="row-heading">Treatments used</div>${h.treatments.map((t,ti)=>`<div class="muted" style="font-size:15px;">${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}${isPartTreatment(t)?` (part of the bed)${(h.bedId && bedById(h.bedId))?` <button class="btn small secondary" data-histarea="${ti}" style="margin-left:6px;">Show where</button>`:''}`:''}</div>`).join('')}`:''}
     ${others.length?`<div class="row-heading">Other times growing ${escapeHTML(h.cropName)}</div>${others.slice(0,6).map(o=>`<div class="planting-row"><span class="pname">${dayLabel(o.harvestDate)}</span><span class="pdate">${o.rating}/10${o.weatherSummary?' &middot; avg '+o.weatherSummary.meanTempMax+'&deg;':''}</span></div>`).join('')}`:''}
     <button class="btn danger" id="mDelHarvest" style="margin-top:24px;">Delete this record</button>
   `);
+  modalContent.querySelectorAll('[data-histarea]').forEach(b=>b.addEventListener('click', ()=>{
+    const bed = bedById(h.bedId); const t = h.treatments[parseInt(b.dataset.histarea)];
+    if(bed && t) openTreatmentAreaView(bed, t, ()=>openHistoryDetail(hid));
+  }));
   document.getElementById('mDelHarvest').addEventListener('click', async ()=>{
     if(!(await confirmDialog(`Delete this ${escapeHTML(h.cropName)} record? This can't be undone.`, undefined, 'Delete', true))) return;
     await del('harvests', h.id);
