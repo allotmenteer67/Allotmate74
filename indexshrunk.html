@@ -772,7 +772,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.12.8';
+const APP_VERSION = '2026.10.13.4';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -983,6 +983,7 @@ const shared = SHARED_SINGLE_KEYS.includes(key) || SHARED_LIST_KEYS.includes(key
 const changed = shared && !applyingRemote ? await stampSharedSetting(key, value) : false;
 const result = await put('meta',{key,value});
 if(shared) STATE.settings[key] = value;
+if(UNDO_META_KEYS.includes(key)){ STATE.settings[key] = value; noteMetaChangeForUndo(); }
 // Some of these are saved without any other change following (renaming the plot is just this
 // one save), so nothing else would trigger sending it to other gardeners - send it here.
 if(changed && supa) schedulePush();
@@ -2348,7 +2349,13 @@ const sx = oldW>0 ? newW/oldW : 1, sy = oldH>0 ? newH/oldH : 1;
 return pts.map(p=>({x:snapFine(p.x*sx), y:snapFine(p.y*sy)}));
 }
 function who(){ return STATE.settings.gardenerName || undefined; }
+// Loading can tidy up an old setting as it goes (an old ground colour, say) - that's not something
+// you did, so it never becomes an undo step.
 async function loadAll(){
+loadingAll = true;
+try{ return await loadAllInner(); } finally { loadingAll = false; }
+}
+async function loadAllInner(){
 STATE.crops = await getAll('crops');
 STATE.beds = await getAll('beds');
 for(const b of STATE.beds){
@@ -2634,10 +2641,18 @@ else if(currentDetailReopen) currentDetailReopen();
 else closeModal();
 }
 const UNDO_STORES = ['crops','beds','features','trays','tasks','harvests','wishlist','planningItems','planningChanges','costs','notes'];
+// Plot settings kept outside those lists - the plot's name, size and shape, saved treatment
+// reasons, the people sharing costs, container sizes, companion pairs, entries from before with no
+// bed, crops you've excluded, the ground colour and dismissed suggestions. Undo covers these too.
+// Not covered: things that belong to this device (sync, notifications, units, warning levels,
+// your own gardener name), which aren't plot changes.
+const UNDO_META_KEYS = [...SHARED_SINGLE_KEYS, ...SHARED_LIST_KEYS, 'excludedCrops', 'groundColor', 'dismissedCompanionTasks', 'dismissedPairings'];
 const UNDO_CONTAINER_STORES = ['beds','features','trays'];
 function snapshotState(){
 const out = {};
 for(const store of UNDO_STORES) out[store] = STATE[store]||[];
+out.meta = {};
+for(const k of UNDO_META_KEYS) if(STATE.settings[k]!==undefined) out.meta[k] = STATE.settings[k];
 return JSON.parse(JSON.stringify(out));
 }
 // Each undo step remembers what everything looked like just before and just after one change,
@@ -2711,6 +2726,33 @@ await put(store, next);
 }
 }
 await setUndoTombstones(removed, restored);
+// Plot settings: put back any this step changed (saved the normal way, so they sync too).
+const fm = from.meta||{}, tm = to.meta||{};
+for(const k of UNDO_META_KEYS){
+if(sameItem(fm[k], tm[k])) continue;
+const v = (k in tm) ? structuredClone(tm[k]) : (Array.isArray(fm[k]) ? [] : null);
+STATE.settings[k] = v;
+await setMeta(k, v);
+}
+}
+// A settings change with nothing else saved alongside it (renaming the plot, adding someone to
+// costs, excluding a crop...) still gets its own undo step. When something else is saved straight
+// after (a treatment saved with a new reason), afterChange takes both as one step instead.
+let pendingMetaUndoTimer = null, loadingAll = false;
+function noteMetaChangeForUndo(){
+if(restoring || applyingRemote || loadingAll || !lastSnapshot) return;
+if(pendingMetaUndoTimer) clearTimeout(pendingMetaUndoTimer);
+pendingMetaUndoTimer = setTimeout(()=>{
+pendingMetaUndoTimer = null;
+if(restoring || applyingRemote) return;
+const before = lastSnapshot, after = snapshotState();
+if(sameItem(before.meta, after.meta)) return;
+undoStack.push({before, after}); if(undoStack.length>30) undoStack.shift(); redoStack = [];
+lastSnapshot = after;
+const ub = document.getElementById('btnUndo'), rb = document.getElementById('btnRedo');
+if(ub) ub.disabled = false; if(rb) rb.disabled = true;
+const mu = document.getElementById('mUndoBtn'); if(mu) mu.disabled = false;
+}, 500);
 }
 // Marks ids as deleted, or clears an earlier deletion record for ids an undo/redo brought back.
 // A cleared record is kept as a dated "brought back" entry rather than just dropped, so the newer
@@ -4992,38 +5034,44 @@ if(!box){ const p = (bed.plantings||[]).find(pp=>pp.id===plantingId); box = p ? 
 if(!box) return false;
 return bedTreatmentAreas(bed, t).some(a=>rectIntersect(a, box));
 }
-// Static drawing of a bed with its crops and the treated boxes shaded purple, used by the area
-// editor, the "see where" screen and the small preview on the treatment form. Pixel sizes, with
-// the bed's own top-left at 0,0 - the same way round as the bed picture.
-function bedAreaPictureSVG(bed, areas, opts){
-opts = opts || {};
-const bw = bed.w||2, bh = bed.h||1;
-const availW = Math.max(180, opts.width||320), availH = opts.height || Math.max(160, Math.min(window.innerHeight*0.45, 420));
-const ppm = Math.max(8, Math.min(availW/bw, availH/bh));
-const W = +(bw*ppm).toFixed(1), H = +(bh*ppm).toFixed(1);
-const X = v=>(v*ppm).toFixed(1);
-const ground = STATE.settings.groundColor || GROUND_COLORS[0];
-const hasShape = bed.shape && bed.shape.length>=3;
-const shapePts = hasShape ? bed.shape.map(p=>`${X(p.x)},${X(p.y)}`).join(' ') : '';
-const clipId = 'taClip'+Math.random().toString(36).slice(2,8);
-let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="display:block; margin:0 auto; overflow:visible;">`;
-if(hasShape) svg += `<defs><clipPath id="${clipId}"><polygon points="${shapePts}"/></clipPath></defs>`;
-const clipAttr = hasShape ? ` clip-path="url(#${clipId})"` : '';
-svg += `<g${clipAttr}><rect x="0" y="0" width="${W}" height="${H}" fill="${ground}"/>`;
-const boxes = bedPlantingBoxes(bed);
-for(const p of (bed.plantings||[]).filter(pp=>pp.active)){
-const b = boxes[p.id]; if(!b) continue;
-const c = cropById(p.cropId);
-const col = p.colorOverride || (c ? cropColor(c) : '#8a8a7a');
-const name = (c && c.name) ? c.name : '?';
-const w = b.pw*ppm, h = b.ph*ppm;
-svg += `<rect x="${X(b.px)}" y="${X(b.py)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${col}22" stroke="${col}" stroke-width="1.5"/>`;
-const fs = Math.min(13, h-4);
-const fsV = Math.min(13, w-4);
-if(fs>=9 && name.length*fs*0.55 < w-6) svg += `<text x="${X(b.px+b.pw/2)}" y="${(b.py*ppm+h/2+fs*0.35).toFixed(1)}" font-size="${fs}" text-anchor="middle" fill="#2b2b2b">${escapeHTML(name)}</text>`;
-// A narrow strip (a path, usually) gets its name running up the strip instead, as the bed picture does.
-else if(fsV>=9 && name.length*fsV*0.55 < h-6){ const cx=(b.px*ppm+w/2+fsV*0.35).toFixed(1), cy=(b.py*ppm+h/2).toFixed(1); svg += `<text x="${cx}" y="${cy}" font-size="${fsV}" text-anchor="middle" fill="#2b2b2b" transform="rotate(-90 ${cx} ${cy})">${escapeHTML(name)}</text>`; }
+// The bed picture for marking or showing a part-bed treatment: the real bed picture, drawn by the
+// same code as the bed screen (grid, ruler, crop boxes, icons, labels, cloches), with every crop
+// fixed in place - nothing in it can be tapped or dragged here - and the treated boxes drawn in
+// purple on a layer over the top. hostEl is filled the first time; later calls just redraw.
+let treatmentPicSeq = 0;
+function renderTreatmentAreaPicture(hostEl, bed){
+if(!hostEl.dataset.picId){
+const id = 'taBedPic' + (++treatmentPicSeq);
+hostEl.dataset.picId = id;
+// overflow visible (the bed screen's own wrapper scrolls sideways) so corner handles sitting on
+// the bed's edge aren't cut in half; the picture is always sized to fit the width anyway.
+hostEl.innerHTML = `<div class="bed-picture-wrap" style="position:relative; overflow:visible; margin-top:10px;"><div class="bed-picture" id="${id}" style="pointer-events:none;"></div><div id="${id}ShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div><div class="ta-overlay" style="position:absolute; left:0; top:0;"></div></div>`;
 }
+const id = hostEl.dataset.picId;
+// Copies, so the picture can never write anything back to the real crops.
+const items = (bed.plantings||[]).filter(p=>p.active).map(p=>({...p, sizeLocked:true}));
+renderPictureCanvas(id, bed, items,
+p=>{ const c=cropById(p.cropId); return (c && c.name) ? c.name : '?'; },
+p=>{ const c=cropById(p.cropId); return c?c.family:'Other'; },
+()=>{}, ()=>{}, null, null,
+p=>{ if(p.colorOverride) return p.colorOverride; const c=cropById(p.cropId); return c?cropColor(c):'#8a8a7a'; }, null, false);
+return {el: document.getElementById(id), overlay: hostEl.querySelector('.ta-overlay')};
+}
+// Lines the purple layer up exactly with the picture's inside edge (inside its 2px border, which
+// an odd-shaped bed doesn't have) and returns the scale the picture was drawn at.
+function placeTreatmentOverlay(el, overlay){
+const border = (el.style.borderWidth==='0' || el.style.borderWidth==='0px') ? 0 : 2;
+const outerW = parseFloat(el.style.width)||el.offsetWidth, outerH = parseFloat(el.style.height)||el.offsetHeight;
+const W = outerW-2*border, H = outerH-2*border;
+overlay.style.left = (el.offsetLeft+border)+'px'; overlay.style.top = (el.offsetTop+border)+'px';
+overlay.style.width = W+'px'; overlay.style.height = H+'px';
+return {ppm: parseFloat(el.dataset.ppm)||40, W, H};
+}
+// The purple boxes themselves, with corner handles on the selected one while editing.
+function treatmentAreasSVG(areas, ppm, W, H, opts){
+opts = opts || {};
+const X = v=>(v*ppm).toFixed(1);
+let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="display:block; overflow:visible;">`;
 (areas||[]).forEach((a,i)=>{
 const sel = opts.selected===i;
 svg += `<rect x="${X(a.px)}" y="${X(a.py)}" width="${X(a.pw)}" height="${X(a.ph)}" fill="rgba(83,74,183,0.35)" stroke="#534AB7" stroke-width="${sel?3:2}"${(opts.editing && !sel)?' stroke-dasharray="6 4"':''}/>`;
@@ -5031,20 +5079,24 @@ svg += `<rect x="${X(a.px)}" y="${X(a.py)}" width="${X(a.pw)}" height="${X(a.ph)
 if(opts.label && areas && areas.length){
 const big = areas.reduce((m,a)=> a.pw*a.ph > m.pw*m.ph ? a : m);
 const w = big.pw*ppm, h = big.ph*ppm, fs = Math.min(14, h-4);
-// Along the top of the box, so it never sits on top of a crop's name (those are centred).
-if(fs>=9 && h>=fs*2.4 && opts.label.length*fs*0.62 < w-10) svg += `<text x="${(big.px*ppm+6).toFixed(1)}" y="${(big.py*ppm+fs+4).toFixed(1)}" font-size="${fs}" font-weight="700" text-anchor="start" fill="#26215C">${escapeHTML(opts.label)}</text>`;
+// Along the bottom of the box, clear of the crop names (the bed picture puts those at the top).
+if(fs>=9 && h>=fs*2.4 && opts.label.length*fs*0.62 < w-10) svg += `<text x="${(big.px*ppm+6).toFixed(1)}" y="${((big.py+big.ph)*ppm-6).toFixed(1)}" font-size="${fs}" font-weight="700" text-anchor="start" fill="#26215C">${escapeHTML(opts.label)}</text>`;
 }
-svg += `</g>`;
-svg += hasShape ? `<polygon points="${shapePts}" fill="none" stroke="${bed.color||'#7E9A6D'}" stroke-width="2"/>`
-: `<rect x="1" y="1" width="${(W-2).toFixed(1)}" height="${(H-2).toFixed(1)}" fill="none" stroke="${bed.color||'#7E9A6D'}" stroke-width="2"/>`;
 if(opts.selected!=null && opts.selected>=0 && areas && areas[opts.selected]){
 const a = areas[opts.selected];
 for(const [cx,cy] of [[a.px,a.py],[a.px+a.pw,a.py],[a.px,a.py+a.ph],[a.px+a.pw,a.py+a.ph]]){
 svg += `<circle cx="${X(cx)}" cy="${X(cy)}" r="8" fill="#534AB7" stroke="#fff" stroke-width="2"/>`;
 }
 }
-svg += `</svg>`;
-return {svg, ppm};
+return svg + `</svg>`;
+}
+// Draws the bed picture with these areas shaded, and redraws the purple layer once more after the
+// picture has settled its own size (it can re-measure itself a frame later).
+function showTreatmentAreaPicture(hostEl, bed, areas, opts){
+const {el, overlay} = renderTreatmentAreaPicture(hostEl, bed);
+const paint = ()=>{ if(!el.isConnected) return; const g = placeTreatmentOverlay(el, overlay); overlay.innerHTML = treatmentAreasSVG(areas, g.ppm, g.W, g.H, opts); };
+paint(); requestAnimationFrame(()=>requestAnimationFrame(paint));
+return {el, overlay};
 }
 function plantingGrowingArea(p){
 const b = plantingBox(p); if(!b) return (p.pw||0)*(p.ph||0);
@@ -6183,7 +6235,7 @@ const filtered = filterMode===undefined ? all
 const cutoff = addDays(todayISO(), -365);
 const sourceText = t => t.sourceKind==='bought' ? ' (bought in)' : t.sourceLabel ? ` (from ${escapeHTML(t.sourceLabel)})` : '';
 const whatText = t => `${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}${sourceText(t)}${t.reason?' — '+escapeHTML(t.reason):''}`;
-const rowHTML = t => `<div class="planting-row" style="cursor:pointer;" data-edittreatment="${t.id}"><span class="pname">${whatText(t)}</span><span class="pdate">${dayLabel(t.date)}${t.by?' &middot; '+escapeHTML(t.by):''}</span></div>`;
+const rowHTML = t => `<div class="planting-row" style="cursor:pointer;" data-edittreatment="${t.id}"><span class="pname">${whatText(t)}</span><span class="pdate">${dayLabel(t.date)}</span></div>`;
 // Newest first, the last year showing and anything older one tap away.
 const listHTML = (items, row, emptyText)=>{
 const sorted = items.slice().reverse();
@@ -6208,8 +6260,8 @@ let mainHTML = listHTML(ownItems, rowHTML, ((bedItems.length || partItems.length
 if(splitCrop && !ownItems.length && (bedItems.length || partItems.length)) mainHTML = `<p class="muted">Nothing logged for ${escapeHTML(cropName)} alone yet.</p>`;
 if(isBedwide && !ownItems.length && partItems.length) mainHTML = `<p class="muted">Nothing logged for the whole ${noun} yet.</p>`;
 const bedBoxHTML = bedItems.length ? `<div class="treat-inner treat-bed"><div class="row-heading" style="margin-top:0; color:#854F0B;">From the whole ${noun}</div>${listHTML(bedItems, rowHTML)}</div>` : '';
-const partRow = t => `<div class="planting-row" style="cursor:pointer;" data-viewtreatarea="${t.id}"><span class="pname">${whatText(t)}</span><span class="pdate">${dayLabel(t.date)}${t.by?' &middot; '+escapeHTML(t.by):''}</span></div>`;
-const partBoxHTML = partItems.length ? `<div class="treat-inner treat-part"><div class="row-heading" style="margin-top:0; color:#3C3489;">${isBedwide?`Part of the ${noun}`:`From part of the ${noun}`}</div><p class="tiny-muted" style="margin:0 0 4px;">Tap one to see where.</p>${listHTML(partItems, partRow)}</div>` : '';
+const partRow = t => `<div class="planting-row" style="cursor:pointer;" data-viewtreatarea="${t.id}"><span class="pname">${whatText(t)}</span><span class="pdate">${dayLabel(t.date)}</span></div>`;
+const partBoxHTML = partItems.length ? `<div class="treat-inner treat-part"><div class="row-heading" style="margin-top:0; color:#3C3489;">${isBedwide?`Part of the ${noun}`:`From part of the ${noun}`}</div>${listHTML(partItems, partRow)}</div>` : '';
 let singlesHTML = '';
 if(isBedwide){
 const plantingName = {};
@@ -6220,7 +6272,7 @@ if(!cr || cr.name==='Fallow' || cr.name==='Path') continue;
 plantingName[pl.id] = cr.name;
 }
 const singles = (obj.treatments||[]).filter(t=>t.plantingId && plantingName[t.plantingId]);
-const singleRow = t => `<div class="planting-row" style="cursor:pointer;" data-opentreatplanting="${t.plantingId}"><span class="pname"><strong>${escapeHTML(plantingName[t.plantingId])}</strong>: ${whatText(t)}</span><span class="pdate">${dayLabel(t.date)}${t.by?' &middot; '+escapeHTML(t.by):''}</span></div>`;
+const singleRow = t => `<div class="planting-row" style="cursor:pointer;" data-opentreatplanting="${t.plantingId}"><span class="pname"><strong>${escapeHTML(plantingName[t.plantingId])}</strong>: ${whatText(t)}</span><span class="pdate">${dayLabel(t.date)}</span></div>`;
 if(singles.length && !ownItems.length) mainHTML = `<p class="muted">Nothing logged for the whole ${noun} yet.</p>`;
 if(singles.length) singlesHTML = `<div class="treat-inner treat-crop"><div class="row-heading" style="margin-top:0; color:var(--leaf);">Just single crops</div>${listHTML(singles, singleRow)}</div>`;
 }
@@ -6272,7 +6324,7 @@ openModal(`<div style="display:flex; align-items:flex-start; justify-content:spa
 </div>
 ${feat.composting && openCompostBatchOf(feat) && openCompostBatchOf(feat).startDate ? `<p class="tiny-muted">Composting underneath since ${fullDateLabel(openCompostBatchOf(feat).startDate)}</p>` : ''}
 <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
-<p class="picture-help">Drag a crop's box to where it is, and its corner to resize it. Tap it for details.</p>
+<p class="picture-help">Drag a crop's box to where it is, and its corner to resize it.</p>
 ${rows}${warn}
 <button class="btn" id="mSow" style="margin-top:10px;">+ Plant another crop here</button>
 ${treatmentsSectionHTML(feat,'features','bedwide')}
@@ -6400,7 +6452,7 @@ let hostedHTML = '';
 if(hostedContainers.length){
 hostedHTML = `<div class="row-heading">In this bed</div>` + hostedContainers.map(f=>{
 const info = FEATURE_TYPES[f.type]||{icon:'🪴', label:'Container'};
-return `<div class="planting-row tappable" data-hostedcontainer="${f.id}"><span class="pname">${info.icon} ${escapeHTML(f.label||info.label)}</span><span class="pdate">Tap to open</span></div>`;
+return `<div class="planting-row tappable" data-hostedcontainer="${f.id}"><span class="pname">${info.icon} ${escapeHTML(f.label||info.label)}</span></div>`;
 }).join('');
 }
 let warn='';
@@ -6417,7 +6469,7 @@ openModal(`<div style="display:flex; align-items:flex-start; justify-content:spa
 </div>
 ${bed.raised && bed.composting && openCompostBatchOf(bed) && openCompostBatchOf(bed).startDate ? `<p class="tiny-muted">Composting underneath since ${fullDateLabel(openCompostBatchOf(bed).startDate)}</p>` : ''}
 <div class="bed-picture-wrap" style="position:relative;"><div class="bed-picture" id="bedPic"></div><div id="bedPicShapeOutline" style="position:absolute; left:0; top:0; pointer-events:none;"></div></div>
-<p class="picture-help">Drag a crop's box to where it is, and its corner to resize it. Tap it for details.</p>
+<p class="picture-help">Drag a crop's box to where it is, and its corner to resize it.</p>
 ${rows}${hostedHTML}${clocheRowsHTML(bed)}${warn}
 <button class="btn" id="mSow" style="margin-top:10px;">+ Plant another crop here</button>
 ${treatmentsSectionHTML(bed,'beds','bedwide')}
@@ -6819,6 +6871,7 @@ ${whereHTML}
 ${issues.length?`<div class="swatch-row" id="issueChipRow" style="margin:-6px 0 12px; flex-wrap:wrap;">${issues.map(i=>`<button type="button" class="btn small secondary" data-issue="${escapeAttr(i)}">${escapeHTML(i)}</button>`).join('')}</div>`:''}
 <div class="form-row"><div><label id="mDateLabel">${isCompost?'Date added':'Date'}</label><input type="date" id="mDate" value="${escapeAttr(startDate)}"></div></div>
 <button class="btn big" id="mSave">Save</button>
+${(existing && existing.by)?`<p class="tiny-muted" style="margin-top:10px;">Logged by ${escapeHTML(existing.by)}</p>`:''}
 ${existing?`<button class="btn danger" id="mDelTreat" style="margin-top:24px;">Remove this treatment</button>`:''}`, true);
 document.getElementById('mBack').addEventListener('click', onDone);
 // The source picker and the "Date added" wording only make sense for a Compost entry - synced
@@ -6855,8 +6908,7 @@ const changeBtn = document.getElementById('mChangeArea');
 if(changeBtn) changeBtn.addEventListener('click', openEditor);
 const picEl = document.getElementById('mWherePic');
 if(picEl){
-const pic = bedAreaPictureSVG(obj, areas.map(a=>clipAreaToBed(a,obj)).filter(Boolean), {width: Math.max(180,(picEl.clientWidth||300)-4), height:150});
-picEl.innerHTML = pic.svg;
+showTreatmentAreaPicture(picEl, obj, areas.map(a=>clipAreaToBed(a,obj)).filter(Boolean), {});
 }
 }
 document.getElementById('mSave').addEventListener('click', async ()=>{
@@ -6905,7 +6957,9 @@ openModal(`<button class="back-link" id="taBack">&larr; Back</button>
 <div class="btn-row" id="taTools"></div>
 <p class="muted" id="taErr" style="color:var(--danger,#b33); display:none;"></p>
 <button class="btn big" id="taUse" style="margin-top:10px;">Use this area</button>`, true);
-const picEl = document.getElementById('taPic');
+// The real bed picture, crops fixed; boxes are drawn and dragged on the purple layer over it.
+const {el: picCanvas, overlay: picEl} = renderTreatmentAreaPicture(document.getElementById('taPic'), bed);
+picEl.classList.add('ta-pic');
 const boxes = Object.values(bedPlantingBoxes(bed));
 const linesFor = (axis, skip)=>{
 const l = axis==='x' ? [0,bw] : [0,bh];
@@ -6916,9 +6970,9 @@ return l;
 const nearest = (v, lines)=>{ let best=null, bd=TREATMENT_AREA_SNAP_M+1e-9; for(const c of lines){ const d=Math.abs(v-c); if(d<=bd){ bd=d; best=c; } } return best; };
 const snapTo = (v, lines, max)=>{ const n = nearest(v, lines); return Math.max(0, Math.min(max, snapFine(n!=null ? n : v))); };
 function draw(){
-const W = Math.max(200, (document.getElementById('taWrap').clientWidth||320)-4);
-const pic = bedAreaPictureSVG(bed, areas, {width:W, selected:sel, editing:true});
-ppm = pic.ppm; picEl.innerHTML = pic.svg;
+if(!picCanvas.isConnected) return;
+const g = placeTreatmentOverlay(picCanvas, picEl);
+ppm = g.ppm; picEl.innerHTML = treatmentAreasSVG(areas, ppm, g.W, g.H, {selected:sel, editing:true});
 const banner = document.getElementById('taBanner');
 banner.textContent = adding ? (areas.length ? 'Drag across the bed for the next box' : `Drag across ${bed.name||'the bed'} where it went`)
 : (sel>=0 ? 'Drag the box to move it, or a corner to resize' : 'Tap a box to change it');
@@ -6930,7 +6984,7 @@ const addBtn = document.getElementById('taAdd'); if(addBtn) addBtn.addEventListe
 const remBtn = document.getElementById('taRemove'); if(remBtn) remBtn.addEventListener('click', ()=>{ areas.splice(sel,1); sel = areas.length ? areas.length-1 : -1; adding = !areas.length; draw(); });
 }
 const toM = e=>{
-const svg = picEl.querySelector('svg'); const r = svg.getBoundingClientRect();
+const r = picEl.getBoundingClientRect();
 return {x: Math.max(0, Math.min(bw, (e.clientX-r.left)/ppm)), y: Math.max(0, Math.min(bh, (e.clientY-r.top)/ppm)), rx:(e.clientX-r.left), ry:(e.clientY-r.top)};
 };
 picEl.addEventListener('pointerdown', e=>{
@@ -6992,7 +7046,7 @@ document.getElementById('taUse').addEventListener('click', ()=>{
 if(!areas.length){ const er=document.getElementById('taErr'); er.textContent='Drag a box across the bed first.'; er.style.display=''; return; }
 onUse(areas.map(a=>({px:snapFine(a.px), py:snapFine(a.py), pw:snapFine(a.pw), ph:snapFine(a.ph)})));
 });
-draw();
+draw(); requestAnimationFrame(()=>requestAnimationFrame(draw));
 }
 // Seeing where a part-bed treatment went: the bed picture with its boxes shaded. Nothing here can
 // be dragged - changing the area means Edit, then Change area. From a history record (no Edit),
@@ -7004,8 +7058,7 @@ openModal(`<button class="back-link" id="tvBack">&larr; Back</button>
 <div class="ta-banner"><span>${escapeHTML(what)} &middot; ${dayLabel(t.date)}</span>
 <span style="display:flex; gap:6px;">${onEdit?'<button class="btn small secondary" id="tvEdit">Edit</button>':''}<button class="btn small" id="tvDone">Done</button></span></div>
 <div id="tvWrap" style="margin-top:10px;"><div id="tvPic"></div></div>`, true);
-const W = Math.max(200, (document.getElementById('tvWrap').clientWidth||320)-4);
-document.getElementById('tvPic').innerHTML = bedAreaPictureSVG(bed, bedTreatmentAreas(bed, t), {width:W, label:t.type}).svg;
+showTreatmentAreaPicture(document.getElementById('tvPic'), bed, bedTreatmentAreas(bed, t), {label:t.type});
 document.getElementById('tvBack').addEventListener('click', onBack);
 document.getElementById('tvDone').addEventListener('click', onBack);
 if(onEdit) document.getElementById('tvEdit').addEventListener('click', onEdit);
@@ -7130,7 +7183,7 @@ const feat = featureById(featId);
 if(!feat){ goHome(); return; }
 const crop = feat.treeCropId ? cropById(feat.treeCropId) : null;
 const history = STATE.harvests.filter(h=>h.treeId===feat.id).sort((a,b)=>hDate(b).localeCompare(hDate(a))).slice(0,10);
-const histHTML = history.map(h=>`<div class="planting-row"><span class="pname">${dayLabel(h.harvestDate)}</span><span class="pdate">${h.rating}/10${h.by?' &middot; '+escapeHTML(h.by):''}</span></div>`).join('') || '<p class="muted">No harvests logged yet.</p>';
+const histHTML = history.map(h=>`<div class="planting-row"><span class="pname">${dayLabel(h.harvestDate)}</span><span class="pdate">${h.rating}/10</span></div>`).join('') || '<p class="muted">No harvests logged yet.</p>';
 openModal(`<h3>🌳 ${escapeHTML(feat.label||'Fruit tree')} <span style="display:inline-block; width:16px; height:16px; border-radius:4px; background:${feat.color||BED_COLORS[0]}; vertical-align:-2px;"></span></h3>
 <p class="muted">${crop?('Variety: '+escapeHTML(crop.name)):'No variety set yet.'}</p>
 ${treatmentsSectionHTML(feat,'features')}
@@ -7450,7 +7503,7 @@ ${multiTier?`<p class="tiny-muted" style="margin:-4px 0 10px;">Tap a level to sh
 ${tierBlocksHTML}
 <div class="btn-row"><button class="btn small" id="mSow" style="flex:1;">Sow something</button><button class="btn small secondary" id="mAddPot" style="flex:1;">Add a tray/pot</button></div>
 ${isCloche && !feat.offPlot ? `<button class="btn small secondary" id="mBringIn" style="width:100%; margin-top:6px;">Bring trays in…</button>` : ''}
-<p class="picture-help">${multiTier?'Drag a tray onto another level\'s row, or its button, to move it there. ':''}Drag a tray's box to where it sits, and its corner to resize it. Tap it for details.</p>
+<p class="picture-help">${multiTier?'Drag a tray onto another level\'s row, or its button, to move it there. ':''}Drag a tray's box to where it sits, and its corner to resize it.</p>
 <div class="tray-list">${rows}</div>
 ${findTrayRowHTML}
 ${sortRowHTML}
@@ -8103,6 +8156,10 @@ return;
 const bedTreatments = ctx.kind==='planting' ? (ctx.bed.treatments||[]).filter(t=>(!t.plantingId || t.plantingId===ctx.planting.id) && treatmentReachesPlanting(ctx.bed, t, ctx.planting.id)) : (ctx.kind==='tree' ? (ctx.feature.treatments||[]) : (ctx.kind==='tray' ? (ctx.tray.treatments||[]).filter(t=>!t.plantingId || t.plantingId===ctx.planting.id) : []));
 const wx = getTodayWeatherSnapshot();
 const showFinish = rh===true && ctx.kind!=='tree';
+// Several identical plants in one planting (6 courgettes, say): "This is the last of it" asks
+// whether all of them are finished or just some, instead of clearing the whole planting when
+// only one plant was done.
+const finishQty = (showFinish && (ctx.kind==='planting' || ctx.kind==='tray')) ? (ctx.planting.quantity||1) : 1;
 const weightUnit = STATE.settings.units==='imperial' ? 'lb' : 'kg';
 openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>🧺 Harvest ${escapeHTML(crop?crop.name:'this')}</h3>
 ${ctx.needsCount?`<label>How many are you taking?</label>
@@ -8116,7 +8173,14 @@ ${ctx.needsCount?`<label>How many are you taking?</label>
 <div class="form-row" style="margin-top:14px;"><div><label>Amount picked (optional)</label><input type="text" inputmode="decimal" id="mAmountVal" placeholder="e.g. 6"></div><div><label>Weight picked (optional)</label><input type="text" inputmode="decimal" id="mWeightVal" placeholder="e.g. 1.2"></div></div>
 <div class="form-row" style="margin-top:14px;"><div><label>Notes (optional)</label><textarea id="mNotes" rows="2" placeholder="e.g. small but tasty"></textarea></div></div>
 <button class="btn big" id="mSave" disabled>Save Harvest</button>
-${showFinish?`<button class="btn big secondary" id="mFinish" disabled style="margin-top:8px;">🏁 This is the last of it</button><p class="tiny-muted" style="margin-top:6px;">Clears it from the bed and keeps a record, same as removing it by hand — use this once the plant itself is properly done, not just for an ordinary pick.</p>`:''}`);
+${showFinish?`<button class="btn big secondary" id="mFinish" disabled style="margin-top:8px;">🏁 This is the last of it</button><p class="tiny-muted" style="margin-top:6px;">Clears it from the bed and keeps a record, same as removing it by hand — use this once the plant itself is properly done, not just for an ordinary pick.</p>
+${finishQty>1?`<div id="mFinishWhich" style="display:none; margin-top:10px;">
+<label>Is that all ${finishQty} plants finished, or just some?</label>
+<div class="btn-row"><button class="btn" id="mFinishAll">All ${finishQty} finished</button><button class="btn secondary" id="mFinishSome">Just some</button></div>
+<div id="mFinishSomeRow" style="display:none; margin-top:8px;"><div class="form-row"><div><label>How many are finished?</label><input type="number" inputmode="numeric" onfocus="this.select()" id="mFinishCount" min="1" max="${finishQty-1}"></div></div>
+<p class="muted" id="mFinishErr" style="color:var(--brick); display:none;"></p>
+<button class="btn" id="mFinishSomeSave">Save, and clear just those</button></div>
+</div>`:''}`:''}`);
 document.getElementById('mBack').addEventListener('click', backTo);
 let chosen=null;
 let chosenCountPercent=null;
@@ -8161,7 +8225,9 @@ x.style.background = fill ? x.dataset.gc : '';
 document.getElementById('ratingReadout').textContent = (chosen*10)+'%';
 refreshSaveEnabled();
 }));
-async function doSave(isLastOfIt){
+async function doSave(isLastOfIt, finishedCount){
+// Just some of several plants finished: they come off the count, and the planting carries on.
+const someFinished = !!(isLastOfIt && finishedCount && finishedCount < (ctx.planting && ctx.planting.quantity||1));
 const notes = document.getElementById('mNotes').value.trim();
 const itemsRaw = document.getElementById('mAmountVal').value.trim();
 const weightRaw = document.getElementById('mWeightVal').value.trim();
@@ -8197,7 +8263,11 @@ bedId: (ctx.kind==='planting' && STATE.beds.some(b=>b.id===ctx.bed.id)) ? ctx.be
 plantedDate, method, area, weatherSummary, dueDateDiff, partial:isPartial, amount,
 harvestDate: todayISO(), rating:chosen, notes, treatments:bedTreatments, weather:wx, by:who() };
 await put('harvests', rec);
-if(ctx.kind==='tray'){
+if(someFinished){
+ctx.planting.quantity = Math.max(1, (ctx.planting.quantity||1) - finishedCount);
+if(ctx.kind==='tray') await put('trays', ctx.tray);
+else await savePlantable(ctx.plantableKind||'beds', ctx.bed);
+} else if(ctx.kind==='tray'){
 if(rh===true && !isLastOfIt){
 // Ongoing pick from a repeat-harvest crop — the tray keeps growing exactly as it was;
 // only the reminder that first pointed you here gets closed off, so it stops nagging.
@@ -8243,12 +8313,27 @@ await put('crops', crop);
 }
 }
 await afterChange();
-toast(isLastOfIt ? 'Harvest saved — cleared 🧺' : 'Harvest saved 🧺');
+toast(someFinished ? `Harvest saved — ${finishedCount} plant${finishedCount===1?'':'s'} cleared 🧺` : (isLastOfIt ? 'Harvest saved — cleared 🧺' : 'Harvest saved 🧺'));
 backTo();
 }
 document.getElementById('mSave').addEventListener('click', ()=>doSave(false));
 const finishBtn = document.getElementById('mFinish');
-if(finishBtn) finishBtn.addEventListener('click', ()=>doSave(true));
+if(finishBtn) finishBtn.addEventListener('click', ()=>{
+if(finishQty<=1){ doSave(true); return; }
+document.getElementById('mFinishWhich').style.display = '';
+document.getElementById('mFinishWhich').scrollIntoView({block:'nearest'});
+});
+if(finishQty>1){
+document.getElementById('mFinishAll').addEventListener('click', ()=>doSave(true));
+document.getElementById('mFinishSome').addEventListener('click', ()=>{ document.getElementById('mFinishSomeRow').style.display=''; document.getElementById('mFinishCount').focus(); });
+document.getElementById('mFinishSomeSave').addEventListener('click', ()=>{
+const n = parseInt(document.getElementById('mFinishCount').value, 10);
+const err = document.getElementById('mFinishErr');
+if(!(n>=1)){ err.textContent = 'Enter how many are finished.'; err.style.display=''; return; }
+if(n>=finishQty){ doSave(true); return; }
+doSave(true, n);
+});
+}
 }
 /* ======================= GREENHOUSE TAB ======================= */
 /* ======================= CROPS ======================= */
@@ -8957,7 +9042,7 @@ bodyHTML += `<div class="crop-card" ${h.removed?`data-rh="${escapeAttr(h.id)}"`:
 <div class="crop-head"><span class="fam-dot" style="background:${h.cropId&&cropById(h.cropId)?cropColor(cropById(h.cropId)):colorForCropName(h.cropName||'?')};"></span>
 <strong style="flex:1;">${escapeHTML(h.cropName)}</strong>
 <span class="tiny-muted">${h.approx?'~':''}${dayLabel(h.harvestDate)}</span></div>
-<p class="muted" style="margin:4px 0 0;">${escapeHTML(h.locationLabel||'')} &middot; ${h.removed?`<span style="color:var(--brick); font-weight:700;">Removed</span>, not harvested${h.reason?' &middot; '+escapeHTML(h.reason):''}`:`${h.rating}/10${h.area?(' &middot; '+h.area+'m&sup2;'):''}`}</p>
+<p class="muted" style="margin:4px 0 0;">${escapeHTML(h.locationLabel||'')} &middot; ${h.removed?((h.approx||h.unplaced)?`Added from before${h.reason?' &middot; '+escapeHTML(h.reason):''}`:`<span style="color:var(--brick); font-weight:700;">Removed</span>, not harvested${h.reason?' &middot; '+escapeHTML(h.reason):''}`):`${h.rating}/10${h.area?(' &middot; '+h.area+'m&sup2;'):''}`}</p>
 </div>`;
 });
 if(openDetails) bodyHTML += '</div></details>';
@@ -9171,11 +9256,11 @@ if(vstats.length>1){
 const vrows = varietyOrderForHistory(vstats);
 const anyThin = vrows.some(r=>r.g.seasons===1 && r.g.avg!=null), anyLevel = vrows.some(r=>r.approx);
 varietyCompareHTML = `<div class="row-heading">Comparing varieties</div>` + vrows.map(r=>varietyRowHTML(r.g,{approx:r.approx})).join('') +
-`<p class="vr-key">Tap a variety for details.${anyThin?' Pale bar: one season only.':''}${anyLevel?' \u2248 means within about 5 points, so treat as level.':''}</p>`;
+((anyThin||anyLevel) ? `<p class="vr-key">${[anyThin?'Pale bar: one season only.':'', anyLevel?'\u2248 means within about 5 points, so treat as level.':''].filter(Boolean).join(' ')}</p>` : '');
 }
 const cardsHTML = items.map(h=>{
 const ratingPct = h.rating!=null ? Math.round(h.rating*10) : null;
-const ratingHTML = ratingPct!=null ? `<span class="rating-pill" style="background:${gradeColor(Math.max(1,Math.round(ratingPct/10)),10)};">${ratingPct}%</span>` : (h.removed ? `<span class="tiny-muted" style="color:var(--brick); font-weight:700;">Removed</span>` : '');
+const ratingHTML = ratingPct!=null ? `<span class="rating-pill" style="background:${gradeColor(Math.max(1,Math.round(ratingPct/10)),10)};">${ratingPct}%</span>` : (h.removed ? ((h.approx||h.unplaced) ? `<span class="tiny-muted">From before</span>` : `<span class="tiny-muted" style="color:var(--brick); font-weight:700;">Removed</span>`) : '');
 const wx = h.weatherSummary;
 const wxLine = wx ? `<div>\u2600\uFE0F Avg ${wx.meanTempMax}\u00B0/${wx.meanTempMin}\u00B0, ${wx.totalRain}mm rain over ${wx.days} days</div>` : '';
 const treatLine = h.removed ? '' : ((h.treatments&&h.treatments.length) ? `<div>\uD83E\uDDEA ${h.treatments.map(t=>escapeHTML(t.type)+(isPartTreatment(t)?' (part)':'')).join(', ')}</div>` : '<div>\uD83E\uDDEA Nothing logged</div>');
@@ -9220,7 +9305,10 @@ const featOptions = STATE.features.map(f=>({id:f.id, kind:'features', name:f.lab
 const allTargets = [...bedOptions, ...featOptions].sort((a,b)=>a.name.localeCompare(b.name, undefined, {numeric:true}));
 const preselectedValue = preselectedTarget ? `${preselectedKind}|${preselectedTarget.id}` : '';
 const optionsHTML = `<option value="">Not sure which bed</option>` + allTargets.map(t=>`<option value="${t.kind}|${t.id}" ${preselectedValue===`${t.kind}|${t.id}`?'selected':''}>${escapeHTML(t.name)}</option>`).join('');
-openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Add something from before</h3>
+// Editing an entry added earlier: preFillRest.editing says where it lives now and what it said,
+// so it can be found and changed (or moved) rather than added a second time.
+const editing = preFillRest.editing || null;
+openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${editing?'Edit this entry':'Add something from before'}</h3>
 <p class="muted">Nothing here needs to be exact — leave anything blank you're not sure of.</p>
 <div class="form-row"><div style="flex:2;"><label>Which bed or container?</label><select id="histTarget">${optionsHTML}</select></div>
 <div style="flex:0; display:flex; align-items:flex-end;"><button type="button" class="btn secondary" id="histPickOnMap" title="Pick on map">📍</button></div></div>
@@ -9238,7 +9326,7 @@ openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Add some
 <option value="notsure">Not sure</option>
 </select></div></div>
 <div id="histError" class="muted" style="color:var(--brick); display:none; margin-bottom:8px;"></div>
-<button class="btn big" id="histSave">Add to history</button>`, true);
+<button class="btn big" id="histSave">${editing?'Save':'Add to history'}</button>`, true);
 if(preFillRest.when) document.getElementById('histWhen').value = preFillRest.when;
 wireCropAutocomplete(document.getElementById('histCropName'), document.getElementById('histCropSuggestBox'));
 const updateHistIssueChips = ()=>{
@@ -9251,7 +9339,7 @@ chipRow.querySelectorAll('[data-histissue]').forEach(b=>b.addEventListener('clic
 };
 document.getElementById('histCropName').addEventListener('input', updateHistIssueChips);
 updateHistIssueChips();
-document.getElementById('mBack').addEventListener('click', closeModal);
+document.getElementById('mBack').addEventListener('click', ()=>{ if(editing && editing.backId) openRemovedHistoryDetail(editing.backId); else closeModal(); });
 document.getElementById('histPickOnMap').addEventListener('click', ()=>{
 const captured = {
 cropName: document.getElementById('histCropName').value.trim(),
@@ -9259,8 +9347,8 @@ problem: document.getElementById('histProblem').value.trim(),
 when: document.getElementById('histWhen').value
 };
 enterBedPickerMode(
-(target, kind)=> openAddHistoricalEntry(target, kind, captured.cropName, {problem:captured.problem, when:captured.when}),
-()=> openAddHistoricalEntry(preselectedTarget, preselectedKind, captured.cropName, {problem:captured.problem, when:captured.when})
+(target, kind)=> openAddHistoricalEntry(target, kind, captured.cropName, {problem:captured.problem, when:captured.when, editing}),
+()=> openAddHistoricalEntry(preselectedTarget, preselectedKind, captured.cropName, {problem:captured.problem, when:captured.when, editing})
 );
 });
 document.getElementById('histSave').addEventListener('click', async ()=>{
@@ -9273,10 +9361,17 @@ err.style.display = '';
 return;
 }
 const roughly = document.getElementById('histWhen').value;
-const clearedDate = roughlyWhenToDate(roughly);
+// Editing and "Roughly when?" left as it was: the entry keeps its own date, rather than being
+// shifted to a fresh guess worked out from today.
+const clearedDate = (editing && roughly===editing.initialWhen) ? editing.oldDate : roughlyWhenToDate(roughly);
 const targetVal = document.getElementById('histTarget').value;
 const familyMatch = cropName ? Object.keys(ROTATION_GAP_YEARS).find(f=>f.toLowerCase()===cropName.toLowerCase()) : null;
 const family = cropName ? (familyMatch || (matchCropWithConfidence(cropName).crop ? matchCropWithConfidence(cropName).crop.family : null)) : null;
+if(editing){
+const done = await saveEditedHistoricalEntry(editing, targetVal, cropName, problem, family, clearedDate);
+if(done){ await afterChange(); closeModal(); renderHistory(); toast('Saved'); return; }
+// Moved somewhere else: the old one has been taken out; carry on and add it in its new place.
+}
 if(targetVal){
 const [kind, id] = targetVal.split('|');
 const target = plantableById(kind, id); if(!target) return;
@@ -9292,8 +9387,60 @@ await setMeta('unplacedHistory', STATE.settings.unplacedHistory);
 }
 await afterChange();
 closeModal();
-toast('Added');
+if(editing) renderHistory();
+toast(editing ? 'Saved' : 'Added');
 });
+}
+// Which "Roughly when?" choice best fits a date already saved - used to fill in the form when an
+// entry is edited.
+function roughlyWhenForDate(iso){
+const map = {thisyear:0, lastyear:365, twoyears:730, threetofive:1460, fivetoten:2555, morethanten:7300};
+const ago = Math.abs(daysBetween(iso||todayISO(), todayISO()));
+let best = 'lastyear', bd = Infinity;
+for(const [k,v] of Object.entries(map)){ const d = Math.abs(ago-v); if(d<bd){ bd=d; best=k; } }
+return best;
+}
+// Saves an edited from-before entry. If it stays in the same place, it's changed where it is
+// (same ids, so the change syncs as an edit) and this returns true. If it's moved to a different
+// bed or container (or to or from "Not sure which bed"), the old copy and its problem note are
+// taken out and recorded as deleted, and this returns false so the caller adds it in its new place.
+async function saveEditedHistoricalEntry(ed, targetVal, cropName, problem, family, clearedDate){
+const oldKey = ed.sourceKind==='unplaced' ? '' : `${ed.sourceKind}|${ed.sourceId}`;
+const samePlace = (targetVal||'')===oldKey;
+if(ed.sourceKind==='unplaced'){
+const list = STATE.settings.unplacedHistory || [];
+const i = list.findIndex(x=>x.id===ed.unplacedId);
+if(samePlace && i>=0) Object.assign(list[i], {cropName: cropName||'(unnamed)', family, clearedDate, reason: problem||undefined});
+else if(i>=0) list.splice(i,1);
+STATE.settings.unplacedHistory = list;
+await setMeta('unplacedHistory', list);
+return samePlace && i>=0;
+}
+const target = plantableById(ed.sourceKind, ed.sourceId);
+if(!target) return false;
+target.history = target.history || [];
+target.treatments = target.treatments || [];
+const hi = ed.entryId ? target.history.findIndex(x=>x.id===ed.entryId)
+: target.history.findIndex(x=>x.clearedDate===ed.oldDate && x.cropName===ed.oldCropName);
+// The problem note added alongside it has no link back, so it's found by what it said and when.
+const ni = ed.oldReason ? target.treatments.findIndex(t=>t.type==='Historical note' && t.date===ed.oldDate && (t.reason||'')===ed.oldReason) : -1;
+const dropAt = async (list, i)=>{ const it = list[i]; list.splice(i,1); if(it && it.id) await recordTombstone(it.id); };
+if(samePlace){
+if(hi>=0){
+if(cropName) Object.assign(target.history[hi], {cropName, family, clearedDate, reason: problem||undefined});
+else await dropAt(target.history, hi);
+} else if(cropName) target.history.push({id:uid(), cropName, family, clearedDate, reason: problem||undefined, approx:true});
+if(ni>=0){
+if(problem) Object.assign(target.treatments[ni], {reason: problem, date: clearedDate});
+else await dropAt(target.treatments, ni);
+} else if(problem) target.treatments.push({id:uid(), reason:problem, date:clearedDate, type:'Historical note', approx:true});
+await savePlantable(ed.sourceKind, target);
+return true;
+}
+if(ni>=0) await dropAt(target.treatments, ni);
+if(hi>=0) await dropAt(target.history, hi);
+await savePlantable(ed.sourceKind, target);
+return false;
 }
 function renderHistoryBedLookup(wrap){
 const term = historyBedTerm.trim();
@@ -9303,7 +9450,7 @@ const items = [...STATE.harvests, ...gatherRemovedHistory()]
 .sort((a,b)=> hDate(b).localeCompare(hDate(a)));
 if(items.length===0){ wrap.innerHTML = `<p class="empty-note">Nothing recorded for "${escapeHTML(term)}" yet.</p><button class="btn secondary" id="btnAddHistorical" style="width:100%; margin-top:10px;">+ Add something from before</button>`; wireAddHistoricalButton(term); return; }
 const harvestCount = items.filter(h=>!h.removed).length;
-const failedCount = items.filter(h=>h.removed).length;
+const failedCount = items.filter(h=>h.removed && !(h.approx||h.unplaced)).length;
 const dates = items.map(h=>h.harvestDate).sort();
 const spanLabel = dates.length>1 ? `${new Date(dates[0]+'T00:00:00').toLocaleDateString('en-GB',{month:'short',year:'2-digit'})} \u2013 ${new Date(dates[dates.length-1]+'T00:00:00').toLocaleDateString('en-GB',{month:'short',year:'2-digit'})}` : new Date(dates[0]+'T00:00:00').toLocaleDateString('en-GB',{month:'short',year:'numeric'});
 const summaryHTML = `<div class="summary-card">
@@ -9318,7 +9465,7 @@ const cardsHTML = items.map(h=>`
 <div class="crop-head"><span class="fam-dot" style="background:${h.cropId&&cropById(h.cropId)?cropColor(cropById(h.cropId)):colorForCropName(h.cropName||'?')};"></span>
 <strong style="flex:1;">${escapeHTML(h.cropName)}</strong>
 <span class="tiny-muted">${h.approx?'~':''}${dayLabel(h.harvestDate)}</span></div>
-<p class="muted" style="margin:4px 0 0;">${escapeHTML(h.locationLabel||'')} &middot; ${h.removed?`<span style="color:var(--brick); font-weight:700;">Removed</span>, not harvested${h.reason?' &middot; '+escapeHTML(h.reason):''}`:`${h.rating}/10${h.area?(' &middot; '+h.area+'m&sup2;'):''}`}</p>
+<p class="muted" style="margin:4px 0 0;">${escapeHTML(h.locationLabel||'')} &middot; ${h.removed?((h.approx||h.unplaced)?`Added from before${h.reason?' &middot; '+escapeHTML(h.reason):''}`:`<span style="color:var(--brick); font-weight:700;">Removed</span>, not harvested${h.reason?' &middot; '+escapeHTML(h.reason):''}`):`${h.rating}/10${h.area?(' &middot; '+h.area+'m&sup2;'):''}`}</p>
 </div>`).join('');
 wrap.innerHTML = summaryHTML + cardsHTML + `<button class="btn secondary" id="btnAddHistorical" style="width:100%; margin-top:10px;">+ Add something from before</button>`;
 wrap.querySelectorAll('[data-h]').forEach(el=>el.addEventListener('click', ()=> openHistoryDetail(el.dataset.h)));
@@ -9345,8 +9492,10 @@ ${h.notes?`<div class="planting-row"><span class="pname">Notes</span><span class
 ${h.weatherSummary?`<div class="planting-row"><span class="pname">Weather while growing</span><span class="pdate">avg ${h.weatherSummary.meanTempMax}&deg;/${h.weatherSummary.meanTempMin}&deg;, ${h.weatherSummary.totalRain}mm over ${h.weatherSummary.days} days</span></div>`:''}
 ${(h.treatments&&h.treatments.length)?`<div class="row-heading">Treatments used</div>${h.treatments.map((t,ti)=>`<div class="muted" style="font-size:15px;">${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}${isPartTreatment(t)?` (part of the bed)${(h.bedId && bedById(h.bedId))?` <button class="btn small secondary" data-histarea="${ti}" style="margin-left:6px;">Show where</button>`:''}`:''}</div>`).join('')}`:''}
 ${others.length?`<div class="row-heading">Other times growing ${escapeHTML(h.cropName)}</div>${others.slice(0,6).map(o=>`<div class="planting-row"><span class="pname">${dayLabel(o.harvestDate)}</span><span class="pdate">${o.rating}/10${o.weatherSummary?' &middot; avg '+o.weatherSummary.meanTempMax+'&deg;':''}</span></div>`).join('')}`:''}
+<button class="btn secondary" id="mEditHarvest" style="margin-top:14px;">Edit</button>
 <button class="btn danger" id="mDelHarvest" style="margin-top:24px;">Delete this record</button>
 `);
+document.getElementById('mEditHarvest').addEventListener('click', ()=> openEditHarvest(hid));
 modalContent.querySelectorAll('[data-histarea]').forEach(b=>b.addEventListener('click', ()=>{
 const bed = bedById(h.bedId); const t = h.treatments[parseInt(b.dataset.histarea)];
 if(bed && t) openTreatmentAreaView(bed, t, ()=>openHistoryDetail(hid));
@@ -9821,14 +9970,57 @@ const row = sortedProblemRows[parseInt(el.dataset.problemidx)];
 openProblemDetail(row.bedId, row.bedKind, row.issue, row.date);
 }));
 }
+// Editing a harvest record: the date, rating, amount and notes. Everything else on it (where,
+// planted, weather, treatments) is left as it was recorded.
+function openEditHarvest(hid){
+const h = STATE.harvests.find(x=>x.id===hid); if(!h) return;
+const unit = (h.amount && h.amount.weight && h.amount.weight.unit) || (STATE.settings.units==='imperial' ? 'lb' : 'kg');
+const items = (h.amount && h.amount.items!=null) ? h.amount.items : '';
+const weight = (h.amount && h.amount.weight) ? h.amount.weight.value : '';
+const ratingOpts = [...Array(11).keys()].map(r=>`<option value="${r}" ${h.rating===r?'selected':''}>${r}/10</option>`).join('');
+openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>Edit ${escapeHTML(h.cropName)}</h3>
+<div class="form-row"><div><label>Harvested</label><input type="date" id="ehDate" value="${escapeAttr(h.harvestDate||'')}"></div></div>
+<div class="form-row"><div><label>Rating</label><select id="ehRating">${(h.rating==null?'<option value="" selected>Not rated</option>':'')+ratingOpts}</select></div></div>
+<div class="form-row"><div><label>How many</label><input type="number" inputmode="decimal" onfocus="this.select()" id="ehItems" min="0" value="${escapeAttr(String(items))}"></div>
+<div><label>Weight (${unit})</label><input type="number" inputmode="decimal" onfocus="this.select()" id="ehWeight" min="0" step="any" value="${escapeAttr(String(weight))}"></div></div>
+<div class="form-row"><div><label>Notes (optional)</label><input type="text" id="ehNotes" value="${escapeAttr(h.notes||'')}"></div></div>
+<button class="btn big" id="ehSave">Save</button>`, true);
+document.getElementById('mBack').addEventListener('click', ()=>openHistoryDetail(hid));
+document.getElementById('ehSave').addEventListener('click', async ()=>{
+const d = document.getElementById('ehDate').value; if(d) h.harvestDate = d;
+const rv = document.getElementById('ehRating').value; if(rv!=='') h.rating = parseInt(rv,10);
+const iv = document.getElementById('ehItems').value.trim(), wv = document.getElementById('ehWeight').value.trim();
+const amountItems = iv!=='' ? parseFloat(iv) : undefined;
+const amountWeight = wv!=='' ? {value:parseFloat(wv), unit} : undefined;
+if(amountItems!=null || amountWeight) h.amount = {items:amountItems, weight:amountWeight}; else delete h.amount;
+const n = document.getElementById('ehNotes').value.trim(); if(n) h.notes = n; else delete h.notes;
+await put('harvests', h); await afterChange();
+toast('Saved');
+openHistoryDetail(hid);
+});
+}
 function openRemovedHistoryDetail(hid){
 const h = gatherRemovedHistory().find(x=>x.id===hid); if(!h) return;
+// Added with "Add something from before" (rough date) rather than a crop that was removed.
+const fromBefore = !!(h.approx || h.unplaced);
 openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${escapeHTML(h.cropName)}</h3>
-<div class="planting-row"><span class="pname">Removed</span><span class="pdate">${h.approx?'~':''}${dayLabel(h.harvestDate)}</span></div>
+${fromBefore?`<p class="tiny-muted" style="margin-top:-6px;">Added from before</p>`:''}
+<div class="planting-row"><span class="pname">${fromBefore?'Roughly when':'Removed'}</span><span class="pdate">${h.approx?'~':''}${dayLabel(h.harvestDate)}</span></div>
 <div class="planting-row"><span class="pname">Where</span><span class="pdate">${escapeHTML(h.locationLabel||'')}</span></div>
 ${h.family?`<div class="planting-row"><span class="pname">Family</span><span class="pdate">${escapeHTML(h.family)}</span></div>`:''}
-${h.reason?`<div class="planting-row"><span class="pname">Notes</span><span class="pdate">${escapeHTML(h.reason)}</span></div>`:'<p class="tiny-muted">No notes were added for this one.</p>'}
+${h.reason?`<div class="planting-row"><span class="pname">${fromBefore?'Problem':'Notes'}</span><span class="pdate">${escapeHTML(h.reason)}</span></div>`:'<p class="tiny-muted">No notes were added for this one.</p>'}
+${fromBefore?'<button class="btn secondary" id="mEditRemoved" style="margin-top:14px;">Edit</button>':''}
 <button class="btn danger" id="mDelRemoved" style="margin-top:24px;">Delete this record</button>`, true);
+const editBtn = document.getElementById('mEditRemoved');
+if(editBtn) editBtn.addEventListener('click', ()=>{
+const target = h.sourceKind==='unplaced' ? null : plantableById(h.sourceKind, h.sourceId);
+const when = roughlyWhenForDate(h.harvestDate);
+openAddHistoricalEntry(target, target ? h.sourceKind : null, h.cropName==='(unnamed)' ? '' : h.cropName, {
+problem: h.reason||'', when,
+editing: {sourceKind:h.sourceKind, sourceId:h.sourceId, entryId:h.entryId, unplacedId:h.unplacedId,
+oldDate:h.harvestDate, oldReason:h.reason||'', oldCropName:h.cropName, initialWhen:when, backId:hid}
+});
+});
 document.getElementById('mBack').addEventListener('click', ()=>{ closeModal(); renderHistory(); });
 document.getElementById('mDelRemoved').addEventListener('click', async ()=>{
 if(!(await confirmDialog(`Delete this ${escapeHTML(h.cropName)} record? This can't be undone.`, undefined, 'Delete', true))) return;
@@ -10382,6 +10574,8 @@ renderCropList();
 const SHARED_META_KEYS = [...SHARED_SINGLE_KEYS, ...SHARED_LIST_KEYS, 'tombstones', 'lastEditedBy', 'lastEditedAt', 'syncStamps'];
 let supa = null, syncChannel = null, pushTimer = null, applyingRemote = false, lastKnownRemoteUpdatedAt = null, renderPending = false;
 async function afterChange(){
+// A settings change still waiting to become its own undo step is part of this one instead.
+if(pendingMetaUndoTimer){ clearTimeout(pendingMetaUndoTimer); pendingMetaUndoTimer = null; }
 const isLocalEdit = !restoring && !applyingRemote;
 const before = lastSnapshot;
 if(isLocalEdit){
