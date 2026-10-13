@@ -373,6 +373,24 @@ html, body{background:#fff !important;}
 .bug-where-row{display:flex; align-items:flex-start; gap:12px; padding:10px 0; border-bottom:1px solid var(--line-soft); font-weight:400; cursor:pointer;}
 .bug-where-row input{width:22px; height:22px; margin-top:2px; flex-shrink:0;}
 .bug-tip.where{background:#F7E9E4; border-left-color:var(--brick); color:var(--brick);}
+/* bugid Stage 2: photos */
+.bug-cam{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; width:100%; min-height:120px; border-radius:var(--radius); border:1.5px solid var(--leaf); background:var(--leaf); color:#fff; font-family:inherit; font-size:19.5px; font-weight:700; cursor:pointer;}
+.bug-cam svg{width:30px; height:30px;}
+.bug-shots{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:4px;}
+.bug-shot{position:relative; width:76px; height:76px; flex-shrink:0;}
+.bug-shot img{width:76px; height:76px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); display:block;}
+.bug-shot button{position:absolute; top:-8px; right:-8px; width:28px; height:28px; border-radius:50%; border:1.5px solid var(--line); background:var(--card); color:var(--ink); font-size:14px; line-height:1; padding:0; cursor:pointer;}
+.bug-add{width:76px; height:76px; border-radius:var(--radius); border:1.5px dashed var(--leaf); background:transparent; color:var(--leaf); font-family:inherit; font-size:14px; font-weight:700; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; cursor:pointer; padding:0;}
+.bug-add svg{width:22px; height:22px;}
+.bug-saved{padding:14px; border-radius:var(--radius); font-size:18px; border:1.5px dashed var(--brick); background:#F7E9E4; margin-bottom:12px;}
+.bug-card{display:flex; gap:12px; align-items:center; padding:12px; border-radius:var(--radius); background:#F7E9E4; border:1.5px dashed var(--brick); margin-bottom:8px; cursor:pointer;}
+.bug-card img, .bug-card .bug-card-blank{width:56px; height:56px; object-fit:cover; border-radius:6px; border:1px solid var(--line); flex-shrink:0; display:block; background:var(--card);}
+.bug-card-text{display:flex; flex-direction:column; gap:2px; flex:1; min-width:0;}
+.bug-card-title{font-size:18px; font-weight:700; color:var(--soil); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.bug-card-sub{font-size:16px;}
+.bug-more{background:none; border:none; color:var(--soil); font-family:inherit; font-size:16px; font-weight:700; text-decoration:underline; padding:4px 0 12px; cursor:pointer;}
+.bug-check-pics{display:flex; flex-direction:column; gap:8px; margin:8px 0 12px;}
+.bug-check-pics img{width:100%; border-radius:var(--radius); border:1px solid var(--line); display:block;}
 </style>
 </head>
 <body>
@@ -404,11 +422,12 @@ html, body{background:#fff !important;}
 <!-- MAP (home) -->
 <div class="view active" id="view-map">
 <div id="placingBanner"></div>
-<div id="alertsBox"></div>
 <section class="panel">
 <div id="mapArea"></div>
 <div id="watchOutBar"></div>
 </section>
+<div id="alertsBox"></div>
+<div id="bugCardsBox"></div>
 <section class="panel">
 <h2>Coming up</h2>
 <ul class="tasklist" id="comingUpList"></ul>
@@ -809,7 +828,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.13.7';
+const APP_VERSION = '2026.10.14.3';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -968,7 +987,7 @@ function getMeta(key,fallback){ return new Promise((res)=>{ const r=txStore('met
 // settings (units, weather warning levels, ground colour, notifications...) is personal to each
 // device and never synced at all.
 const SHARED_SINGLE_KEYS = ['plotName','plotWidthM','plotDepthM','plotShape','postcode','lat','lon'];
-const SHARED_LIST_KEYS = ['customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory','costPeople','plotProblems','tipsGotIt'];
+const SHARED_LIST_KEYS = ['customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory','costPeople','plotProblems','tipsGotIt','bugidChecks'];
 function settingListItemKey(item){
 if(typeof item==='string') return 's:'+item.toLowerCase();
 if(item && typeof item==='object'){
@@ -2479,6 +2498,7 @@ STATE.settings.dismissedPairings = await getMeta('dismissedPairings', []);
 STATE.settings.unplacedHistory = await getMeta('unplacedHistory', []);
 STATE.settings.plotProblems = await getMeta('plotProblems', []);
 STATE.settings.tipsGotIt = await getMeta('tipsGotIt', []);
+STATE.settings.bugidChecks = await getMeta('bugidChecks', []);
 dismissedAlertKeys = new Set(pruneDismissedAlertKeys(await getMeta('dismissedAlertKeys', [])));
 STATE.settings.onboardingAcked = await getMeta('onboardingAcked', false);
 if(!STATE.settings.onboardingAcked && STATE.settings.plotShape){
@@ -6326,8 +6346,11 @@ if(singles.length) singlesHTML = `<div class="treat-inner treat-crop"><div class
 // ✓ counts only this level: on the bed's own box, part-bed entries don't tick "whole bed" buttons.
 const presentTypes = new Set(ownItems.map(t=>t.type));
 // On one crop's own screen (in a bed, container or tray), "What's this?" ends the row - styled
-// apart so it isn't taken for a one-tap log.
-const whatsThisBtn = (typeof filterMode==='string' && !isBedwide) ? `<button class="btn small bug-whats" data-whatsthis="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>What's this?</button>` : '';
+// apart so it isn't taken for a one-tap log. A bed's or container's own screen has one too, for
+// something that belongs to the bed rather than to one crop (a bug between two crops, say).
+const whatsThisAttr = (typeof filterMode==='string' && !isBedwide) ? 'data-whatsthis="1"'
+: (isBedwide && (storeKind==='beds' || storeKind==='features')) ? 'data-whatsthisbed="1"' : '';
+const whatsThisBtn = whatsThisAttr ? `<button class="btn small bug-whats" ${whatsThisAttr}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>What's this?</button>` : '';
 const typeButtons = TREATMENT_TYPES.map(t=>`<button class="btn small ${presentTypes.has(t)?'':'secondary'}" data-quicktreatment="${t}" title="${presentTypes.has(t)?'Already logged — tap to add another':'Tap to log this'}">${t}${presentTypes.has(t)?' ✓':''}</button>`).join('');
 return `<div class="treatments-box">
 <div class="row-heading" style="margin-top:0;">${boxHeading?escapeHTML(boxHeading):'Feed &amp; treatments'}</div>
@@ -7131,6 +7154,7 @@ const t = (obj.treatments||[]).find(x=>x.id===el.dataset.bugidlog); if(!t) retur
 openBugidSheet(t.bugid, {kind:storeKind, objId:obj.id, plantingId:t.plantingId, recId:t.id, onBack:onDone});
 }));
 root.querySelectorAll('[data-whatsthis]').forEach(el=>el.addEventListener('click', ()=>{ if(plantingId) openWhatsThisOnCrop(storeKind, obj.id, plantingId); }));
+root.querySelectorAll('[data-whatsthisbed]').forEach(el=>el.addEventListener('click', ()=> openWhatsThisInBed(storeKind, obj.id)));
 root.querySelectorAll('[data-viewtreatarea]').forEach(el=>el.addEventListener('click', ()=> openLiveTreatmentArea(obj, el.dataset.viewtreatarea, onDone, cropForSuggestions)));
 root.querySelectorAll('[data-quicktreatment]').forEach(el=>el.addEventListener('click', async ()=>{
 // Every type, Compost included, logs instantly on tap - consistent with quick, on-site data
@@ -11668,7 +11692,7 @@ function renderAll(){
 renderPending = false;
 refreshCropSuggestions();
 renderPlacingBanner();
-renderMap(); renderComingUp(); renderNotes(); renderCosts(); renderJobsView(); renderCropList(); renderWishlist(); renderSharePanel(); renderHistory(); renderStructureList(); renderPlanning();
+renderMap(); renderBugidCards(); renderComingUp(); renderNotes(); renderCosts(); renderJobsView(); renderCropList(); renderWishlist(); renderSharePanel(); renderHistory(); renderStructureList(); renderPlanning();
 plotNameEl.textContent = STATE.settings.plotName || 'My Plot';
 document.title = STATE.settings.plotName || 'My Plot';
 if(STATE.settings.postcode) document.getElementById('postcodeInput').value = STATE.settings.postcode;
@@ -11982,7 +12006,8 @@ function bugidSearch(query, cropRecord){
 const qw = bugidSplitWords(query).filter(w=>!BUGID_STOP_WORDS.has(w));
 const crops = [], groups = [];
 for(const w of qw){ const cs = bugidCropsInWord(w); if(cs.length) crops.push(...cs); else groups.push(bugidTermsFor(w)); }
-const fromCrop = cropRecord ? bugidCropInfo(cropRecord) : null;
+const focus = bugidFocus(cropRecord);
+const fromCrops = focus ? focus.crops.map(bugidCropInfo).filter(Boolean) : [];
 const out = [];
 for(const p of BUGID.problems){
 const nameWords = bugidSplitWords(p.name+' '+p.fullName+' '+(BUGID_ALIASES[p.id]||[]).join(' '));
@@ -11998,7 +12023,7 @@ const matched = anyHit + cropHit;
 if(!matched) continue;
 const best = (nm.m>wi.m || (nm.m===wi.m && nm.span<wi.span)) ? nm : wi;
 const close = best.m>=2 ? Math.max(0, 8-best.span) : 0;
-const forThisCrop = fromCrop && bugidCropsMatch(p.crops, fromCrop) ? 5 : 0;
+const forThisCrop = fromCrops.some(ci=>bugidCropsMatch(p.crops, ci)) ? 5 : 0;
 // Found by its own name: the opening line of the write-up says most.
 const ownName = bugidSplitWords(p.name+' '+p.fullName);
 const byName = groups.length && groups.every(terms=>ownName.some(w=>terms.includes(w)));
@@ -12009,6 +12034,13 @@ return out.sort((a,b)=>b.score-a.score);
 }
 /* ---- The list ---- */
 let bugidQuery = '';
+// What the list is about: one crop (from a crop's screen), or everything growing in a bed or
+// container ({crops, title}, from the bed's own screen). Either way its problems go first.
+function bugidFocus(x){
+if(!x) return null;
+if(Array.isArray(x.crops)) return x;
+return {crops:[x], title:`Goes for ${x.name}`};
+}
 function bugidThumbHTML(p){
 const key = p.pics[0];
 const src = key && bugidPics ? bugidPics[key] : null;
@@ -12024,9 +12056,10 @@ return found.length ? found.map(x=>bugidRowHTML(x.p, x.why)).join('') : `<p clas
 const used = new Set();
 const groups = [];
 const take = (title, list)=>{ const items = list.filter(p=>!used.has(p.id)); items.forEach(p=>used.add(p.id)); if(items.length) groups.push({title, items}); };
-if(cropRecord){
-const info = bugidCropInfo(cropRecord);
-take(`Goes for ${cropRecord.name}`, BUGID.problems.filter(p=>bugidCropsMatch(p.crops, info)));
+const focus = bugidFocus(cropRecord);
+if(focus && focus.crops.length){
+const infos = focus.crops.map(bugidCropInfo).filter(Boolean);
+take(focus.title, BUGID.problems.filter(p=>infos.some(ci=>bugidCropsMatch(p.crops, ci))));
 }
 const had = bugidHadIds();
 take('Had before', BUGID.problems.filter(p=>had.has(p.id)));
@@ -12035,11 +12068,18 @@ const goesForGrowing = p => growing.some(g=>bugidCropsMatch(p.crops, g));
 take('Common problems', [...BUGID.problems.filter(goesForGrowing), ...BUGID.problems.filter(p=>!goesForGrowing(p))]);
 return groups.map(g=>`<div class="row-heading">${escapeHTML(g.title)}</div>${g.items.map(p=>bugidRowHTML(p)).join('')}`).join('');
 }
-// Draws the search box and list into el; onPick(problemId) is called when one is tapped.
-function renderBugidList(el, cropRecord, onPick){
+// Draws the camera, the search box and the list into el; onPick(problemId) is called when one is
+// tapped. where: what the photos are of ({kind,objId,plantingId} for a crop, {bedKind,bedId} for a
+// bed or container, null from the Crops tab).
+function renderBugidList(el, cropRecord, onPick, where){
 const hadFocus = document.activeElement && document.activeElement.id==='bugSearch';
-el.innerHTML = `<input type="text" id="bugSearch" placeholder="Describe it, e.g. small white fly" autocomplete="off" value="${escapeAttr(bugidQuery)}">
+bugidDraftFor(where);
+el.innerHTML = `<div id="bugCamBox"></div>
+<label for="bugSearch" style="display:block; font-size:17px; font-weight:700; color:var(--soil); margin:2px 0 4px;">Describe it</label>
+<input type="text" id="bugSearch" placeholder="e.g. small white fly" autocomplete="off" value="${escapeAttr(bugidQuery)}">
+<div id="bugCheckBtnBox"></div>
 <div id="bugRows">${bugidListRowsHTML(cropRecord, bugidQuery)}</div>`;
+renderBugidCamera(el);
 const rowsEl = el.querySelector('#bugRows');
 const wireRows = ()=> rowsEl.querySelectorAll('[data-pickbug]').forEach(r=>r.addEventListener('click', ()=>onPick(r.dataset.pickbug)));
 wireRows();
@@ -12055,7 +12095,7 @@ rowsEl.innerHTML = bugidListRowsHTML(cropRecord, bugidQuery); wireRows();
 function renderWhatsThisSubList(){
 const el = document.getElementById('whatsThisSubList'); if(!el) return;
 // Opening one is just to look - nothing is logged until "Yes, it's this" is tapped on its sheet.
-renderBugidList(el, null, id=>{ if(BUGID_BY_ID[id]) openBugidSheet(id, {confirm:true}); });
+renderBugidList(el, null, id=>{ if(BUGID_BY_ID[id]) openBugidSheet(id, {confirm:true}); }, null);
 }
 // Route B: from a crop's own screen - "What's this on Kale?", logged against that crop.
 function openWhatsThisOnCrop(kind, objId, plantingId, keepQuery){
@@ -12064,13 +12104,178 @@ const pl = (obj.plantings||[]).find(x=>x.id===plantingId);
 const crop = pl ? cropById(pl.cropId) : null;
 const cropName = (crop && crop.name) || 'this crop';
 const back = ()=> kind==='trays' ? openTrayPlantingInfo(objId, plantingId) : openPlantingInfo(objId, plantingId, kind);
-if(!keepQuery) bugidQuery = '';
+if(!keepQuery){ bugidQuery = ''; bugidDraft = null; }
 openModal(`<button class="back-link" id="mBack">&larr; Back to ${escapeHTML(cropName)}</button>
 <h3>What's this on ${escapeHTML(cropName)}?</h3><div id="bugCropList"></div>`, true);
 document.getElementById('mBack').addEventListener('click', back);
 renderBugidList(document.getElementById('bugCropList'), crop, id=>{
 if(!BUGID_BY_ID[id]) return;
 openBugidSheet(id, {kind, objId, plantingId, confirm:true, onBack:()=>openWhatsThisOnCrop(kind, objId, plantingId, true)});
+}, {kind, objId, plantingId});
+}
+// Route C: from a bed's or container's own screen - something that belongs to the bed rather than
+// to one crop. Problems that go for anything in it come first; after "Yes, it's this" its crops
+// that the problem goes for start ticked.
+function bugidSpotsIn(kind, objId){
+return bugidGrowingSpots().filter(sp=>sp.mapId===objId || (sp.kind===kind && sp.objId===objId));
+}
+function bugidBedBack(kind, objId){ return kind==='features' ? openContainerDetail(objId) : openBedDetail(objId); }
+function openWhatsThisInBed(kind, objId, keepQuery){
+const obj = plantableById(kind, objId); if(!obj){ goHome(); return; }
+const name = bugidPlaceName(obj, kind);
+const crops = [];
+for(const sp of bugidSpotsIn(kind, objId)) if(!crops.some(c=>c.id===sp.crop.id)) crops.push(sp.crop);
+if(!keepQuery){ bugidQuery = ''; bugidDraft = null; }
+openModal(`<button class="back-link" id="mBack">&larr; Back to ${escapeHTML(name)}</button>
+<h3>What's this in ${escapeHTML(name)}?</h3><div id="bugCropList"></div>`, true);
+document.getElementById('mBack').addEventListener('click', ()=>bugidBedBack(kind, objId));
+renderBugidList(document.getElementById('bugCropList'), crops.length ? {crops, title:`Goes for what's in ${name}`} : null, id=>{
+if(!BUGID_BY_ID[id]) return;
+openBugidSheet(id, {bedKind:kind, bedId:objId, confirm:true, onBack:()=>openWhatsThisInBed(kind, objId, true)});
+}, {bedKind:kind, bedId:objId});
+}
+/* ---- Stage 2: photos ---- */
+// Photos are taken in the app (never saved to the Camera Roll) and shrunk before keeping. "Check
+// it" saves a check: the full photos stay on this device only (in the bugid store), while a small
+// thumbnail of each, the words and where it was goes into the synced list bugidChecks, so it shows
+// as a waiting card on the front page. Answering them is Stage 3; until then they wait.
+const BUGID_MAX_SHOTS = 4;
+let bugidDraft = null;   // {key, where, shots:[{full, thumb}], saved:'offline'|'online'|null}
+let bugidCardsAll = false;
+function bugidWhereKey(where){
+if(!where) return 'plot';
+if(where.bedId) return `bed|${where.bedKind}|${where.bedId}`;
+return `crop|${where.kind}|${where.objId}|${where.plantingId}`;
+}
+function bugidDraftFor(where){
+const key = bugidWhereKey(where);
+if(!bugidDraft || bugidDraft.key!==key) bugidDraft = {key, where:where||null, shots:[], saved:null};
+return bugidDraft;
+}
+// Shrinks a photo to at most `max` px on its longest side, as a JPEG data URL.
+function bugidShrinkImage(img, max, quality){
+const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+const scale = Math.min(1, max/Math.max(w, h));
+const c = document.createElement('canvas');
+c.width = Math.max(1, Math.round(w*scale)); c.height = Math.max(1, Math.round(h*scale));
+c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+return c.toDataURL('image/jpeg', quality);
+}
+function bugidSquareThumb(img, size){
+const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+const side = Math.min(w, h);
+const c = document.createElement('canvas'); c.width = size; c.height = size;
+c.getContext('2d').drawImage(img, (w-side)/2, (h-side)/2, side, side, 0, 0, size, size);
+return c.toDataURL('image/jpeg', 0.7);
+}
+function bugidReadPhoto(file){
+return new Promise((res)=>{
+const url = URL.createObjectURL(file);
+const img = new Image();
+img.onload = ()=>{
+try{ res({full:bugidShrinkImage(img, 1600, 0.82), thumb:bugidSquareThumb(img, 120)}); }
+catch(e){ res(null); }
+URL.revokeObjectURL(url);
+};
+img.onerror = ()=>{ URL.revokeObjectURL(url); res(null); };
+img.src = url;
+});
+}
+const BUGID_CAM_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>`;
+// The top of the "What's this?" page: Take a photo, or the photos so far with Add another; and
+// Check it under the box once there's a photo.
+function renderBugidCamera(root){
+const box = root.querySelector('#bugCamBox'), btnBox = root.querySelector('#bugCheckBtnBox');
+if(!box || !bugidDraft) return;
+const d = bugidDraft;
+const input = `<input type="file" id="bugCamInput" accept="image/*" capture="environment" style="display:none;">`;
+const saved = d.saved ? `<div class="bug-saved">${d.saved==='offline' ? "No signal. Saved, and it will be checked when you're back online." : "Saved on the front page. Checking photos isn't switched on yet, so it will wait there."}</div>` : '';
+if(!d.shots.length){
+box.innerHTML = `${saved}<button class="bug-cam" id="bugCamTake">${BUGID_CAM_SVG}Take a photo</button>
+<p class="tiny-muted" style="margin:6px 0 12px;">A coin or fingertip in shot shows the size.</p>${input}`;
+} else {
+box.innerHTML = `<div class="bug-shots">${d.shots.map((sh,i)=>`<div class="bug-shot"><img src="${sh.thumb}" alt="Photo ${i+1}"><button data-dropshot="${i}" aria-label="Remove photo ${i+1}">✕</button></div>`).join('')}
+${d.shots.length<BUGID_MAX_SHOTS?`<button class="bug-add" id="bugCamTake">${BUGID_CAM_SVG}Add another</button>`:''}</div>
+<div style="height:8px;"></div>${input}`;
+}
+btnBox.innerHTML = d.shots.length ? `<button class="btn big" id="bugCheckIt" style="width:100%; margin:10px 0 6px;">Check it</button>` : '';
+const fileEl = box.querySelector('#bugCamInput');
+const take = box.querySelector('#bugCamTake');
+if(take) take.addEventListener('click', ()=>{ fileEl.value = ''; fileEl.click(); });
+fileEl.addEventListener('change', async ()=>{
+const files = [...(fileEl.files||[])].slice(0, BUGID_MAX_SHOTS - d.shots.length);
+for(const f of files){ const sh = await bugidReadPhoto(f); if(sh) d.shots.push(sh); }
+if(!files.length) return;
+d.saved = null;
+if(box.isConnected) renderBugidCamera(root);
+});
+box.querySelectorAll('[data-dropshot]').forEach(b=>b.addEventListener('click', ()=>{ d.shots.splice(parseInt(b.dataset.dropshot), 1); renderBugidCamera(root); }));
+const checkBtn = btnBox.querySelector('#bugCheckIt');
+if(checkBtn) checkBtn.addEventListener('click', async ()=>{
+checkBtn.disabled = true;
+await bugidSaveCheck(d, (root.querySelector('#bugSearch')||{}).value || '');
+d.shots = []; d.saved = navigator.onLine ? 'online' : 'offline';
+if(root.isConnected) renderBugidCamera(root);
+});
+}
+async function bugidSaveCheck(d, words){
+const id = uid();
+await bugidStore('readwrite', st=>st.put(d.shots.map(sh=>sh.full), 'check:'+id));
+const rec = {id, date:todayISO(), at:Date.now(), by:who(), words:String(words||'').trim(), thumbs:d.shots.map(sh=>sh.thumb), where:d.where||null, status:'waiting'};
+await setMeta('bugidChecks', [...(STATE.settings.bugidChecks||[]), rec]);
+await afterChange();
+return rec;
+}
+// A card's title: the crop and where it is, the bed, the start of what was written, or "Around the plot".
+function bugidCheckTitle(c){
+const w = c.where;
+if(w && w.bedId){
+const obj = plantableById(w.bedKind, w.bedId);
+if(obj) return bugidPlaceName(obj, w.bedKind);
+} else if(w && w.objId){
+const obj = plantableById(w.kind, w.objId);
+const pl = obj ? (obj.plantings||[]).find(x=>x.id===w.plantingId) : null;
+const crop = pl ? cropById(pl.cropId) : null;
+if(obj) return [crop && crop.name, bugidPlaceName(obj, w.kind)].filter(Boolean).join(' · ');
+}
+const words = String(c.words||'').trim();
+if(words) return words.length>28 ? words.slice(0,26).trim()+'…' : words;
+return 'Around the plot';
+}
+function bugidWaitingText(){ return navigator.onLine ? 'Waiting to be checked' : 'Will check when back online'; }
+// Front page, between the weather alerts and Coming up: newest first, three, then "and N more".
+function renderBugidCards(){
+const el = document.getElementById('bugCardsBox'); if(!el) return;
+const list = (STATE.settings.bugidChecks||[]).filter(c=>c && c.status==='waiting').sort((a,b)=>(b.at||0)-(a.at||0));
+if(!list.length){ el.innerHTML = ''; return; }
+const shown = bugidCardsAll ? list : list.slice(0, 3);
+el.innerHTML = shown.map(c=>`<div class="bug-card" data-bugcheck="${escapeAttr(c.id)}">${c.thumbs && c.thumbs[0] ? `<img src="${c.thumbs[0]}" alt="">` : `<span class="bug-card-blank"></span>`}
+<span class="bug-card-text"><span class="bug-card-title">${escapeHTML(bugidCheckTitle(c))}</span><span class="bug-card-sub">${bugidWaitingText()}</span></span></div>`).join('')
++ (list.length>3 && !bugidCardsAll ? `<button class="bug-more" id="bugCardsMore">and ${list.length-3} more</button>` : '');
+el.querySelectorAll('[data-bugcheck]').forEach(d=>d.addEventListener('click', ()=>openBugidCheck(d.dataset.bugcheck)));
+const more = document.getElementById('bugCardsMore');
+if(more) more.addEventListener('click', ()=>{ bugidCardsAll = true; renderBugidCards(); });
+}
+// A check's own screen: the photos (full size on the device that took them), the words, and Delete.
+async function openBugidCheck(id){
+const c = (STATE.settings.bugidChecks||[]).find(x=>x.id===id); if(!c){ closeModal(); return; }
+const full = await bugidStore('readonly', st=>st.get('check:'+id));
+const pics = (Array.isArray(full) && full.length) ? full : (c.thumbs||[]);
+openModal(`<button class="back-link" id="mBack">&larr; Back</button>
+<h3>${escapeHTML(bugidCheckTitle(c))}</h3>
+<div class="bug-check-pics">${pics.map((src,i)=>`<img src="${src}" alt="Photo ${i+1}">`).join('')}</div>
+${c.words?`<p>${escapeHTML(c.words)}</p>`:''}
+<p class="muted">${bugidWaitingText()}</p>
+<p class="tiny-muted">Taken ${dayLabel(c.date)}${c.by?' by '+escapeHTML(c.by):''}</p>
+<button class="btn small danger" id="bugCheckDel">Delete</button>`, true);
+document.getElementById('mBack').addEventListener('click', ()=>{ closeModal(); goHome(); });
+document.getElementById('bugCheckDel').addEventListener('click', async ()=>{
+if(!(await confirmDialog('Delete these photos?', ()=>openBugidCheck(id), 'Delete', true))) return;
+await setMeta('bugidChecks', (STATE.settings.bugidChecks||[]).filter(x=>x.id!==id));
+await bugidStore('readwrite', st=>st.delete('check:'+id));
+await afterChange();
+toast('Deleted');
+goHome();
 });
 }
 /* ---- The short sheet ---- */
@@ -12096,7 +12301,18 @@ const types = [...new Set(sprays.map(t=>t.type.toLowerCase()))].join(' and ');
 sprayNote = `<p class="bug-spray">You've logged ${types} on this crop: wait out the harvest interval on its label before picking.</p>`;
 }
 }
-const watch = bugidWatchOut(p, crop ? bugidCropInfo(crop) : null);
+// From a bed: Watch out narrows to one crop group (downy mildew and the rest) only when the bed's
+// crops it goes for all sit in the same group.
+let affected = crop ? bugidCropInfo(crop) : null;
+if(!affected && ctx.bedId){
+const hit = bugidSpotsIn(ctx.bedKind, ctx.bedId).map(sp=>bugidCropInfo(sp.crop)).filter(ci=>bugidCropsMatch(p.crops, ci));
+const groups = BUGID_SAME_GROUPS[p.id];
+if(hit.length && groups){
+const gs = new Set(hit.map(ci=>groups.findIndex(g=>bugidCropsMatch(g, ci))));
+if(gs.size===1 && !gs.has(-1)) affected = hit[0];
+}
+}
+const watch = bugidWatchOut(p, affected);
 let logLine = '';
 if(ctx.recId && obj){
 const t = (obj.treatments||[]).find(x=>x.id===ctx.recId);
@@ -12132,6 +12348,25 @@ const confirmBtn = document.getElementById('bugConfirm');
 if(confirmBtn) confirmBtn.addEventListener('click', ()=>{
 const ticked = new Set();
 if(pl) ticked.add(`${ctx.kind}|${ctx.objId}|${ctx.plantingId}`);
+if(ctx.bedId){
+// Its crops this goes for start ticked (or all of them if none is one it goes for, as when
+// picking a bed on the map). Every crop in it is listed first, so the ticks can be changed.
+const here = bugidSpotsIn(ctx.bedKind, ctx.bedId);
+const matching = here.filter(sp=>bugidCropsMatch(p.crops, bugidCropInfo(sp.crop)));
+(matching.length ? matching : here).forEach(sp=>ticked.add(bugidSpotKey(sp)));
+// Nothing growing there (wireworm found while digging, say): it's logged on the bed itself,
+// which also sets off that bed's soil warnings.
+let placeRow = null;
+if(!here.length){
+const bedObj = plantableById(ctx.bedKind, ctx.bedId);
+if(bedObj){
+placeRow = {key:`place|${ctx.bedKind}|${ctx.bedId}`, label:bugidPlaceName(bedObj, ctx.bedKind), sub:`The ${treatmentNoun(bedObj, ctx.bedKind)} itself`};
+ticked.add(placeRow.key);
+}
+}
+openBugidWhere(id, {ticked, extra:here.map(bugidSpotKey), first:here.map(bugidSpotKey), placeRow, from:{bedKind:ctx.bedKind, bedId:ctx.bedId}, sheetCtx:ctx});
+return;
+}
 openBugidWhere(id, {ticked, extra:[], from: pl ? {kind:ctx.kind, objId:ctx.objId, plantingId:ctx.plantingId} : null, sheetCtx:ctx});
 });
 const watchBtn = document.getElementById('bugWatch');
@@ -12166,7 +12401,9 @@ const all = bugidGrowingSpots();
 const keep = new Set([...(state.extra||[]), ...[...state.ticked].filter(k=>k!=='plot')]);
 const list = all.filter(sp=>keep.has(bugidSpotKey(sp)) || bugidCropsMatch(p.crops, bugidCropInfo(sp.crop)));
 const placeOf = sp => sp.trayPlace || sp.place;
-return list.sort((a,b)=>placeOf(a).localeCompare(placeOf(b), undefined, {numeric:true}) || a.crop.name.localeCompare(b.crop.name));
+const first = new Set(state.first||[]);
+const isFirst = sp => first.has(bugidSpotKey(sp)) ? 0 : 1;
+return list.sort((a,b)=>isFirst(a)-isFirst(b) || placeOf(a).localeCompare(placeOf(b), undefined, {numeric:true}) || a.crop.name.localeCompare(b.crop.name));
 }
 function openBugidWhere(id, state){
 const p = BUGID_BY_ID[id]; if(!p){ closeModal(); return; }
@@ -12175,7 +12412,8 @@ const row = (key, label, sub)=>`<label class="bug-where-row"><input type="checkb
 openModal(`<button class="back-link" id="mBack">&larr; Back</button>
 <h3>Where's the ${escapeHTML(p.name.toLowerCase().startsWith('the ')?p.name.slice(4):p.name)}?</h3>
 <p class="tiny-muted" style="margin-top:0;">Tick everything it's on.</p>
-${cands.length ? cands.map(sp=>row(bugidSpotKey(sp), sp.crop.name, sp.trayPlace||sp.place)).join('') : `<p class="muted">Nothing growing now that it usually goes for.</p>`}
+${state.placeRow ? row(state.placeRow.key, state.placeRow.label, state.placeRow.sub) : ''}
+${cands.length ? cands.map(sp=>row(bugidSpotKey(sp), sp.crop.name, sp.trayPlace||sp.place)).join('') : (state.placeRow ? '' : `<p class="muted">Nothing growing now that it usually goes for.</p>`)}
 ${row('plot', 'Not on a crop', 'Somewhere else on the plot')}
 <button class="btn secondary" id="bugWhereMap" style="width:100%; margin-top:12px;">📍 Pick on the map</button>
 <button class="btn big" id="bugWhereLog" style="width:100%; margin-top:10px;">Log it</button>`, true);
@@ -12202,7 +12440,8 @@ if(!state.ticked.size){ toast('Tick where it is first'); return; }
 const n = await bugidLogMany(p, [...state.ticked]);
 toast(n===1 ? 'Logged in History' : `Logged in ${n} places`);
 const from = state.from;
-if(from) (from.kind==='trays' ? openTrayPlantingInfo(from.objId, from.plantingId) : openPlantingInfo(from.objId, from.plantingId, from.kind));
+if(from && from.bedId) bugidBedBack(from.bedKind, from.bedId);
+else if(from) (from.kind==='trays' ? openTrayPlantingInfo(from.objId, from.plantingId) : openPlantingInfo(from.objId, from.plantingId, from.kind));
 else { closeModal(); goToTab('crops'); }   // back where it started, even if the map was used to pick
 });
 }
@@ -12211,6 +12450,15 @@ let n = 0;
 const byObj = new Map();
 for(const k of keys){
 if(k==='plot') continue;
+if(k.startsWith('place|')){
+// The whole bed or container, with no crop: a whole-bed entry like any other treatment.
+const [, kind, objId] = k.split('|');
+const obj = plantableById(kind, objId); if(!obj) continue;
+obj.treatments = obj.treatments||[];
+obj.treatments.push({id:uid(), type:'Problem', date:todayISO(), notes:'', reason:p.name, bugid:p.id, by:who()});
+byObj.set(kind+'|'+objId, {kind, obj});
+n++; continue;
+}
 const [kind, objId, plantingId] = k.split('|');
 const obj = plantableById(kind, objId); if(!obj) continue;
 const pl = (obj.plantings||[]).find(x=>x.id===plantingId);
@@ -12477,7 +12725,9 @@ connectSync(STATE.settings.syncUrl, STATE.settings.syncKey, STATE.settings.syncC
 }
 checkAutoBackup();
 bugidRefreshPics(false);
+renderBugidCards();
 });
+window.addEventListener('offline', ()=> renderBugidCards());
 window.addEventListener('resize', ()=>{ if(document.getElementById('view-map').classList.contains('active')) renderMap(); });
 })();
 </script>
