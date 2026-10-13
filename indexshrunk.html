@@ -345,6 +345,31 @@ body > *:not(#printView){display:none !important;}
 #printView .pp-notes-h{font-family:Karla, sans-serif; font-size:11px; font-weight:700; padding:1mm 2mm; color:#000;}
 html, body{background:#fff !important;}
 }
+/* bugid: "What's this?" */
+.bug-whats{background:#F7E9E4 !important; color:var(--brick) !important; border:1.5px dashed var(--brick) !important;}
+.bug-whats svg{width:18px; height:18px; flex-shrink:0;}
+.bug-row{display:flex; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid var(--line-soft); cursor:pointer;}
+.bug-row:active{opacity:0.7;}
+.bug-thumb{width:56px; height:42px; border-radius:6px; background:var(--paper-dark); border:1px solid var(--line-soft); overflow:hidden; flex-shrink:0;}
+.bug-thumb img{width:100%; height:100%; object-fit:cover; display:block;}
+.bug-name{font-size:18px; font-weight:600;}
+.bug-pics{display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 12px;}
+.bug-pic{flex:1 1 0; min-width:0; margin:0; cursor:pointer;}
+.bug-pic.big{flex-basis:100%;}
+.bug-pic img{width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); display:block;}
+.bug-pic figcaption{font-size:15px; opacity:0.85; margin-top:3px;}
+.bug-label{font-size:15px; text-transform:uppercase; font-weight:700; color:var(--soil);}
+.bug-edible{border:1.5px solid var(--leaf); background:#EDF2E6; border-radius:var(--radius); padding:12px 14px; margin-bottom:12px;}
+.bug-edible .bug-label{color:var(--leaf);}
+.bug-verdict{font-size:20px; font-weight:700; color:var(--leaf);}
+.bug-edible p{margin:4px 0 0;}
+.bug-spray{font-weight:700; color:var(--brick);}
+.bug-sec{margin-bottom:12px;} .bug-sec p{margin:4px 0 0;}
+.btn.bug-watch{background:#F7E9E4; color:var(--brick); border:1.5px solid var(--brick); width:100%; margin-top:4px;}
+.mapObj.watch-out{outline:3px solid var(--brick); outline-offset:0; z-index:4;}
+.bug-tip{display:flex; align-items:center; gap:10px; font-size:16.5px; background:#EDF2E6; border-left:4px solid var(--leaf); padding:8px 10px; border-radius:var(--radius); margin-bottom:8px;}
+.bug-tip span{flex:1;}
+.bug-tip.where{background:#F7E9E4; border-left-color:var(--brick); color:var(--brick);}
 </style>
 </head>
 <body>
@@ -379,6 +404,7 @@ html, body{background:#fff !important;}
 <div id="alertsBox"></div>
 <section class="panel">
 <div id="mapArea"></div>
+<div id="watchOutBar"></div>
 </section>
 <section class="panel">
 <h2>Coming up</h2>
@@ -437,7 +463,9 @@ html, body{background:#fff !important;}
 <button class="tier-pill active" data-cropsview="crops" id="cropsTabHeading">Crops now growing</button>
 <button class="tier-pill" data-cropsview="compost">Compost</button>
 <button class="tier-pill" data-cropsview="fallow">Fallow</button>
+<button class="tier-pill" data-cropsview="whatsthis">What's this?</button>
 </div>
+<div id="whatsThisSubList" style="display:none;"></div>
 <div id="fallowSubList" style="display:none;"></div>
 <button class="btn secondary" id="btnNewCrop" style="margin-bottom:12px;">+ Add one by hand</button>
 <div id="cropList"></div>
@@ -646,7 +674,7 @@ html, body{background:#fff !important;}
 <div class="swatch-row" id="groundSwatchRow"></div>
 </section>
 <section class="panel">
-<h2>Bad weather alerts</h2>
+<h2>Alerts and tips</h2>
 <div class="toggle-row"><span>Warn me about frost, storms and heavy rain</span>
 <label class="switch"><input type="checkbox" id="notifToggle"><span class="slider"></span></label>
 </div>
@@ -658,7 +686,7 @@ html, body{background:#fff !important;}
 </label>
 <label style="display:flex; align-items:flex-start; gap:10px; font-weight:400;">
 <input type="radio" name="notifLevel" value="advice" style="width:20px; height:20px; margin-top:2px; flex-shrink:0;">
-<span><strong>Facts plus a few tips</strong><br><span class="muted">Also says which crops to cover, and nudges about watering in dry spells.</span></span>
+<span><strong>Facts plus a few tips</strong><br><span class="muted">Also says which crops to cover, nudges about watering in dry spells, and gives a pest tip when you sow something that needs one.</span></span>
 </label>
 <label style="display:flex; align-items:flex-start; gap:10px; font-weight:400;">
 <input type="radio" name="notifLevel" value="chatty" style="width:20px; height:20px; margin-top:2px; flex-shrink:0;">
@@ -756,6 +784,12 @@ html, body{background:#fff !important;}
 <p class="muted">Tapping a shared link always opens a plain browser tab, never an app already sitting on someone's Home Screen — that's an iPhone/Android limitation, not something this app can work around. So if they've already added My Plot to their Home Screen, sending them a link means sharing only gets set up in that one-off browser tab, not in the actual app they'll use day to day — it can look like it worked, then seem to need doing all over again. Pasting the code directly into their installed app avoids that entirely.</p>
 </section>
 <section class="panel">
+<h2>What's this? (pests and diseases)</h2>
+<p class="muted">Crops → What's this? lists common allotment pests and diseases, with pictures. Pick one to see whether the crop is still edible and what to do about it, and it goes into History → Problems. From a crop's own screen, What's this? notes it against that crop. Watch out shows which beds grow something it goes for.</p>
+<p class="muted">When you sow or plant something that needs a pest tip, it shows on that screen, unless Setup → Alerts and tips is set to Just the facts. Tap Got it twice, on different days, and that tip stops for you. Tips about something already in that bed's soil always show.</p>
+<details class="timings"><summary>Picture credits</summary><div id="bugidCredits" style="margin-top:8px;"></div></details>
+</section>
+<section class="panel">
 <h2>The numbers shown while you drag something</h2>
 <p class="muted">Moving or resizing a bed on the plot, or a crop within a bed, shows a small readout with two numbers — how far it is from the left edge, and how far up from the bottom edge. This is true whether you're moving a whole bed around the plot or just a crop's box within one. It only really matters if a position ever looks odd after resizing something — the distance from the left and from the bottom stays fixed, so widening or heightening a bed or the plot itself can shift where things end up relative to the edges you're looking at.</p>
 </section>
@@ -772,7 +806,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.13.4';
+const APP_VERSION = '2026.10.13.5';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -931,7 +965,7 @@ function getMeta(key,fallback){ return new Promise((res)=>{ const r=txStore('met
 // settings (units, weather warning levels, ground colour, notifications...) is personal to each
 // device and never synced at all.
 const SHARED_SINGLE_KEYS = ['plotName','plotWidthM','plotDepthM','plotShape','postcode','lat','lon'];
-const SHARED_LIST_KEYS = ['customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory','costPeople'];
+const SHARED_LIST_KEYS = ['customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory','costPeople','plotProblems','tipsGotIt'];
 function settingListItemKey(item){
 if(typeof item==='string') return 's:'+item.toLowerCase();
 if(item && typeof item==='object'){
@@ -2440,6 +2474,9 @@ STATE.settings.units = await getMeta('units', 'metric');
 STATE.settings.excludedCrops = await getMeta('excludedCrops', []);
 STATE.settings.dismissedPairings = await getMeta('dismissedPairings', []);
 STATE.settings.unplacedHistory = await getMeta('unplacedHistory', []);
+STATE.settings.plotProblems = await getMeta('plotProblems', []);
+STATE.settings.tipsGotIt = await getMeta('tipsGotIt', []);
+dismissedAlertKeys = new Set(pruneDismissedAlertKeys(await getMeta('dismissedAlertKeys', [])));
 STATE.settings.onboardingAcked = await getMeta('onboardingAcked', false);
 if(!STATE.settings.onboardingAcked && STATE.settings.plotShape){
 STATE.settings.onboardingAcked = true;
@@ -3263,6 +3300,7 @@ if(!placingMode){
 document.getElementById('alertsBox').innerHTML = visibleAlerts.map(a=>`<div class="alert ${a.type==='frost'?'frost':(a.type==='wind'?'wind':'')}"><span>${a.msg}</span><button class="alert-dismiss" data-dismiss="${a.key}">✕</button></div>`).join('');
 document.querySelectorAll('[data-dismiss]').forEach(b=>b.addEventListener('click', ()=>{
 dismissedAlertKeys.add(b.dataset.dismiss);
+saveDismissedAlertKeys();
 b.closest('.alert').remove();
 }));
 }
@@ -3333,6 +3371,7 @@ if(!placingMode){
 document.getElementById('alertsBox').innerHTML = visibleAlerts.map(a=>`<div class="alert ${a.type==='frost'?'frost':(a.type==='wind'||a.type==='dry'?'wind':'')}"><span>${a.msg}</span><button class="alert-dismiss" data-dismiss="${a.key}">✕</button></div>`).join('');
 document.querySelectorAll('[data-dismiss]').forEach(b=>b.addEventListener('click', ()=>{
 dismissedAlertKeys.add(b.dataset.dismiss);
+saveDismissedAlertKeys();
 b.closest('.alert').remove();
 }));
 }
@@ -4687,6 +4726,7 @@ document.getElementById('btnDoneReshape').addEventListener('click', ()=>{ outlin
 } else {
 document.getElementById('outlineToolbar').style.display='none';
 canvas.querySelectorAll('.mapObj').forEach(el=>wireMapObj(el,bounds));
+applyWatchOutToMap();
 canvas.addEventListener('click', onCanvasBackgroundClick, {once:false});
 }
 }
@@ -4754,6 +4794,7 @@ const portion = placingMode.portion || {};
 const what = (portion.partial && portion.count) ? `${portion.count} of the ${cropName}` : cropName;
 openModal(`<h3>Plant it here?</h3>
 <p>Plant ${escapeHTML(what)} out in <strong>${escapeHTML(targetName)}</strong>?</p>
+<div id="bugidTipsBox"></div>
 <div class="btn-row"><button class="btn big" id="mPlantHereYes">Yes, plant it here</button>
 <button class="btn big secondary" id="mPlantHereNo">No, back to the map</button></div>`);
 document.getElementById('mPlantHereYes').addEventListener('click', ()=>{
@@ -4761,6 +4802,8 @@ closeModal();
 if(placingMode) confirmPlacement(targetId, kind);
 });
 document.getElementById('mPlantHereNo').addEventListener('click', closeModal);
+const plantOutCrop = placingMode.crop;
+wireBugidTips(document.getElementById('bugidTipsBox'), ()=>bugidCropInfo(plantOutCrop), {place: target});
 }
 function wireMapObj(el, bounds){
 const panOnly = el.dataset.locked==='1' || mapIsPicking();
@@ -6234,8 +6277,9 @@ const filtered = filterMode===undefined ? all
 : all.filter(t=>!t.plantingId || t.plantingId===filterMode);
 const cutoff = addDays(todayISO(), -365);
 const sourceText = t => t.sourceKind==='bought' ? ' (bought in)' : t.sourceLabel ? ` (from ${escapeHTML(t.sourceLabel)})` : '';
-const whatText = t => `${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}${sourceText(t)}${t.reason?' — '+escapeHTML(t.reason):''}`;
-const rowHTML = t => `<div class="planting-row" style="cursor:pointer;" data-edittreatment="${t.id}"><span class="pname">${whatText(t)}</span><span class="pdate">${dayLabel(t.date)}</span></div>`;
+// A problem picked from "What's this?" reads as just that, and opens its short sheet.
+const whatText = t => t.bugid ? `Problem: ${escapeHTML(t.reason||'')}` : `${escapeHTML(t.type)}${t.notes?': '+escapeHTML(t.notes):''}${sourceText(t)}${t.reason?' — '+escapeHTML(t.reason):''}`;
+const rowHTML = t => `<div class="planting-row" style="cursor:pointer;" ${t.bugid?`data-bugidlog="${t.id}"`:`data-edittreatment="${t.id}"`}><span class="pname">${whatText(t)}</span><span class="pdate">${dayLabel(t.date)}</span></div>`;
 // Newest first, the last year showing and anything older one tap away.
 const listHTML = (items, row, emptyText)=>{
 const sorted = items.slice().reverse();
@@ -6278,6 +6322,9 @@ if(singles.length) singlesHTML = `<div class="treat-inner treat-crop"><div class
 }
 // ✓ counts only this level: on the bed's own box, part-bed entries don't tick "whole bed" buttons.
 const presentTypes = new Set(ownItems.map(t=>t.type));
+// On one crop's own screen (in a bed, container or tray), "What's this?" ends the row - styled
+// apart so it isn't taken for a one-tap log.
+const whatsThisBtn = (typeof filterMode==='string' && !isBedwide) ? `<button class="btn small bug-whats" data-whatsthis="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>What's this?</button>` : '';
 const typeButtons = TREATMENT_TYPES.map(t=>`<button class="btn small ${presentTypes.has(t)?'':'secondary'}" data-quicktreatment="${t}" title="${presentTypes.has(t)?'Already logged — tap to add another':'Tap to log this'}">${t}${presentTypes.has(t)?' ✓':''}</button>`).join('');
 return `<div class="treatments-box">
 <div class="row-heading" style="margin-top:0;">${boxHeading?escapeHTML(boxHeading):'Feed &amp; treatments'}</div>
@@ -6287,7 +6334,7 @@ ${bedBoxHTML}
 ${partBoxHTML}
 ${singlesHTML}
 <div class="tiny-muted" style="margin-top:10px;">${escapeHTML(buttonLabel)}</div>
-<div class="swatch-row" style="flex-wrap:wrap; margin-top:4px;">${typeButtons}</div></div>`;
+<div class="swatch-row" style="flex-wrap:wrap; margin-top:4px;">${typeButtons}${whatsThisBtn}</div></div>`;
 }
 function openContainerDetail(featId, highlightId){
 const feat = featureById(featId);
@@ -7076,6 +7123,11 @@ function wireTreatmentRows(obj, storeKind, onDone, cropForSuggestions, plantingI
 root = root || modalContent;
 root.querySelectorAll('[data-opentreatplanting]').forEach(el=>el.addEventListener('click', ()=> openPlantingInfo(obj.id, el.dataset.opentreatplanting, storeKind==='features' ? 'features' : 'beds')));
 root.querySelectorAll('[data-edittreatment]').forEach(el=>el.addEventListener('click', ()=> openAddTreatment(obj, storeKind, onDone, el.dataset.edittreatment, cropForSuggestions, plantingId)));
+root.querySelectorAll('[data-bugidlog]').forEach(el=>el.addEventListener('click', ()=>{
+const t = (obj.treatments||[]).find(x=>x.id===el.dataset.bugidlog); if(!t) return;
+openBugidSheet(t.bugid, {kind:storeKind, objId:obj.id, plantingId:t.plantingId, recId:t.id, onBack:onDone});
+}));
+root.querySelectorAll('[data-whatsthis]').forEach(el=>el.addEventListener('click', ()=>{ if(plantingId) openWhatsThisOnCrop(storeKind, obj.id, plantingId); }));
 root.querySelectorAll('[data-viewtreatarea]').forEach(el=>el.addEventListener('click', ()=> openLiveTreatmentArea(obj, el.dataset.viewtreatarea, onDone, cropForSuggestions)));
 root.querySelectorAll('[data-quicktreatment]').forEach(el=>el.addEventListener('click', async ()=>{
 // Every type, Compost included, logs instantly on tap - consistent with quick, on-site data
@@ -7103,7 +7155,8 @@ openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${title}
 ${isNonGrowing ? `<input type="hidden" id="mCropName" value="${escapeAttr(presetName)}">` : `<div class="form-row"><div><label>What are you planting</label><input type="text" id="mCropName" list="cropSuggestions" placeholder="e.g. Carrot" autocomplete="off" value="${escapeAttr(presetName||'')}"></div></div>
 <div id="cropSuggestBox" style="margin:-6px 0 12px;"></div>
 <div id="inlineRotationCheck" style="margin-bottom:10px;"></div>
-<div id="inlineCommonIssues" style="margin-bottom:10px;"></div>`}
+<div id="inlineCommonIssues" style="margin-bottom:10px;"></div>
+<div id="bugidTipsBox"></div>`}
 <div class="form-row"><div>${isNonGrowing?'':'<label>Quantity</label><input type="number" onfocus="this.select()" id="mQty" value="1" min="1">'}</div><div><label style="visibility:hidden;">Sow</label><button type="button" class="btn" id="mSave" style="width:100%; height:46px;">${saveLabel}</button></div></div>
 ${isNonGrowing ? '' : repeatHarvestFieldHTML()}
 ${isNonGrowing ? '' : treatmentChipsHTML()}
@@ -7142,6 +7195,7 @@ box.innerHTML = issues.length ? `<p class="tiny-muted">Commonly affected by: ${i
 }
 if(!isNonGrowing){ document.getElementById('mCropName').addEventListener('input', renderCommonIssues); renderCommonIssues(); }
 if(!isNonGrowing){ document.getElementById('mCropName').addEventListener('input', renderInlineCheck); renderInlineCheck(); }
+if(!isNonGrowing) wireBugidTipsToInput('bugidTipsBox', {place: bed});
 document.getElementById('mSave').addEventListener('click', async ()=>{
 const name = document.getElementById('mCropName').value.trim(); if(!name) return;
 const crop = await findOrCreateCrop(name);
@@ -7982,6 +8036,7 @@ const numberField = adding ? '' : `<div><label>Tray number (optional)</label><in
 openModal(`<button class="back-link" id="mBack">&larr; Back</button><h3>${adding?'Sow another crop into':'Sow into'} this tray${tray.number!=null?(' #'+tray.number):''}</h3>
 <div class="form-row"><div><label>What are you sowing</label><input type="text" id="mCropName" list="cropSuggestions" placeholder="e.g. Lettuce" autocomplete="off"></div></div>
 <div id="cropSuggestBox" style="margin:-6px 0 12px;"></div>
+<div id="bugidTipsBox"></div>
 <div class="form-row"><div><label>Quantity</label><input type="number" onfocus="this.select()" id="mQty" value="1" min="1"></div>${numberField}</div>
 <div class="btn-row" style="align-items:center; margin-top:8px;">
 <button type="button" class="btn small" id="mSave">Sow It</button>
@@ -7993,6 +8048,7 @@ ${treatmentChipsHTML()}
 <div class="form-row" style="margin-top:14px;"><div><label>Sow date</label><input type="date" id="mDate" value="${todayISO()}"></div></div>
 ${adding?'':'<button type="button" class="btn danger" id="mDelTray" style="margin-top:24px;">Delete this tray</button>'}`, true);
 if(!adding) document.getElementById('mDelTray').addEventListener('click', ()=> deleteTray(trayId, feat ? ()=>openStructureDetail(feat) : goHome));
+wireBugidTipsToInput('bugidTipsBox', {tray:true});
 document.getElementById('mBack').addEventListener('click', ()=> adding ? openTrayInfo(trayId) : (feat ? openStructureDetail(feat) : goHome()));
 wireCropAutocomplete(document.getElementById('mCropName'), document.getElementById('cropSuggestBox'));
 const getTags = wireTreatmentChips(modalContent);
@@ -8030,6 +8086,7 @@ openModal(`${feat?'<button class="back-link" id="mBack">&larr; Back</button>':''
 <h3>Sow something${presetLocation?(' in the '+presetLocation.toLowerCase()):''}</h3>
 <div class="form-row"><div><label>What are you sowing</label><input type="text" id="mCropName" list="cropSuggestions" placeholder="e.g. Potato Maris Piper" autocomplete="off"></div></div>
 <div id="cropSuggestBox" style="margin:-6px 0 12px;"></div>
+<div id="bugidTipsBox"></div>
 ${presetLocation ? '' : `<div class="form-row"><div><label>Where</label><select id="mLoc"><option>Greenhouse</option><option>Polytunnel</option><option>Windowsill</option></select></div></div>`}
 <div class="form-row"><div><label>Quantity</label><input type="number" onfocus="this.select()" id="mQty" value="1" min="1"></div><div><label>Tray number (optional)</label><input type="number" onfocus="this.select()" id="mTrayNum" placeholder="e.g. 7"></div></div>
 <div class="btn-row" style="align-items:center; margin-top:8px;">
@@ -8041,6 +8098,7 @@ ${treatmentChipsHTML()}
 <button type="button" class="btn small secondary" id="mLookup" style="margin-top:14px;">🔎 Look it up online</button><div id="lookupBox"></div>
 <div class="form-row" style="margin-top:14px;"><div><label>Sow date</label><input type="date" id="mDate" value="${todayISO()}"></div></div>`, true);
 if(feat) document.getElementById('mBack').addEventListener('click', ()=>openStructureDetail(feat));
+wireBugidTipsToInput('bugidTipsBox', {tray:true});
 wireCropAutocomplete(document.getElementById('mCropName'), document.getElementById('cropSuggestBox'));
 const getTags = wireTreatmentChips(modalContent);
 document.getElementById('mLookup').addEventListener('click', ()=> lookupCropOnline(document.getElementById('mCropName').value.trim(), 'lookupBox'));
@@ -8594,6 +8652,10 @@ const heading = document.getElementById('cropsTabHeading');
 const compostTabBtn = document.querySelector('#cropsSubTabs [data-cropsview="compost"]');
 const fallowTabBtn = document.querySelector('#cropsSubTabs [data-cropsview="fallow"]');
 const newCropBtn = document.getElementById('btnNewCrop');
+const whatsWrap = document.getElementById('whatsThisSubList');
+const whatsTabBtn = document.querySelector('#cropsSubTabs [data-cropsview="whatsthis"]');
+if(whatsTabBtn) whatsTabBtn.classList.toggle('active', cropsSubTab==='whatsthis');
+if(whatsWrap) whatsWrap.style.display = cropsSubTab==='whatsthis' ? '' : 'none';
 if(heading) heading.textContent = STATE.settings.syncCode ? "Crops we're now growing" : "Crops now growing";
 if(heading) heading.classList.toggle('active', cropsSubTab==='crops');
 if(compostTabBtn) compostTabBtn.classList.toggle('active', cropsSubTab==='compost');
@@ -8604,6 +8666,7 @@ if(compostWrap) compostWrap.style.display = cropsSubTab==='compost' ? '' : 'none
 if(fallowWrap) fallowWrap.style.display = cropsSubTab==='fallow' ? '' : 'none';
 if(cropsSubTab==='compost'){ renderCompostSubList(); return; }
 if(cropsSubTab==='fallow'){ renderFallowSubList(); return; }
+if(cropsSubTab==='whatsthis'){ renderWhatsThisSubList(); return; }
 const current = STATE.crops.filter(c=>c.name!=='Path' && cropHasCurrentInstance(c.id))
 .sort((a,b)=> cropTypeKey(a).localeCompare(cropTypeKey(b)) || a.name.localeCompare(b.name));
 if(current.length===0){ wrap.innerHTML='<p class="empty-note">Nothing currently growing — sow or plant something and it will show up here.</p>'; return; }
@@ -8920,13 +8983,14 @@ buckets.history.push({title:h.cropName, subtitle:`${h.locationLabel||''}${h.reas
 function scanTreatments(list, navigate){
 for(const tr of (list||[])){
 if(searchTextMatch(tr.type,t) || searchTextMatch(tr.notes,t) || searchTextMatch(tr.reason,t)){
-buckets.problems.push({title:tr.type||'Treatment', subtitle:`${tr.notes||tr.reason||''}${tr.date?' \u00B7 '+dayLabel(tr.date):''}`, onClick:navigate});
+buckets.problems.push({title:tr.bugid ? (tr.reason||'Problem') : (tr.type||'Treatment'), subtitle:`${tr.notes||tr.reason||''}${tr.date?' \u00B7 '+dayLabel(tr.date):''}`, onClick:navigate});
 }
 }
 }
 for(const bed of STATE.beds) scanTreatments(bed.treatments, ()=>openBedDetail(bed.id));
 for(const feat of STATE.features) scanTreatments(feat.treatments, ()=>openContainerDetail(feat.id));
 for(const tray of STATE.trays) scanTreatments(tray.treatments, ()=>openTrayInfo(tray.id));
+for(const r of (STATE.settings.plotProblems||[])) if(searchTextMatch(r.name,t)) buckets.problems.push({title:r.name, subtitle:`Around the plot \u00B7 ${dayLabel(r.date)}`, onClick:()=>openBugidSheet(r.bugid, {plotRecId:r.id})});
 // Location — bed/container names themselves.
 for(const bed of STATE.beds) if(searchTextMatch(bed.name,t)) buckets.location.push({title:bed.name, subtitle:'Bed', onClick:()=>openBedDetail(bed.id)});
 for(const feat of STATE.features) if(searchTextMatch(feat.label,t)) buckets.location.push({title:feat.label, subtitle:(FEATURE_TYPES[feat.type]&&FEATURE_TYPES[feat.type].label)||'Container', onClick:()=>openContainerDetail(feat.id)});
@@ -9008,7 +9072,13 @@ const homeBtn = document.getElementById('btnAddHistoricalHome');
 if(homeBtn) homeBtn.style.display = (isCropMode||isBedLookupMode||isProblemsMode) ? 'none' : '';
 if(isCropMode){ renderHistoryCropLookup(wrap); return; }
 if(isBedLookupMode){ renderHistoryBedLookup(wrap); return; }
-if(isProblemsMode){ wrap.innerHTML=''; renderSoilProblemsInto('historyProblemsWrap', null); return; }
+if(isProblemsMode){
+wrap.innerHTML='';
+problemsBox.innerHTML = '<div id="historyBugidLogs"></div><div id="historySoilProblems"></div>';
+renderBugidLogsInto(document.getElementById('historyBugidLogs'));
+renderSoilProblemsInto('historySoilProblems', null);
+return;
+}
 let items = isFailedMode ? gatherRemovedHistory() : allItems.slice();
 const yearFilter = yearSelect ? yearSelect.value : '';
 if(yearFilter) items = items.filter(h=>h.harvestDate && h.harvestDate.slice(0,4)===yearFilter);
@@ -11633,6 +11703,468 @@ document.getElementById('reasonSuggestions').innerHTML = (STATE.settings.treatme
 document.getElementById('btnUndo').disabled = undoStack.length===0;
 document.getElementById('btnRedo').disabled = redoStack.length===0;
 }
+/* ======================= BUGID: "WHAT'S THIS?" (Stage 1, the list) ======================= */
+// The checked write-ups from bugid-list.json are built in here (BUGID below), so they're always
+// there offline. Their pictures are in bugid-pics.json, a separate file next to this one, which is
+// copied into a small store of its own on the device (see bugidRefreshPics) - kept apart from the
+// garden data so it never goes into a backup or gets sent to other gardeners.
+// Wrong information is the worst kind: everything shown here comes from those researched entries,
+// never made up on the fly. To change a write-up, change bugid-list.json and rebuild this block.
+const BUGID = {"version":"2026.10.13.2","picsVersion":"2026.10.13.6","problems":[{"id":"aphids","n":1,"name":"Aphids","fullName":"Aphids (greenfly and blackfly)","kind":"pest","whatItIs":"Small soft sap-sucking bugs, 1–7 mm, in clusters on shoot tips, under young leaves and on flower stems. Green, black, pink, yellow or mottled. Leaves curl or grow distorted, honeydew makes them sticky, black sooty mould can follow, and white cast skins collect on leaves. Ants often tend them. Blackfly on broad beans pack the tips densely from late spring.","goesForText":"Almost any crop. Blackfly: broad, French and runner beans. Some aphids spread viruses to tomatoes, the marrow family, strawberries and raspberries.","crops":{"families":[],"names":[],"any":true},"edible":{"verdict":"Yes, after washing","detail":"Beans inside affected pods are undamaged.","category":"Yes, after washing or trimming"},"whatToDo":"Tolerate where you can: ladybirds, hoverflies, lacewings, parasitic wasps and earwigs catch up after a few weeks in spring. Squash colonies by hand. Pinch out badly affected shoot tips (on broad beans, the tips covered in blackfly). Spray as a last resort only; the RHS advises against it.","season":"April–August (blackfly); other species spring to autumn.","pics":["aphids-1"],"sources":"RHS, Aphids, and RHS, Blackfly (beans are undamaged and edible inside). NC State Extension, How to Control Aphids in Vegetable Crops (safe to eat; wash off)."},{"id":"mealy-cabbage-aphid","n":2,"name":"Mealy cabbage aphid","fullName":"Mealy cabbage aphid","kind":"pest","whatItIs":"A greyish-white, waxy-looking greenfly up to 2.5 mm long, living in dense clusters under leaves and on growing tips. Unlike whitefly, it doesn't fly up when disturbed. Leaves go pale yellowish where they feed, and young plants grow twisted and can lose their growing tip.","goesForText":"Brassicas only (cabbage, cauliflower, sprouts, kale, swede and the rest).","crops":{"families":["Brassicas"],"names":[]},"edible":{"verdict":"Yes, after washing, on established plants","detail":"Badly infested kale: Partly, discard the worst leaves.","category":"Yes, after washing or trimming"},"whatToDo":"Leave colonies on older plants for ladybirds, hoverflies and other predators. Check young plants and kale from spring. Squash clusters by hand. Pull up old brassicas once finished, so the eggs don't overwinter into next year's crop.","season":"April–October.","pics":["mealy-cabbage-aphid-1"],"sources":"RHS, Mealy cabbage aphid (can make kale unpalatable). NC State Extension, How to Control Aphids in Vegetable Crops (vegetables aphids have fed on are safe to eat; wash them off under running water or in soapy water then rinse). Old Farmer's Almanac garden planner (remove and destroy leaves holding clusters)."},{"id":"cabbage-caterpillars","n":3,"name":"Cabbage caterpillars","fullName":"Cabbage white caterpillars","kind":"pest","whatItIs":"Caterpillars of the large white butterfly (yellow and black, hairy, mostly on outer leaves), small white (pale green, velvety) and cabbage moth (green or brown, smooth). The small white and cabbage moth tunnel into cabbage hearts. Look for holes, caterpillars and their droppings. A small green caterpillar that leaves \"windows\" in leaves and drops when touched is the diamond-back moth.","goesForText":"All brassicas, plus nasturtiums.","crops":{"families":["Brassicas"],"names":[]},"edible":{"verdict":"Yes, after trimming","detail":"Cut away holed leaves, rinse off droppings, and check cut hearts for caterpillars. Throw away leaves that are rotting.","category":"Yes, after washing or trimming"},"whatToDo":"Cover with fine mesh or fleece, kept off the leaves so eggs can't be laid through it. Pick off eggs (yellow clusters or singles; white round ones for the moth) and caterpillars. Yellow fluffy cocoons beside a dead caterpillar are a parasitic wasp, so leave them. Nematode biocontrol works best in cool, damp weather.","season":"May–October; butterflies mainly June–July and August–September.","pics":["cabbage-caterpillars-1","cabbage-caterpillars-2"],"sources":"RHS, Cabbage caterpillars. Eat or Toss, caterpillar droppings on kale, quoting University of Kentucky extension entomologist Ric Bessin (rinse well, trim nibbled areas, the clean intact part is fine; discard if badly holed and rotting).","sowingTip":{"text":"Cover brassicas with fine mesh from planting.","crops":{"families":["Brassicas"],"names":[]}}},{"id":"cabbage-root-fly","n":4,"name":"Cabbage root fly","fullName":"Cabbage root fly","kind":"pest","whatItIs":"White, legless maggots up to 9 mm long eating the roots. Plants grow slowly, wilt even when watered, and young transplants die. In swede, turnip and radish they tunnel into the part you eat. The adult fly looks like a small house fly. Symptoms look like clubroot, so dig a plant up: maggots and tunnels mean root fly; swollen knobbly roots mean clubroot.","goesForText":"Brassicas, oriental greens, swede, turnip, radish.","crops":{"families":["Brassicas"],"names":[]},"edible":{"verdict":"Partly","detail":"Leafy brassicas that survive: yes. Swede, turnip, radish: Partly, cut out the tunnels and browned flesh; badly tunnelled roots are ruined.","category":"Partly"},"whatToDo":"Collars 8–15 cm across round new transplants. Fine mesh or fleece over the crop all season. Rotate, or flies hatch under the cover from last year's pupae. Encourage ground beetles. Nematode biocontrol is available. The first generation, late spring to early summer, does most damage to leafy brassicas; roots are damaged by every generation.","season":"April–September.","pics":["cabbage-root-fly-1","cabbage-root-fly-2"],"sources":"RHS, Cabbage root fly. Eat or Toss, root maggot in a turnip, quoting a Rutgers microbiologist and a University of Minnesota extension entomologist (cut around the maggot and its trails; the rest is fine).","sowingTip":{"text":"Fit collars at planting, and cover with fine mesh from sowing.","crops":{"families":["Brassicas"],"names":[]}}},{"id":"flea-beetle","n":5,"name":"Flea beetle","fullName":"Flea beetle","kind":"pest","whatItIs":"Tiny beetles, 2–3 mm, black or shiny blue-green, some with a yellow stripe, that jump when disturbed. They chew small round pits and holes in leaves that dry pale brown. Seedlings suffer most.","goesForText":"Brassicas, rocket, radish, turnip, swede, plus nasturtiums.","crops":{"families":["Brassicas"],"names":[]},"edible":{"verdict":"Yes","detail":"Holed leaves look worse than they are.","category":"Yes"},"whatToDo":"Usually tolerate on bigger plants. Protect seedlings with fine mesh. Encourage birds, frogs and ground beetles. Late-summer influxes can come from nearby oilseed rape.","season":"Spring and summer.","pics":["flea-beetle-1"],"sources":"RHS, Flea beetles on brassicas (states the eaten parts are little affected, so no second source was needed).","sowingTip":{"text":"Cover rocket and radish with fine mesh from sowing.","crops":{"families":[],"names":["Rocket","Radish","Winter Radish"]}}},{"id":"cabbage-whitefly","n":6,"name":"Cabbage whitefly","fullName":"Cabbage whitefly","kind":"pest","whatItIs":"Small white flying insects, 1.5 mm, that rise in a cloud from under brassica leaves. Flat, pale scale-like young stick to the leaf undersides. Sticky honeydew can grow black sooty mould on upper leaves. Different from greenhouse whitefly, which doesn't live on brassicas outdoors.","goesForText":"Leafy brassicas only (kale, cabbage, broccoli, sprouts).","crops":{"families":[],"names":["Kale","Cabbage","Spring Cabbage","Winter Cabbage","Broccoli / Calabrese","Purple Sprouting Broccoli","Brussels Sprout"]},"edible":{"verdict":"Yes, after washing, if lightly affected","detail":"Heavily coated kale and sprouts are safe but unappetising, so most people discard them.","category":"Yes, after washing or trimming"},"whatToDo":"Usually tolerate, as it mostly stays on outer leaves. Encourage ladybirds and wasps. Wild parasitic wasps keep it down. The greenhouse biocontrol (Encarsia formosa) doesn't work on this species. Hard to get rid of on allotments because neighbouring plots reinfest.","season":"All year.","pics":["cabbage-whitefly-1"],"sources":"RHS, Cabbage whitefly (doesn't normally affect the eaten parts except kale; sooty mould on kale and sprouts). UC Marin Master Gardeners (UC ANR), Sooty mold (produce covered in sooty mould is still edible; wash it off with mild soapy warm water)."},{"id":"glasshouse-whitefly","n":7,"name":"Glasshouse whitefly","fullName":"Glasshouse whitefly","kind":"pest","whatItIs":"Tiny white winged insects that fly up when plants are disturbed. Flat, pale oval young sit under the leaves. Honeydew makes leaves sticky and grows black sooty mould on leaves and fruit. Black young are dead, killed by the Encarsia wasp. It thrives in warmth, so it's a greenhouse and polytunnel pest, and doesn't usually survive winter outdoors.","goesForText":"Greenhouse crops: tomatoes, cucumbers, peppers, aubergines, melons, plus many ornamentals. Not brassicas outdoors (that's cabbage whitefly).","crops":{"families":[],"names":["Tomato","Cucumber","Sweet Pepper","Chilli","Aubergine","Melon"]},"edible":{"verdict":"Yes, after washing, if lightly affected","detail":"Heavily coated fruit is safe but unappetising, so most people discard it.","category":"Yes, after washing or trimming"},"whatToDo":"Check new plants before they go in the greenhouse. Clear out weeds and unwanted plants. Release the parasitic wasp Encarsia formosa once the greenhouse is warm; don't spray if using it. Yellow sticky traps show whether whitefly is about but won't control it.","season":"Spring to autumn under cover, worst in summer.","pics":["glasshouse-whitefly-1"],"sources":"RHS, Glasshouse whitefly. UC Marin Master Gardeners (UC ANR), Sooty mold (produce still edible once washed). UC IPM Pest Notes on sooty mould, as reported by Sacramento Digs Gardening (washes off fruit with a little soap and water; vegetables can be washed and eaten). University of Hawaiʻi CTAHR, Sooty mold (pictured on tomato; washes off with dilute soapy water)."},{"id":"carrot-fly","n":8,"name":"Carrot fly","fullName":"Carrot fly","kind":"pest","whatItIs":"Slender creamy-yellow maggots, up to 9 mm, tunnelling in the roots. Look for rusty brown tunnels and scars; the scars are tunnels near the surface that have collapsed. Seedlings can be killed, and tunnelled roots often rot. The adult is a small dark fly that stays low.","goesForText":"Carrot, parsnip, parsley, celery, celeriac.","crops":{"families":[],"names":["Carrot","Early Carrot","Maincrop Carrot","Parsnip","Celery","Celeriac","Parsley"]},"edible":{"verdict":"Partly","detail":"Cut away the tunnels; the rest of the root is fine. Throw away roots that have gone soft or rotten, and don't store tunnelled roots.","category":"Partly"},"whatToDo":"Cover the whole crop with fine insect mesh from sowing until harvest. Sow thinly to avoid thinning, as the smell of bruised leaves draws the flies. Sowing after mid-May misses the first generation; lifting before late August misses the second. Less susceptible varieties include 'Flyaway', 'Maestro', 'Resistafly' and 'Sytan'. Nematode biocontrol is available.","season":"May–October (two or three generations).","pics":["carrot-fly-1","carrot-fly-2"],"sources":"RHS, Carrot fly. RHS Science, carrot fly barrier trial. Maine Organic Farmers and Gardeners (MOFGA), Carrot rust fly (the untunnelled part is fine to eat; soft rot can set in).","sowingTip":{"text":"Sow thinly and cover with fine mesh from sowing.","crops":{"families":[],"names":["Carrot","Early Carrot","Maincrop Carrot","Parsnip"]}}},{"id":"onion-fly","n":9,"name":"Onion fly","fullName":"Onion fly","kind":"pest","whatItIs":"White maggots, up to 8 mm, feeding on roots and tunnelling into the bulb, often several to a plant. Seedlings die; on older plants the outer leaves yellow, wilt and pull away easily, and bulbs can be destroyed. The adult looks like a small grey house fly. It's commonest in central and eastern England. Onion white rot looks similar above ground, but white rot starts at the base of the bulb with fluffy white mould and no maggots.","goesForText":"Onions, shallots, leeks (also garlic and chives).","crops":{"families":["Alliums"],"names":[]},"edible":{"verdict":"Partly, if caught early","detail":"cut out the tunnelled parts and use the bulb soon, as damaged bulbs don't store. Once bulbs go soft or rotten, throw them away.","category":"Partly"},"whatToDo":"Grow onions and shallots from sets rather than seed, as they survive the first generation better. Lift affected plants promptly, as the maggots move on to neighbouring plants. No pesticides are available to home gardeners. Nematode biocontrol can be used.","season":"June–July mainly; adults from May.","pics":["onion-fly-1"],"sources":"RHS, Onion fly. Bayer Crop Science UK, Onion fly. University of Wisconsin Extension, To eat or not to eat? (A4044), which lists onions under produce with maggot damage that can be trimmed. Eat or Toss, quoting a University of Minnesota extension entomologist (cut around maggot trails). WSU Extension HortSense and University of Maine Extension (damaged bulbs rot in storage).","sowingTip":{"text":"Grow onions and shallots from sets rather than seed.","crops":{"families":[],"names":["Onion","Autumn Onion","Shallot","Autumn Shallot"]}}},{"id":"allium-leaf-miner","n":10,"name":"Allium leaf miner","fullName":"Allium leaf miner","kind":"pest","whatItIs":"Small white headless, legless maggots mining down the leaves into stems and bulbs, followed by brown barrel-shaped pupae about 3 mm long embedded between the layers. The first sign is lines of tiny white dots towards the leaf tips, where the female fly has fed. Leaves twist and stems go soft and rot. Arrived in Britain in 2002; now widespread in England and parts of Wales.","goesForText":"Leeks (worst), onions, garlic, shallots, spring onions, chives.","crops":{"families":["Alliums"],"names":[]},"edible":{"verdict":"Partly","detail":"Peel off the mined layers and any pupae, use the clean inner part. Throw away plants that have rotted.","category":"Partly"},"whatToDo":"Cover with insect-proof mesh while the flies are laying: March–April and September–November. Rotate, as pupae in the soil can hatch under the mesh. Cover leek seedlings in their trays too. Don't compost infested plants; the pupae can still hatch.","season":"March–June and September–November.","pics":["allium-leaf-miner-1","allium-leaf-miner-2"],"sources":"RHS, Allium leaf miner. Garden Organic, allium leaf miner survey (stems collapse and rot; even mild attacks make parts of the crop inedible). Which? Gardening, growing leeks (cover with mesh at planting).","sowingTip":{"text":"Cover leeks, onions and garlic with fine mesh March–April and September–November.","crops":{"families":[],"names":["Leek","Onion","Autumn Onion","Garlic","Spring Garlic","Elephant Garlic"]}}},{"id":"leek-moth","n":11,"name":"Leek moth","fullName":"Leek moth","kind":"pest","whatItIs":"Creamy-white caterpillars with brown heads and small legs (unlike allium leaf miner's headless, legless maggots) They mine inside the leaves, leaving white or brownish see-through patches, then move down towards the stem. Plants often get secondary rots, and young leeks can die. The adult is a small brown moth, 5–6 mm. Mainly southern England, spreading north.","goesForText":"Leeks (worst), onions, shallots, garlic, chives.","crops":{"families":["Alliums"],"names":[]},"edible":{"verdict":"Partly, if caught early","detail":"strip the damaged outer leaves. Once rot sets in, throw them away.","category":"Partly"},"whatToDo":"Cover with insect-proof mesh for the whole season. Rotate, so moths don't hatch under the mesh. Pick off caterpillars and pupae where seen. Clear old leeks and debris over winter to break the cycle.","season":"April–October; caterpillars May–June and August–October.","pics":["leek-moth-1","leek-moth-2"],"sources":"RHS, Leek moth (secondary rots). University of Vermont Extension leek moth fact sheet, 2022 (damage doesn't usually kill plants; leaves take the brunt). Cornell Cooperative Extension leek moth fact sheet (damage descriptions).","sowingTip":{"text":"Cover leeks with fine mesh from planting, all season.","crops":{"families":[],"names":["Leek"]}}},{"id":"pea-moth","n":12,"name":"Pea moth","fullName":"Pea moth","kind":"pest","whatItIs":"Small creamy-white caterpillars, up to 14 mm, with dark dots, found eating the peas when you shell the pods. Usually only spotted at harvest. Pods rarely hold more than two caterpillars, and affected pods may yellow and ripen early. The adult is a small grey-brown moth.","goesForText":"Garden peas.","crops":{"families":[],"names":["Pea","Autumn Pea","Maincrop Pea"]},"edible":{"verdict":"Partly","detail":"Shell carefully, throw away eaten peas and the caterpillars; the rest of the pod is fine.","category":"Partly"},"whatToDo":"Time sowings so flowering misses the moth's egg-laying in June and July: quick-maturing peas sown early or late usually escape. Mangetout and sugar snaps, picked before the peas form, are not affected. No pesticides are recommended.","season":"Late June–August.","pics":["pea-moth-1"],"sources":"RHS, Pea moth. AHDB, Biology and management of the pea moth (rarely more than two caterpillars per pod; early or late peas can miss the moth).","sowingTip":{"text":"Sow quick-maturing peas early or late so they don't flower in June–July.","crops":{"families":[],"names":["Pea","Autumn Pea","Maincrop Pea"]}}},{"id":"pea-and-bean-weevil","n":13,"name":"Pea and bean weevil","fullName":"Pea and bean weevil","kind":"pest","whatItIs":"Greyish-brown beetles, 4–5 mm, that chew neat U-shaped notches round the leaf edges of peas and broad beans in spring. The leaf area lost is usually small even when it looks badly nibbled.","goesForText":"Broad beans and peas.","crops":{"families":[],"names":["Broad Bean","Autumn Broad Bean","Pea","Autumn Pea","Maincrop Pea"]},"edible":{"verdict":"Yes","detail":"Only the leaves are nibbled.","category":"Yes"},"whatToDo":"Usually nothing: established plants cope. Keep seedlings watered so they grow quickly past the vulnerable stage. Fleece over young seedlings protects them in a bad year.","season":"Spring.","pics":["pea-and-bean-weevil-1","pea-and-bean-weevil-2"],"sources":"RHS, Pea and bean weevils. UC IPM, Pea leaf weevil (protect seedlings with cloth covers; plants grow away from damage). Bayer Crop Science UK (crops usually compensate)."},{"id":"thrips","n":14,"name":"Thrips","fullName":"Thrips (thunderflies)","kind":"pest","whatItIs":"Tiny narrow insects, about 2 mm, brownish-black adults and paler young. Leaves go dull, then silvery-white, often flecked with tiny black dots of droppings. On peas, pods can turn silvery-brown and stay flat with only a few peas at the stalk end. On onions and leeks, the leaves get a whitish mottling.","goesForText":"Peas, onions, leeks, plus many greenhouse plants.","crops":{"families":[],"names":["Pea","Autumn Pea","Maincrop Pea","Onion","Autumn Onion","Leek"]},"edible":{"verdict":"Yes","detail":"Damage is mostly cosmetic, though pods may hold fewer peas.","category":"Yes"},"whatToDo":"Tolerate where possible. Worst in hot, dry weather. Under glass, predatory mite biocontrols are available.","season":"June–August outdoors; all year in heated greenhouses.","pics":["thrips-1"],"sources":"RHS, Thrips. Bayer Crop Science UK, Pea thrips (pod damage rarely matters except cosmetically; peaks in hot, dry conditions)."},{"id":"red-spider-mite","n":15,"name":"Red spider mite","fullName":"Red spider mite (two-spotted spider mite)","kind":"pest","whatItIs":"Tiny mites, about 0.5 mm, yellowish-green with two dark spots for most of the year, turning orange-red in autumn and winter. Leaves get a fine pale mottling, then dry and die; heavy infestations cover plants in fine webbing. Mostly a greenhouse pest, but also outdoors in hot summers.","goesForText":"Greenhouse crops such as cucumbers and aubergines, many plants outdoors in hot summers, and houseplants.","crops":{"families":[],"names":["Cucumber","Aubergine"]},"edible":{"verdict":"Yes","detail":"The mites feed on leaves; rinse off any webbing.","category":"Yes"},"whatToDo":"Mist plants and damp down the greenhouse floor in hot weather, as mites hate humidity. Release the predatory mite Phytoseiulus persimilis once mites are seen and the greenhouse is above about 15°C. Clean the greenhouse thoroughly in winter, as mites overwinter in cracks.","season":"Spring to autumn, worst in hot, dry summers.","pics":["red-spider-mite-1","red-spider-mite-2"],"sources":"RHS, Glasshouse red spider mite. Garden Organic, How to tackle red spider mites organically (humidity, Phytoseiulus above 15°C, winter clean)."},{"id":"celery-leaf-miner","n":16,"name":"Celery leaf miner","fullName":"Celery leaf miner","kind":"pest","whatItIs":"White legless maggots feeding in groups inside the leaves, making large pale green blotches that soon turn brown and papery, as if scorched. The adult is a small fly, about 5 mm, with heavily brown-patterned wings.","goesForText":"Celery, celeriac, parsnips, parsley, lovage.","crops":{"families":[],"names":["Celery","Celeriac","Parsnip","Parsley","Lovage"]},"edible":{"verdict":"Yes","detail":"Only the leaves are mined; celery stalks and parsnip and celeriac roots aren't touched. Pick off mined leaves of parsley and lovage and use the rest. Celery hit hard when small may taste bitter.","category":"Yes"},"whatToDo":"Some damage can be put up with. Check young plants through the summer, squash the grubs inside the blotches, or pinch off the mined parts of leaves. Very bad attacks weaken plants. Fine mesh keeps the fly off, but only on ground where these crops didn't grow last year, or flies hatch out under it. At the end of the season, bury or bin badly mined leaves to kill the grubs and pupae in them. Birds and parasitic wasps help.","season":"Late April–October (two generations, sometimes three).","pics":["celery-leaf-miner-1","celery-leaf-miner-2"],"sources":"RHS, Celery leaf mining fly (bitterness in small plants, pinching out, mesh with rotation, burying leaves). AHDB, Pest insects in carrot and Apiaceous crops: celery fly (damage is to the leaves, severe attacks reduce vigour, destroy infested material, two to three generations from late April). University of Minnesota Extension, Leafminers in home gardens (remove mined leaves early on leafy crops).","sowingTip":{"text":"Cover celery and celeriac with fine mesh, on ground where they didn't grow last year.","crops":{"families":[],"names":["Celery","Celeriac"]}}},{"id":"asparagus-beetle","n":17,"name":"Asparagus beetle","fullName":"Asparagus beetle","kind":"pest","whatItIs":"Adults are about 6 mm, blue-black with a red thorax, red edges and six cream spots on the wing cases. The larvae are plump, greyish and slug-like, up to 10 mm. Both eat the ferny foliage and gnaw the stems, so growth above the damage dries up. Eggs may be laid sticking up from spear tips.","goesForText":"Asparagus.","crops":{"families":[],"names":["Asparagus"]},"edible":{"verdict":"Yes","detail":"Rinse off any eggs on the spears.","category":"Yes"},"whatToDo":"Hand-pick beetles and larvae from late spring. Cut down and dispose of old stems at the end of the year, as adults overwinter in them. Nematode biocontrol is available. Encourage birds, frogs and ground beetles.","season":"May–September.","pics":["asparagus-beetle-1","asparagus-beetle-2"],"sources":"RHS, Asparagus beetle. Kansas State University Extension, Common asparagus beetle MF3231 (asparagus is still edible)."},{"id":"slugs-and-snails","n":18,"name":"Slugs and snails","fullName":"Slugs and snails","kind":"pest","whatItIs":"Irregular holes in leaves, stems and flowers, often with silvery slime trails. Seedlings can vanish overnight. In potatoes, slugs make small round entry holes and hollow out large cavities inside, often with the slug still in there; this is worst on heavy soils and when maincrops are left in late. Only a few of the UK's many species eat live plants.","goesForText":"Seedlings and soft growth of almost anything: lettuce, brassicas, beans, courgettes, strawberries, potato tubers.","crops":{"families":[],"names":[],"any":true},"edible":{"verdict":"Yes, after washing and trimming","detail":"Cut away nibbled parts and wash salad leaves well. Potatoes: cut out the holes and cavities. Throw away any that have gone soft or rotten.","category":"Yes, after washing or trimming"},"whatToDo":"Some damage is normal. Check plants in the evening and remove slugs and snails. Nematode biocontrol works on slugs (not snails) in moist soil from spring to early autumn. Lift maincrop potatoes promptly in autumn. The RHS found copper tape, grit, eggshells, bark and wool pellets made no difference in its garden trial.","season":"All year; worst in mild, damp spells. Potato damage late summer to autumn.","pics":["slugs-and-snails-1","slugs-and-snails-2"],"sources":"RHS, Slugs and snails, and RHS Science, barrier trial. Ask Extension, Michigan (wash thoroughly, cut off nibbled areas, cook). Teagasc, potato pests (how slug, wireworm and cutworm holes differ; later lifting increases slug damage). UConn Extension, food safety, Should I eat that? (slug bites on lettuce: cut away the damage, check the rest and eat it; damage that has gone soft or rotten can harbour bacteria)."},{"id":"wireworm","n":19,"name":"Wireworm","fullName":"Wireworm","kind":"pest","whatItIs":"Thin, stiff, shiny yellow-orange larvae of click beetles, with three pairs of small legs near the head. In potatoes they leave small round holes, like a nail stab, leading to narrow tunnels; unlike slugs, they don't hollow out cavities. Mainly a problem in ground recently dug from grass; numbers usually fall within a few years of cultivation.","goesForText":"Potatoes mostly; also carrots and other roots, and the stems of tomatoes and young plants.","crops":{"families":["Roots"],"names":["Potato","First Early Potato","Second Early Potato","Maincrop Potato","Tomato"]},"edible":{"verdict":"Partly","detail":"If the holes are dry with no rot, cut out the tunnels and use the rest. Use damaged tubers first, as they don't store well.","category":"Partly"},"whatToDo":"Lift potatoes early where wireworm is known, as late-lifted crops suffer most. Keep the plot weeded and grass cut back. Turn the soil so birds can get at them. Nematode biocontrol is available.","season":"All year; potato damage mainly late summer.","pics":["wireworm-1"],"sources":"RHS, Wireworms. Teagasc, potato pests. AHDB, Identification and management of wireworms (late-lifted potatoes at greater risk). Eat or Toss, wireworm holes in potatoes, quoting an extension entomologist (dry holes, potato still fine; cut out discoloured tunnels).","sowingTip":{"text":"On newly dug grassland, grow early potatoes and lift them early.","crops":{"families":[],"names":["Potato","First Early Potato","Second Early Potato","Maincrop Potato"]},"onlyWhereLogged":true}},{"id":"cutworms","n":20,"name":"Cutworms","fullName":"Cutworms","kind":"pest","whatItIs":"Fat, greasy-looking grey to brown caterpillars living in the soil, which curl into a C-shape when dug up. They feed at night on stem bases, so young plants are found toppled over in the morning, cut through at soil level. They also eat roots and gouge large, shallow cavities in potatoes and other roots, which often aren't seen until harvest.","goesForText":"Lettuce, leeks and beetroot most; also brassicas, carrots, celery, parsnips and young transplants. Potatoes, onions, swedes and turnips less often.","crops":{"families":["Brassicas"],"names":["Lettuce","Winter Lettuce","Leek","Beetroot","Carrot","Early Carrot","Maincrop Carrot","Celery","Parsnip"]},"edible":{"verdict":"Partly","detail":"Cut the gnawed parts out of potatoes and roots and use the rest. Throw away any that have gone soft or rotten.","category":"Partly"},"whatToDo":"Dig round toppled plants to find and remove the caterpillar. Keep the plot well watered in dry spells, as young cutworms die in wet soil. Keep weeds down. Crops under fleece or mesh are less affected. Nematode biocontrol works in moist soil at 12–20°C.","season":"Summer; worst in hot, dry summers on light, sandy soil.","pics":["cutworms-1"],"sources":"RHS, Cutworms. AHDB, Damage caused by cutworms on field crops (which crops suffer most and least, hot dry years and sandy soils, root damage seen at harvest). UC IPM, Potato: cutworms (tuber damage is a gouged-out cavity). UC Master Gardeners, What's bugging you? Cutworms. Teagasc, potato pests (cutworm holes large and shallow). UConn Extension, food safety, Should I eat that? (insect damage doesn't make produce inedible: cut it away and use the rest unless soft or rotting)."},{"id":"leatherjackets","n":21,"name":"Leatherjackets","fullName":"Leatherjackets","kind":"pest","whatItIs":"Larvae of crane flies (daddy-long-legs): legless, tough-skinned, greyish-brown grubs in the top layer of soil. They eat roots and stem bases, so seedlings and small plants collapse, eaten at soil level. Most common in and near lawns and grassy areas.","goesForText":"Mainly lawns, but also seedlings and young plants in the veg plot.","crops":{"families":[],"names":[],"any":true},"edible":{"verdict":"Yes","detail":"Plants that survive are unaffected.","category":"Yes"},"whatToDo":"Dig round collapsed plants to find and remove the grubs. Birds such as starlings, rooks and crows eat them. Nematode biocontrol is available but needs warm, moist soil, which it often isn't by the time damage shows.","season":"Spring to midsummer.","pics":["leatherjackets-1"],"sources":"RHS, Leatherjackets. The eaten crop isn't attacked, so no second source was needed."},{"id":"potato-cyst-eelworm","n":22,"name":"Potato cyst eelworm","fullName":"Potato cyst eelworm (potato cyst nematode)","kind":"pest","whatItIs":"Microscopic worms feeding on potato roots. Plants in patches grow stunted, with yellowing leaves dying from the bottom up, and yields drop. Pinhead-sized cysts are visible on the roots from midsummer: golden cyst nematode cysts go white, then golden yellow, then brown; white cyst nematode cysts go from creamy white straight to brown. Patches grow year on year and spread on soil moved around.","goesForText":"Potatoes, also tomatoes and aubergines.","crops":{"families":[],"names":["Potato","First Early Potato","Second Early Potato","Maincrop Potato","Tomato","Aubergine"]},"edible":{"verdict":"Yes","detail":"The tubers are fewer and smaller but sound.","category":"Yes"},"whatToDo":"Rotate potatoes as long as possible, at least 5–6 years where it's known. Grow resistant varieties: many resist golden cyst nematode, fewer tolerate white cyst nematode. Check the British Potato Variety Database. Don't move soil or tools from affected ground without cleaning them.","season":"Symptoms in summer; cysts on roots from June.","pics":["potato-cyst-eelworm-1"],"sources":"RHS, Potato cyst nematodes. Farm Advisory Service Scotland, Technical note TN30 (revised March 2026): patches of stunted growth, reduced tuber yield, resistant varieties the most effective control.","sowingTip":{"text":"Where it's known, leave at least 5–6 years between potato crops, and choose resistant varieties.","crops":{"families":[],"names":["Potato","First Early Potato","Second Early Potato","Maincrop Potato"]},"onlyWhereLogged":true}},{"id":"raspberry-beetle","n":23,"name":"Raspberry beetle","fullName":"Raspberry beetle","kind":"pest","whatItIs":"The grub of a small pale brown beetle, about 4 mm, which lays its eggs on the flowers from May to mid-July. The grubs feed at the stalk end of the berries, then move inside. Ripe berries have grey-brown, dried-up patches near the stalk, and a brownish-white grub up to 8 mm long may be inside. The grubs drop into the soil in late summer and spend the winter there.","goesForText":"Raspberries (mainly summer-fruiting), blackberries, tayberries, loganberries. Autumn raspberries ripening after late August are mostly spared.","crops":{"families":[],"names":["Raspberry","Blackberry","Loganberry","Tayberry"]},"edible":{"verdict":"Partly","detail":"Throw away berries with dried patches or a grub inside; the rest of the crop is fine. Check berries as you pick, as grubs stay in fruit picked before they leave.","category":"Partly"},"whatToDo":"Usually only a small part of the crop is hit, so some damage can be put up with. Encourage birds, hedgehogs and ground beetles. Lightly fork the soil round the canes in late summer and autumn so birds can get at the grubs and pupae. A scented water trap that catches the adult beetles is sold for gardens.","season":"Beetles May–July; damaged berries June–August.","pics":[],"sources":"RHS, Raspberry beetle. Washington State University Extension (HortSense), Raspberry beetle (grubs stay in picked fruit; working the soil round plants in late summer and autumn kills grubs and pupae). WSU's page covers the North American relative, *Byturus unicolor*, which has the same life cycle."},{"id":"gooseberry-sawfly","n":24,"name":"Gooseberry sawfly","fullName":"Gooseberry sawfly","kind":"pest","whatItIs":"Caterpillar-like larvae up to 20 mm long. The commonest kind is pale green with many black spots and a black head; two other kinds have plain green larvae. Eggs are laid low down in the middle of the bush, so the larvae go unnoticed until they have eaten their way up and out. A bush can be stripped bare in days.","goesForText":"Gooseberries, red and white currants.","crops":{"families":[],"names":["Gooseberry","Redcurrant","Whitecurrant"]},"edible":{"verdict":"Yes","detail":"The larvae eat only the leaves, so the fruit is fine, though a stripped bush gives a smaller crop that year and the next.","category":"Yes"},"whatToDo":"Check bushes from April, looking low in the middle. Pick the larvae off by hand. Encourage birds, wasps and ground beetles. Nematode biocontrol can be watered on in cool, damp weather. Bushes usually survive being stripped.","season":"Late April–September (up to three generations).","pics":["gooseberry-sawfly-1"],"sources":"RHS, Gooseberry sawfly. Colorado State University (Bugwood wiki), Imported currantworm (larvae eat the leaves; crop and fruit quality can suffer). The eaten part isn't touched, so the RHS alone is enough for \"Yes\"."},{"id":"codling-moth","n":25,"name":"Codling moth","fullName":"Codling moth","kind":"pest","whatItIs":"The cause of \"maggoty apples\". A small white to pinkish caterpillar with a brown head tunnels into the fruit and feeds round the core for about four weeks. Look for an exit hole in the side or at the eye end; inside is a tunnel to the core with brown droppings. Damaged fruit ripens and drops early. The adult is a small grey-brown moth flying from late May to July.","goesForText":"Apples and pears; occasionally quinces and walnuts.","crops":{"families":[],"names":["Apple","Pear","Quince"]},"edible":{"verdict":"Partly","detail":"Cut out the tunnel and core and use the rest; throw away any that have rotted. Don't store damaged apples with sound ones, as the caterpillars crawl out and shelter in the store.","category":"Partly"},"whatToDo":"Usually only some of the fruit is hit, so some loss can be put up with. Encourage birds, wasps and ground beetles. Pick up fallen fruit promptly. Hang a pheromone trap in May: it mainly shows when the moths are flying, though on an isolated tree it can catch enough males to reduce damage. Nematode biocontrol can be sprayed on the trunk, branches and soil underneath in September–October, after the caterpillars have left the fruit.","season":"June–September.","pics":["codling-moth-1"],"sources":"RHS, Codling moth. UC IPM Pest Notes, Codling moth (cut out the damaged parts before eating). Seattle Public Utilities and WSU Extension, codling moth IPM fact sheet (damaged apples can be trimmed for kitchen use; clearing fallen fruit helps). University of Minnesota Extension, Codling moths in home orchards (don't store damaged apples near sound ones). See batch 5 notes on the disagreement."},{"id":"pigeons","n":26,"name":"Pigeons","fullName":"Pigeons","kind":"pest","whatItIs":"Woodpigeons tear leaves to shreds, often leaving only the stalks and big veins. They usually feed early in the morning, so they're rarely seen at it. Damage is worst in autumn and winter, especially in frost or snow when there's little else to eat. Heavy grazing can stop brassicas and peas cropping at all.","goesForText":"Brassicas above all (sprouts, cabbage, cauliflower, broccoli, kale), peas, cherries and currants.","crops":{"families":["Brassicas"],"names":["Pea","Autumn Pea","Maincrop Pea","Cherry","Blackcurrant","Redcurrant","Whitecurrant"]},"edible":{"verdict":"Yes, after washing and trimming","detail":"Pull off torn leaves and wash the rest. Throw away anything fouled with droppings.","category":"Yes, after washing or trimming"},"whatToDo":"Netting or a fruit cage is the only sure protection. Keep netting taut and check it daily so birds and other animals don't get tangled. In a Which? Gardening trial, netting beat every scarer tried.","season":"All year; worst autumn to early spring.","pics":["pigeons-1"],"sources":"RHS, Pigeons. Which? Gardening, pigeon deterrent trial. UConn Extension, food safety, Should I eat that? (don't use produce fouled by animal droppings).","sowingTip":{"text":"Net brassicas and peas from planting.","crops":{"families":["Brassicas"],"names":["Pea","Autumn Pea","Maincrop Pea"]}}},{"id":"mice","n":27,"name":"Mice","fullName":"Mice","kind":"pest","whatItIs":"Wood mice sniff out newly sown peas, beans and sweetcorn and dig them up, often seed by seed along a row, and graze seedlings. They also nip off strawberries and other fruit before it ripens, leaving them in small heaps, and gnaw stored apples, leaving paired tooth marks. In cold weather they move into greenhouses, cold frames and sheds, where they can clear trays of seedlings overnight.","goesForText":"Pea, bean and sweetcorn seed; seedlings; strawberries; stored apples.","crops":{"families":[],"names":["Pea","Autumn Pea","Maincrop Pea","Broad Bean","Autumn Broad Bean","French Bean","Runner Bean","Sweetcorn","Strawberry"]},"edible":{"verdict":"No","detail":"Throw away anything mice have gnawed, including stored fruit, as their droppings and urine spread food-poisoning germs. Lost seeds and seedlings just need resowing.","category":"No"},"whatToDo":"Numbers boom in good years and fall back on their own. Use barriers, and keep stored crops and seed in mouse-proof boxes or tins. Every way of controlling mice kills them, so the RHS suggests putting up with low numbers.","season":"All year; worst in cold weather in greenhouses and sheds.","pics":["mice-1"],"sources":"RHS, Mice and voles. Safer Food, Better Business (the Food Standards Agency's pack, as issued by Lancaster City Council): throw away any food gnawed by rodents. Coventry City Council environmental health, Controlling rodents (mice carry food-poisoning bacteria; throw away nibbled food)."},{"id":"blight","n":28,"name":"Blight","fullName":"Blight","kind":"disease","whatItIs":"A fungus-like disease that spreads fast in warm, wet weather. On potatoes, leaves get brown patches, often starting at the tips and edges, with white mould round the edges underneath in damp weather. Stems get dark patches and the whole top can collapse within days. On tomatoes, stems get dark marks, leaves brown and rot, and fruit, green or ripe, gets brown blotches. Spores washed into the soil infect the tubers, which rot in the ground or later in store; a light attack may not show at lifting.","goesForText":"Potatoes and tomatoes. Outdoor tomatoes suffer most; greenhouse ones often escape because their leaves stay dry.","crops":{"families":[],"names":["Potato","First Early Potato","Second Early Potato","Maincrop Potato","Tomato"]},"edible":{"verdict":"Partly","detail":"Unmarked tomatoes and potatoes from blighted plants are fine; use them soon, as they can still go bad. Throw away any fruit or tuber with blight marks, even if you could cut them out.","category":"Partly"},"whatToDo":"Potatoes: once about a quarter of the leaves are hit, or the stems show marks, cut all the foliage off at soil level and clear it away. Wait about two weeks for the skins to harden, then lift. Earthing up well helps shield the tubers. Check stored potatoes often. Tomatoes: remove affected leaves and keep greenhouse foliage dry. Grow resistant varieties (tomatoes 'Crimson Crush' and 'Mountain Magic'; check the British Potato Variety Database for potatoes). At harvest, dig out every tuber, and pull up any potatoes that come up next year, as blight survives the winter in them. There are no blight sprays for gardeners.","season":"Summer to early autumn, in warm, wet spells. It stops once cold autumn weather arrives.","pics":["blight-1","blight-2"],"sources":"RHS, Potato blight; RHS, Tomato blight; RHS, Potato blight feature by Guy Barter (resistant varieties, overwintering in tubers left in the ground). Michigan State University Extension, Are tomatoes and potatoes with late blight safe for eating and canning?, quoting a University of Wisconsin food safety specialist (unmarked fruit from infected plants is safe but should be used quickly; diseased fruit shouldn't be eaten even with the bad parts cut out; the same for potatoes). West Virginia University Extension, Late blight of tomatoes (unblemished fruit is safe; don't keep it long). See batch 6 notes on the disagreement.","sowingTip":{"text":"Choose resistant potatoes and tomatoes, and pull up any potatoes that come up from last year.","crops":{"families":[],"names":["Potato","First Early Potato","Second Early Potato","Maincrop Potato","Tomato"]}}},{"id":"common-scab","n":29,"name":"Common scab","fullName":"Common scab","kind":"disease","whatItIs":"Raised, rough, corky patches on the skin of potatoes, caused by bacteria that live in the soil. It's skin-deep; the flesh underneath is fine. Worst when the soil is dry as the tubers form, and on light, sandy or recently limed soil.","goesForText":"Potatoes mainly; also beetroot, radishes, swedes and turnips.","crops":{"families":[],"names":["Potato","First Early Potato","Second Early Potato","Maincrop Potato","Beetroot","Radish","Winter Radish","Swede","Turnip"]},"edible":{"verdict":"Yes, after peeling","detail":"Peel off the scabby skin.","category":"Yes, after washing or trimming"},"whatToDo":"Keep the soil moist while the tubers are forming, especially in dry spells. Don't lime ground before potatoes; lime after the potatoes in the rotation instead. Don't use fresh manure or wood ash on potato ground. Use healthy seed potatoes. Varieties with some resistance include 'Accent', 'Arran Pilot', 'Golden Wonder', 'King Edward', 'Pentland Crown' and 'Pentland Javelin'.","season":"Tubers are infected as they form in late spring and summer; it shows at lifting.","pics":["common-scab-1"],"sources":"RHS, Potato scabs. Washington State University Extension (HortSense), Potato: Scab (common) (peel off scabby skin; avoid fresh manure and wood ash). University of Alaska Fairbanks Extension, Potato scab (scabby potatoes are safe to eat).","sowingTip":{"text":"Keep potatoes watered while the tubers form, and don't lime before planting them.","crops":{"families":[],"names":["Potato","First Early Potato","Second Early Potato","Maincrop Potato"]}}},{"id":"clubroot","n":30,"name":"Clubroot","fullName":"Clubroot","kind":"disease","whatItIs":"A soil-borne, fungus-like disease. Roots swell into knobbly, distorted clubs and lose their fine roots. Above ground, plants are stunted, leaves may go purplish, and they wilt in hot weather and perk up when it's cooler. Badly hit plants die. Its spores can stay in the soil for up to 20 years.","goesForText":"All brassicas: cabbage, sprouts, cauliflower, broccoli, kale, swede, turnip and radish. Also wallflowers, stocks, and weeds such as shepherd's purse.","crops":{"families":["Brassicas"],"names":[]},"edible":{"verdict":"Partly","detail":"Leaves, heads and sprouts are fine, as only the roots are infected, though plants are often small. Throw away clubbed swedes, turnips and radishes.","category":"Partly"},"whatToDo":"Take out affected plants with as much root as you can, and don't spread them or their soil round the plot. Clean soil off tools, boots and barrows. Lime acid soil and improve drainage, for example with raised beds. Weed out shepherd's purse, charlock and wild radish. Where clubroot is known, raise plants in pots at least 9 cm across so they go out with a big, healthy root system. Only take brassica plants from a clubroot-free source, including gifts from other gardeners. Resistant varieties include cabbages 'Kilaxy' and 'Kilaton', sprouts 'Crispus', cauliflower 'Clapton' and swede 'Marian'. There are no chemical controls.","season":"New infections from midsummer to late autumn, whenever the soil is warm and moist.","pics":["clubroot-1"],"sources":"RHS, Club root. Washington State University Extension (HortSense), Broccoli, Cole crops: Clubroot (round clubs on turnip and radish roots; spread by soil on tools and footwear). University of Minnesota Extension, Clubroot (usually arrives on bought-in plants; deal with infected plants on site). The eaten part of leafy brassicas isn't touched, so the RHS alone is enough for that part of the verdict; clubbed roots are thrown away.","sowingTip":{"text":"Where it's been, raise brassicas in 9 cm pots before planting out, or grow resistant varieties.","crops":{"families":["Brassicas"],"names":[]},"onlyWhereLogged":true}},{"id":"onion-white-rot","n":31,"name":"Onion white rot","fullName":"Onion white rot","kind":"disease","whatItIs":"A soil fungus. Leaves yellow and wilt, the roots rot, and fluffy white mould grows on the base of the bulb, later dotted with tiny round black seed-like bodies. These drop into the soil and last at least 15 years, waking only when onion-family plants are grown there.","goesForText":"Onions, garlic, leeks and shallots.","crops":{"families":[],"names":["Onion","Autumn Onion","Shallot","Autumn Shallot","Garlic","Spring Garlic","Elephant Garlic","Leek"]},"edible":{"verdict":"Partly","detail":"Throw away any bulb with white mould or rot. Sound-looking bulbs from the same bed can be used, but use them soon rather than storing them, as infected bulbs carry on rotting in store.","category":"Partly"},"whatToDo":"Pull up affected plants as soon as you see them, with the soil round them, and bin them; never compost them. Don't carry soil from that bed on tools or boots. It can't be got rid of, and the spores outlast any normal rotation, so don't grow the onion family in that bed again. Only plant sets and seed garlic from a garden supplier; never plant supermarket garlic.","season":"Symptoms from midsummer to early autumn.","pics":["onion-white-rot-1"],"sources":"RHS, Onion white rot. Washington State University Extension (HortSense), Onions, Garlic: White rot (infected bulbs keep decaying in store; don't compost). University of Maryland Extension, White rot of alliums in the home garden (never plant supermarket garlic; don't compost). UC IPM, White rot (survives in soil for years).","sowingTip":{"text":"Only plant sets and seed garlic from a garden supplier, and never in a bed that's had white rot.","crops":{"families":[],"names":["Onion","Autumn Onion","Shallot","Autumn Shallot","Garlic","Spring Garlic","Elephant Garlic"]},"onlyWhereLogged":true}},{"id":"allium-rust","n":32,"name":"Allium rust","fullName":"Allium rust","kind":"disease","whatItIs":"Bright orange, raised spots on both sides of the leaves, which burst to release an orange dust. Bad attacks make leaves shrivel early and weaken the plant.","goesForText":"Leeks, garlic and chives; onions less often. The leek form and the chive form don't swap, but garlic catches both.","crops":{"families":[],"names":["Leek","Garlic","Spring Garlic","Elephant Garlic","Chives","Onion","Autumn Onion"]},"edible":{"verdict":"Yes","detail":"Strip off rusty outer leaves; the leek shaft, bulbs and cloves are fine, though often smaller. Badly hit garlic may lack its papery skin, so use it first.","category":"Yes"},"whatToDo":"Go easy on nitrogen feeds; it's worse on rich soil low in potassium. Don't crowd plants. Clear away all leaves and debris after cropping. Try varieties sold as resistant. There are no sprays for gardeners.","season":"Midsummer to late autumn.","pics":["allium-rust-1"],"sources":"RHS, Leek rust. University of Minnesota Extension, garlic problems (rust gives small, poor-quality bulbs that may lack the outer dry skin). The eaten part isn't attacked, so the RHS alone is enough for \"Yes\"."},{"id":"downy-mildew","n":33,"name":"Downy mildew","fullName":"Downy mildew","kind":"disease","whatItIs":"Several fungus-like diseases, each keeping to its own crop group. Yellow or pale patches appear on the upper side of leaves, often angular where the veins hem them in, with fuzzy white, grey or purplish mould underneath. Bad leaves turn brown and shrivel. It needs long spells of wet leaves, so it's worst outdoors in wet summers. On onions the leaf tips die back and the bulbs can be infected too.","goesForText":"Lettuce; brassicas (cabbage, cauliflower, sprouts, radish, swede, turnip); onions and shallots. Each crop has its own kind, so it doesn't spread from one group to another.","crops":{"families":["Brassicas"],"names":["Lettuce","Winter Lettuce","Onion","Autumn Onion","Shallot","Autumn Shallot"]},"edible":{"verdict":"Partly","detail":"Lettuce and brassicas: strip off affected leaves; the heart and the rest of the plant are fine. Onions: use bulbs from affected plants soon, as they tend to sprout, soften or shrivel in store; throw away any that already have.","category":"Partly"},"whatToDo":"Pick off affected leaves as soon as you see them and bin them; pull up badly hit plants. Don't crowd plants, keep weeds down, and avoid wetting the leaves. Rotate lettuce. Grow resistant varieties: there are lettuces, and onions 'Hylander' and 'Santero'. For onions, don't leave bulbs in the ground from one year to the next, don't plant soft or mouldy sets, and keep perennial onions away from the rest.","season":"Lettuce outdoors, early summer to mid-autumn; onions, late spring and summer in mild, damp weather.","pics":["downy-mildew-1"],"sources":"RHS, Downy mildews; RHS, Lettuce downy mildew (hearts can often still be harvested); RHS, Brassica downy mildew; RHS, Onion downy mildew. Colorado State University Extension, Botrytis, downy mildew and purple blotch of onion (infected bulbs turn soft, shrivelled and watery). University of Wisconsin Extension, Onion disease: downy mildew (smaller bulbs, rots in store).","sameGroupOnly":"Each crop group has its own downy mildew, so only beds of the same group are at risk."},{"id":"powdery-mildew","n":34,"name":"Powdery mildew","fullName":"Powdery mildew","kind":"disease","whatItIs":"A white, dusty coating on leaves and stems, as if they'd been floured. Badly hit leaves yellow and die early. Each kind keeps to its own group of plants, so courgette mildew doesn't spread to peas. It's worst when the roots are dry but the air is humid, and most crops get some towards the end of the season.","goesForText":"Courgettes, marrows, squash, pumpkins and cucumbers above all; also peas.","crops":{"families":["Cucurbits"],"names":["Pea","Autumn Pea","Maincrop Pea"]},"edible":{"verdict":"Yes","detail":"Fruit and pods are fine, as the mildew grows on the leaves. Rinse off any white dust. Crops may be smaller.","category":"Yes"},"whatToDo":"Keep the roots moist in dry spells and mulch to hold water in. Watering over the leaves mid-morning in dry weather also helps, as the mildew doesn't like being wetted. Don't crowd plants. Pick off the worst leaves. Grow resistant varieties. The RHS advises against sprays.","season":"Midsummer to autumn; late-season mildew on courgettes is normal as the plants age.","pics":["powdery-mildew-1"],"sources":"RHS, Powdery mildews. University of Minnesota Extension Master Gardeners (fruit from plants with powdery mildew can be eaten). University of Wisconsin Extension, Vine crops disorder: powdery mildew (fruit rarely infected). Washington State University Extension (HortSense), Cucumber, pumpkin, squash: powdery mildew.","sameGroupOnly":"Each crop group has its own powdery mildew, so only beds of the same group are at risk."},{"id":"grey-mould","n":35,"name":"Grey mould","fullName":"Grey mould","kind":"disease","whatItIs":"A fungus that causes a soft, brown rot covered in fuzzy grey-brown mould. Its spores are always in the air, and it gets in through wounds, dead flowers or stressed plants, especially in damp, still conditions and in greenhouses. On strawberries it lies hidden in the developing fruit and breaks out as they ripen. On gooseberries it can kill whole branches without much visible mould.","goesForText":"Strawberries, raspberries, blackberries, gooseberries, grapes, tomatoes, courgettes, cucumbers, lettuce and beans.","crops":{"families":[],"names":["Strawberry","Raspberry","Blackberry","Gooseberry","Grape","Tomato","Courgette","Cucumber","Lettuce","Winter Lettuce","Broad Bean","Autumn Broad Bean","French Bean","Runner Bean"]},"edible":{"verdict":"Partly","detail":"Throw away any mouldy fruit, pods or leaves, as soft crops can be spoilt below the surface. With firm crops, cut well away from a small mouldy patch and use the rest.","category":"Partly"},"whatToDo":"Remove dead and dying leaves, flowers and fruit promptly, especially under glass, and don't leave them lying around. Bag mouldy bits as you remove them, as the spores puff out at a touch. Ventilate greenhouses and don't crowd plants. Pick soft fruit often. There are no sprays for gardeners.","season":"All year; worst in cool, damp weather and in greenhouses.","pics":["grey-mould-1"],"sources":"RHS, Grey mould. UConn Extension, food safety, Should I eat that? (throw away soft fruit and vegetables with mould; small spots can be cut off firm ones)."},{"id":"chocolate-spot","n":36,"name":"Chocolate spot","fullName":"Chocolate spot","kind":"disease","whatItIs":"Small, round, red-brown spots on the leaves, stems, flowers and pods of broad beans. In wet weather they spread, darken and merge, the leaves shrivel, and badly hit plants can collapse and lose their flowers. In dry weather the spots stay small.","goesForText":"Broad beans only (and field beans or vetch grown as green manure). Runner and French beans aren't affected.","crops":{"families":[],"names":["Broad Bean","Autumn Broad Bean"]},"edible":{"verdict":"Yes","detail":"The beans inside spotted pods are fine; throw away any pods that have gone soft or mouldy.","category":"Yes"},"whatToDo":"Space plants widely for air, and avoid damp, sheltered spots. Clear away and dispose of the plants at the end of the season. Don't save seed from affected plants, as it can carry the disease. Pull out common vetch nearby. There are no sprays for gardeners.","season":"From late winter on autumn-sown beans; from mid-spring on spring-sown ones.","pics":["chocolate-spot-1"],"sources":"RHS, Broad bean chocolate spot. The beans in the pod aren't the part attacked, so the RHS alone is enough for \"Yes\"; mouldy pods are thrown away as for grey mould (UConn Extension).","sowingTip":{"text":"Sow broad beans well spaced on an open, airy site, and don't use seed saved from spotted plants.","crops":{"families":[],"names":["Broad Bean","Autumn Broad Bean"]}}},{"id":"bean-rust","n":37,"name":"Bean rust","fullName":"Bean rust","kind":"disease","whatItIs":"Two different rusts, one on each kind of bean. Broad bean rust: small, dusty, dark brown spots with a pale yellow ring on leaves and stems, from midsummer. Runner and French bean rust: pale raised spots on the upper leaf with small white pustules beneath, then brown and later black pustules, sometimes on the pods too. Bad attacks brown the leaves and make them drop, but they often come too late in the season to do much harm.","goesForText":"Broad beans; runner and French beans (a different rust). Neither swaps to the other kind.","crops":{"families":[],"names":["Broad Bean","Autumn Broad Bean","French Bean","Runner Bean"]},"edible":{"verdict":"Not sure","detail":"Throw away runner and French bean pods with rust spots. Broad beans are shelled, and the rust doesn't get into the beans, so those are fine. Sources disagree on unspotted runner and French bean pods from rusty plants; ask experienced growers on the site.","category":"Not sure"},"whatToDo":"Thin out dense growth. Pick off affected leaves as soon as you see them; older leaves go first. Dispose of badly hit plants. Clear away all debris, including fallen leaves, at the end of the season, as the black spores survive the winter on it. Don't save seed from rusty crops. There are no sprays for gardeners.","season":"Midsummer onwards.","pics":["bean-rust-1"],"sources":"RHS, Broad bean rust; RHS, Runner and French bean rust. Ask Extension (expert answer on Uromyces appendiculatus: don't eat bean pods showing rust). Colorado State University Extension, Rust of dry beans (rust isn't carried in the seed). See batch 7 notes.","sameGroupOnly":"Broad bean rust and runner/French bean rust are different, so only the same kind of bean is at risk."},{"id":"halo-blight","n":38,"name":"Halo blight","fullName":"Halo blight","kind":"disease","whatItIs":"A bacterial disease of beans, usually brought in on infected seed. Leaves get small, angular brown spots ringed by a broad yellow-green halo (smaller or missing in hot weather); the dead centres can tear out. Plants grown from infected seed may yellow all over. Pods get small greasy, water-soaked spots that later turn brown and sunken. It spreads in rain splash and on hands and tools.","goesForText":"French and runner beans; also other beans in the same family.","crops":{"families":[],"names":["French Bean","Runner Bean"]},"edible":{"verdict":"Not sure","detail":"Throw away spotted or greasy-looking pods. No source says whether unspotted pods from the same plants are fine; ask experienced growers on the site.","category":"Not sure"},"whatToDo":"Pull up badly affected plants. Don't work among the beans when they're wet. Clear away all bean debris at the end of the season, and don't grow beans in that bed for two to three years. Never save seed from affected plants; buy fresh seed. Grow resistant varieties where offered.","season":"Summer, especially after heavy rain.","pics":["halo-blight-1","halo-blight-2"],"sources":"No RHS page found for halo blight. Cornell Vegetables, Bacterial diseases of beans (seed is the main source; pod spots look like common blight). Oregon State PNW Plant Disease Handbook, Bean halo blight (pod spots; seed infection). Washington State University Extension (HortSense), Bean: bacterial blights. UConn IPM, Bacterial bean blights (2–3 year rotation; resistance available). Colorado State University Extension, Bacterial diseases of beans.","sowingTip":{"text":"Sow fresh bought seed; never save seed from beans that had spots.","crops":{"families":[],"names":["French Bean","Runner Bean"]}}},{"id":"cucumber-mosaic-virus","n":39,"name":"Cucumber mosaic virus","fullName":"Cucumber mosaic virus","kind":"disease","whatItIs":"A common virus spread mainly by aphids, and also on hands and tools. Leaves get yellow-and-green mottling, curl down, and are small and distorted; plants are stunted. Fruit can be warty, blotchy and misshapen, and crops are smaller. It can't be cured.","goesForText":"Courgettes, marrows, squash, cucumbers; also spinach, lettuce and celery. Fruit trees and bushes are rarely attacked.","crops":{"families":[],"names":["Courgette","Marrow","Squash","Summer Squash","Pumpkin","Cucumber","Spinach","Celery","Lettuce","Winter Lettuce"]},"edible":{"verdict":"Yes","detail":"Plant viruses don't harm people. Fruit may look odd and badly distorted ones may have a poor texture.","category":"Yes"},"whatToDo":"Pull up and dispose of affected plants promptly. Wash hands and tools after handling them. Keep weeds down, especially groundsel and chickweed, which carry the virus without showing it. Grow resistant varieties: courgettes 'Defender' and 'Supremo', marrows 'Badger Cross' and 'Tiger Cross', cucumbers 'Bush Champion', 'Crispy Salad' and 'Petita'.","season":"Spring and summer, while plants are growing fast.","pics":["cucumber-mosaic-virus-1"],"sources":"RHS, Cucumber mosaic virus. UC Cooperative Extension Ventura County, Squash virus (fruit is still safe to eat). University of Florida IFAS Extension, Got green squash? (affected fruit still edible).","sowingTip":{"text":"Choose resistant courgettes and cucumbers, such as courgette 'Defender'.","crops":{"families":[],"names":["Courgette","Cucumber"]}}},{"id":"parsnip-canker","n":40,"name":"Parsnip canker","fullName":"Parsnip canker","kind":"disease","whatItIs":"An orange-brown to black rot on the shoulder of the parsnip root, sometimes spreading further down. Roots damaged by carrot fly, slugs or a fork get it most, and it's worse in dry spells, on heavy or badly drained soil, and in overly rich soil. It shows from autumn.","goesForText":"Parsnips.","crops":{"families":[],"names":["Parsnip"]},"edible":{"verdict":"Partly","detail":"Cut out the cankered part and use the rest; throw away any that are mostly rotten.","category":"Partly"},"whatToDo":"Grow canker-resistant varieties such as 'Albion', 'Archer', 'Palace' or 'Picador'. Hand-weed rather than hoe close to the roots. Cover with fine mesh against carrot fly, whose tunnels let canker in. Improve drainage, and water in dry spells.","season":"Autumn and winter, while the roots are in the ground.","pics":[],"sources":"RHS, How to grow parsnips (causes, resistant varieties). UConn Extension, food safety, Should I eat that? (on firm vegetables such as carrots, small damaged or mouldy spots can be cut off and the rest used).","sowingTip":{"text":"Sow a canker-resistant variety, such as 'Albion' or 'Picador'.","crops":{"families":[],"names":["Parsnip"]}}},{"id":"damping-off","n":41,"name":"Damping off","fullName":"Damping off","kind":"disease","whatItIs":"Seedlings rot at soil level and keel over, often under a fuzz of white mould, or never come up at all. Several soil and water moulds cause it, worst in damp, still air, with seed sown too thickly, and in cool spring weather when seedlings grow slowly.","goesForText":"Seedlings of almost anything, in trays, pots or the open ground.","crops":{"families":[],"names":[],"any":true},"edible":{"verdict":"No","detail":"Collapsed seedlings don't recover; sow again in clean trays.","category":"No"},"whatToDo":"Use fresh seed compost and new or scrubbed pots and trays; never reuse trays where it's happened. Sow thinly. Water seedlings with mains water, or keep the water butt covered and cleaned. Keep the greenhouse clean and give good air flow. There are no sprays for gardeners.","season":"All year; worst in spring.","pics":["damping-off-1"],"sources":"RHS, Damping off. University of Minnesota Extension, How to prevent seedling damping off (infected seedlings rarely survive; clean pots and compost).","sowingTip":{"text":"Sow thinly in fresh compost and clean trays, and water seedlings with tap water.","crops":{"families":[],"names":[],"any":true}}},{"id":"apple-scab","n":42,"name":"Apple scab","fullName":"Apple scab","kind":"disease","whatItIs":"Dark, olive-brown blotches on leaves, which often fall early, and dark, scabby, corky patches on the fruit that can crack as it swells. Pear scab is a near-identical disease of pears; neither crosses to the other. It spends the winter on fallen leaves and blistered twigs.","goesForText":"Apples (and crab apples); pears get their own pear scab.","crops":{"families":[],"names":["Apple"]},"edible":{"verdict":"Yes, after peeling or trimming","detail":"The scab is skin-deep. Cut out any cracked areas, and throw away fruit that has rotted.","category":"Yes, after washing or trimming"},"whatToDo":"Rake up and dispose of fallen leaves in autumn, as next spring's spores come from them. Prune out blistered twigs. Pick up scabby fruit. Grow resistant varieties. The RHS advises against sprays.","season":"Spring and summer, worst in wet springs.","pics":["apple-scab-1"],"sources":"RHS, Apple scab and pear scab. University of Nebraska–Lincoln Extension, Apple scab G1922 (unsightly but safe to eat). University of Minnesota Extension, A bad year for apple scab (fruit with minor blemishes can be eaten or made into sauce)."},{"id":"brown-rot","n":43,"name":"Brown rot","fullName":"Brown rot","kind":"disease","whatItIs":"A soft brown rot that spreads through the fruit from a wound, often one made by birds, codling moth or scab, and passes to fruit touching it. Buff pustules appear on the surface, often in rings. Rotted fruit drops or shrivels and hangs on the tree as a hard \"mummy\". The same fungi cause blossom wilt in spring.","goesForText":"Apples, pears, plums, cherries, peaches, nectarines, quinces and apricots.","crops":{"families":[],"names":["Apple","Pear","Plum","Cherry","Peach","Nectarine","Quince","Apricot"]},"edible":{"verdict":"Partly","detail":"Throw away any fruit with brown rot; the rest of the crop is fine.","category":"Partly"},"whatToDo":"Pick off and dispose of rotting fruit as soon as you see it, and remove all mummified fruit in winter. Net against birds to cut down wounds, and deal with codling moth and scab. Thin clusters so fruit doesn't touch. Plums 'Czar', 'Jefferson', 'Ontario' and 'President' have some resistance. There are no sprays for gardeners.","season":"Fruit rots from midsummer; mummies through winter.","pics":["brown-rot-1"],"sources":"RHS, Brown rot. UConn Extension, food safety, Should I eat that? (throw away soft fruit with mould). NIAB, Best practice guide to UK plum production: brown rot."},{"id":"american-gooseberry-mildew","n":44,"name":"American gooseberry mildew","fullName":"American gooseberry mildew","kind":"disease","whatItIs":"A white, powdery felt on young shoots, leaves and berries from early summer, turning brown as it ages. Shoot tips are stunted and distorted.","goesForText":"Gooseberries; also blackcurrants.","crops":{"families":[],"names":["Gooseberry","Blackcurrant"]},"edible":{"verdict":"Yes","detail":"Rub the felt off the berries; the fruit underneath is fine.","category":"Yes"},"whatToDo":"Prune to keep bushes open and airy, which also makes sawfly easier to spot. Cut out mildewed shoot tips. Go easy on nitrogen feeds and water in dry spells. Grow resistant varieties such as 'Invicta'. The RHS advises against sprays.","season":"Early summer to autumn.","pics":["american-gooseberry-mildew-1"],"sources":"RHS, Gooseberry mildew (the fruit is edible once the growth is rubbed off). Ask Extension (expert answer: powdery mildew doesn't infect people)."},{"id":"peach-leaf-curl","n":45,"name":"Peach leaf curl","fullName":"Peach leaf curl","kind":"disease","whatItIs":"New leaves come out thickened, puckered and blistered, often red or purple, then get a whitish bloom and drop early. The tree then grows a second, healthy set of leaves, but repeated attacks weaken it. Spores are splashed onto the buds by winter and spring rain.","goesForText":"Peaches, nectarines and almonds; occasionally apricots.","crops":{"families":[],"names":["Peach","Nectarine","Almond","Apricot"]},"edible":{"verdict":"Yes","detail":"Only the leaves are attacked, so the fruit is fine, though a weakened tree crops less.","category":"Yes"},"whatToDo":"Keep the rain off: a polythene shelter over wall-trained trees from leaf fall in November until mid-May, open at the ends for pollinating insects. Trees in pots can go under cover for those months. Pick off and dispose of affected leaves. Feed and water to help the second flush of leaves. There are no sprays for gardeners.","season":"Spring.","pics":["peach-leaf-curl-1"],"sources":"RHS, Peach leaf curl. The fruit isn't attacked, so the RHS alone is enough for \"Yes\"."},{"id":"blossom-end-rot","n":46,"name":"Blossom end rot","fullName":"Blossom end rot","kind":"not a pest","whatItIs":"Not a disease. A sunken, leathery patch, greenish-brown to black, on the end of the fruit furthest from the stalk. It's caused by too little calcium reaching the fruit, almost always because of uneven watering rather than a shortage in the soil. Plants in pots and grow bags suffer most, and the first fruits of the season are often the worst.","goesForText":"Tomatoes most; also peppers, aubergines and sometimes squash.","crops":{"families":[],"names":["Tomato","Sweet Pepper","Chilli","Aubergine","Squash"]},"edible":{"verdict":"Partly","detail":"Cut away the dark end and eat the rest; use it fresh rather than preserving it.","category":"Partly"},"whatToDo":"Water regularly and evenly, never letting pots or grow bags dry out; in hot spells that can mean twice a day. Larger pots, border soil or an automatic watering system all help. Calcium sprays don't work. Affected fruit won't recover, so pick it off.","season":"Summer, while fruit is forming.","pics":["blossom-end-rot-1"],"sources":"RHS, Blossom end rot. Montana State University Extension, Blossom-end rot (still edible; cut off the damaged part). UC Cooperative Extension Stanislaus County, Prevent blossom-end rot (cut out the affected part)."},{"id":"magnesium-deficiency","n":47,"name":"Magnesium deficiency","fullName":"Magnesium deficiency","kind":"not a pest","whatItIs":"Not a disease. The leaves go yellow between the veins while the veins stay green, sometimes with reddish or orange tints, starting on the older, lower leaves. It's common on tomatoes fed heavily with high-potash tomato feed, which blocks magnesium uptake, and on light, sandy or acid soils after heavy rain or overwatering.","goesForText":"Tomatoes most; also potatoes, and other crops on light, acid soils.","crops":{"families":[],"names":["Tomato","Potato","First Early Potato","Second Early Potato","Maincrop Potato"]},"edible":{"verdict":"Yes","detail":"Only the leaves are affected; the fruit and tubers are fine.","category":"Yes"},"whatToDo":"Spray the leaves with Epsom salts (magnesium sulphate) dissolved in water for a quick fix, and water some into the root area. Don't overdo high-potash tomato feed. On poor soils, use a general fertiliser that contains magnesium.","season":"Summer, once plants start to flower and set fruit.","pics":["magnesium-deficiency-1"],"sources":"No RHS page found. Rutgers Cooperative Extension, Magnesium deficiency in tomato (yellowing between the veins of older leaves; corrected with Epsom salts). University of Minnesota Extension, Magnesium for Minnesota soils (potatoes on acid, sandy soils). Alabama Cooperative Extension, Magnesium important to vegetable growth (symptoms start on older leaves). The eaten part isn't affected, so these descriptions are enough for \"Yes\"."}],"picInfo":{"allium-leaf-miner-1":{"caption":"Lines of white dots on a leaf","credit":"Jochen Kreiselmaier, DLR Rheinpfalz","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Porree_Lauchminierfliege-Fra%C3%9Fp%C3%BCnktchen-Zwiebel-DLR-NW-jk.jpg","changes":"Cropped and resized"},"allium-leaf-miner-2":{"caption":"Brown pupa inside a leek","credit":"kitbeard","license":"CC BY 4.0","licenseUrl":"https://creativecommons.org/licenses/by/4.0","page":"https://commons.wikimedia.org/wiki/File:Onion_leaf_miner_pupa_in_leek.jpg","changes":"Cropped and resized"},"allium-rust-1":{"caption":"Orange pustules on a leek leaf","credit":"A.J. Stanton","license":"CC BY 4.0","licenseUrl":"https://creativecommons.org/licenses/by/4.0","page":"https://commons.wikimedia.org/wiki/File:Puccinia_porri_(11).png","changes":"Cropped and resized"},"american-gooseberry-mildew-1":{"caption":"Mildew on a gooseberry","credit":"Darijanus","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Ribes_uva-crispa_-_fruit_mildew_advanced.jpg","changes":"Cropped and resized"},"aphids-1":{"caption":"Blackfly on a broad bean","credit":"Rob Hille","license":"Public domain","licenseUrl":"","page":"https://commons.wikimedia.org/wiki/File:Aphis_fabae_Scopoli_RH_(4).jpg","changes":"Cropped and resized"},"apple-scab-1":{"caption":"Scab on apples","credit":"Rasbak","license":"CC BY-SA 3.0","licenseUrl":"http://creativecommons.org/licenses/by-sa/3.0/","page":"https://commons.wikimedia.org/wiki/File:Schurft_bij_appel_(Venturia_inaequalis_on_Malus_domestica_%27Schone_van_Boskoop%27).jpg","changes":"Cropped and resized"},"asparagus-beetle-1":{"caption":"Adult asparagus beetle","credit":"Keith Edkins","license":"CC BY-SA 3.0","licenseUrl":"http://creativecommons.org/licenses/by-sa/3.0/","page":"https://commons.wikimedia.org/wiki/File:Crioceris_asparagi.jpg","changes":"Cropped and resized"},"asparagus-beetle-2":{"caption":"Asparagus beetle larva","credit":"Luc hoogenstein","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Aspergehaantje;_crioceris_asparagi;_common_asparagus_beetle_01.jpg","changes":"Cropped and resized"},"bean-rust-1":{"caption":"Rust on broad bean leaves","credit":"Cwmhiraeth","license":"CC BY-SA 3.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/3.0","page":"https://commons.wikimedia.org/wiki/File:Uromyces_viciae-fabae.jpg","changes":"Cropped and resized"},"blight-1":{"caption":"Blight on potato leaves","credit":"Jerzy Opioła","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Phytophthora_infestans_a1_(2).jpg","changes":"Cropped and resized"},"blight-2":{"caption":"Blight on tomatoes","credit":"Downtowngal","license":"CC BY-SA 3.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/3.0","page":"https://commons.wikimedia.org/wiki/File:Tomato_with_Phytophthora_infestans_(late_blight).jpg","changes":"Cropped and resized"},"blossom-end-rot-1":{"caption":"Blossom end rot on a tomato","credit":"Fructibus","license":"CC0","licenseUrl":"http://creativecommons.org/publicdomain/zero/1.0/deed.en","page":"https://commons.wikimedia.org/wiki/File:Blossom_end_rot_tomato_2017_A.jpg","changes":"Cropped and resized"},"brown-rot-1":{"caption":"Brown rot on an apple","credit":"Sanja565658","license":"CC BY-SA 3.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/3.0","page":"https://commons.wikimedia.org/wiki/File:Monilinia_fructigena_01.JPG","changes":"Cropped and resized"},"cabbage-caterpillars-1":{"caption":"Large white caterpillars","credit":"Kenneth Allen","license":"CC BY-SA 2.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/2.0","page":"https://commons.wikimedia.org/wiki/File:Large_White_(Pieris_brassicae)_Caterpillars,_Omagh_-_geograph.org.uk_-_3664347.jpg","changes":"Cropped and resized"},"cabbage-caterpillars-2":{"caption":"Caterpillar holes in broccoli leaves","credit":"Whitney Cranshaw, Colorado State University, Bugwood.org","license":"CC BY 4.0","licenseUrl":"https://creativecommons.org/licenses/by/4.0","page":"https://commons.wikimedia.org/wiki/File:Brokkoli_Cabbage_white,_Fra%C3%9Fschaden_des_Kleinen_Kohlwei%C3%9Flings._Whitney_Cranshaw,_Colorado_State_University,_Bugwood.org.jpg","changes":"Cropped (photo number trimmed off) and resized"},"cabbage-root-fly-1":{"caption":"Maggot at the root","credit":"Rasbak","license":"CC BY-SA 3.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/3.0","page":"https://commons.wikimedia.org/wiki/File:Delia_radicum,_koolvlieg_made.jpg","changes":"Cropped and resized"},"cabbage-root-fly-2":{"caption":"Tunnelled turnip","credit":"Schlaghecken Josef","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Brassica_rapa_ssp._rapa_-Herbstr%C3%BCbe-_mit_Kohlfliegen_Maden_Schaden.jpg","changes":"Cropped and resized"},"cabbage-whitefly-1":{"caption":"Adults and young under a kale leaf","credit":"Rasbak","license":"CC BY-SA 3.0","licenseUrl":"http://creativecommons.org/licenses/by-sa/3.0/","page":"https://commons.wikimedia.org/wiki/File:Aleyrodes_proletella_op_Boerenkool.jpg","changes":"Cropped and resized"},"carrot-fly-1":{"caption":"Maggot on a carrot","credit":"Rasbak","license":"CC BY-SA 3.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/3.0","page":"https://commons.wikimedia.org/wiki/File:Psila_rosae_maggot,_wortelvlieg_made.jpg","changes":"Cropped and resized"},"carrot-fly-2":{"caption":"Adult carrot fly","credit":"Emanuele Santarelli","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Chamaepsila_rosae_234649306.jpg","changes":"Cropped and resized"},"celery-leaf-miner-1":{"caption":"Mined leaves","credit":"Jowaninpensans","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Euleia_heraclei_mines.jpg","changes":"Cropped and resized"},"celery-leaf-miner-2":{"caption":"Adult fly","credit":"Sandy from Scotland","license":"CC BY 2.0","licenseUrl":"https://creativecommons.org/licenses/by/2.0","page":"https://commons.wikimedia.org/wiki/File:Euleia_heraclei_2.jpg","changes":"Cropped and resized"},"chocolate-spot-1":{"caption":"Chocolate spot on broad bean leaves","credit":"Rasbak","license":"CC BY-SA 3.0","licenseUrl":"http://creativecommons.org/licenses/by-sa/3.0/","page":"https://commons.wikimedia.org/wiki/File:Tuinboon_Chocoladevlekkenziekte.jpg","changes":"Cropped and resized"},"clubroot-1":{"caption":"Swollen, knobbly roots","credit":"Rasbak","license":"CC BY-SA 3.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/3.0","page":"https://commons.wikimedia.org/wiki/File:Plasmodiophora_brassicae_on_cauliflower,_Knolvoet_bij_bloemkool_(6).jpg","changes":"Cropped and resized"},"codling-moth-1":{"caption":"Caterpillar inside an apple","credit":"Doug Wilson","license":"Public domain","licenseUrl":"","page":"https://commons.wikimedia.org/wiki/File:Madige-Apfel-Frucht.jpg","changes":"Cropped and resized"},"common-scab-1":{"caption":"Scab on a potato","credit":"JasonG1313","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Streptomyces_Scabies.jpg","changes":"Cropped and resized"},"cucumber-mosaic-virus-1":{"caption":"Mottled leaves on a squash plant","credit":"Dr. Parthasarathy Seethapathy, Amrita School of Agricultural Sciences","license":"CC BY 3.0","licenseUrl":"https://creativecommons.org/licenses/by/3.0","page":"https://commons.wikimedia.org/wiki/File:K%C3%BCrbis_Cucumber_mosaic_virus_-_Dr._Parthasarathy_Seethapathy,_Amrita_School_of_Agricultural_Sciences.jpg","changes":"Cropped (photo number trimmed off) and resized"},"cutworms-1":{"caption":"A cutworm caterpillar","credit":"USGS Bee Inventory and Monitoring Lab","license":"Public domain","licenseUrl":"","page":"https://commons.wikimedia.org/wiki/File:Agrotis_ipsilon_(black_cutworm),_side_2014-06-04-19.42.51_ZS_PMax_(15752867389).jpg","changes":"Resized, with a black border added"},"damping-off-1":{"caption":"Seedlings collapsing in a pot","credit":"Roswitha Ulrich, Pflanzenschutzdienst","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Basilikum_Pythium-1--Roswitha_Ulrich.jpg","changes":"Cropped and resized"},"downy-mildew-1":{"caption":"Downy mildew on an onion leaf","credit":"Jochen Kreiselmaier, DLR Rheinpfalz","license":"CC BY 4.0","licenseUrl":"https://creativecommons.org/licenses/by/4.0","page":"https://commons.wikimedia.org/wiki/File:Falscher_Mehltau_2_(Peronospora_destructor)-DLR-NW-jk.jpg","changes":"Cropped and resized"},"flea-beetle-1":{"caption":"Flea beetles and pitted rocket leaves","credit":"Schlaghecken Josef","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Rucola_Erdfl%C3%B6he-5-Josef_Schlaghecken.jpg","changes":"Cropped and resized"},"glasshouse-whitefly-1":{"caption":"Adult glasshouse whitefly","credit":"Dr. Guido Bohne","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Trialeurodes_vaporariorum_34941498.jpg","changes":"Cropped and resized"},"gooseberry-sawfly-1":{"caption":"Gooseberry sawfly larvae","credit":"Jonny Vatne","license":"CC BY-SA 3.0","licenseUrl":"http://creativecommons.org/licenses/by-sa/3.0/","page":"https://commons.wikimedia.org/wiki/File:Nematus_ribesii.jpg","changes":"Cropped and resized"},"grey-mould-1":{"caption":"Grey mould on a strawberry","credit":"Rasbak","license":"CC BY-SA 3.0","licenseUrl":"http://creativecommons.org/licenses/by-sa/3.0/","page":"https://commons.wikimedia.org/wiki/File:Aardbei_Lambada_vruchtrot_Botrytis_cinerea.jpg","changes":"Cropped and resized"},"halo-blight-1":{"caption":"Small brown spots with yellow halos on bean leaves","credit":"Howard F. Schwartz, Colorado State University, Bugwood.org","license":"CC BY 3.0 US","licenseUrl":"https://creativecommons.org/licenses/by/3.0/us/","page":"https://www.ipmimages.org/browse/detail.cfm?imgnum=5359863","changes":"Cropped and resized; Bugwood image number removed"},"halo-blight-2":{"caption":"Greasy, water-soaked spots on a bean pod","credit":"Howard F. Schwartz, Colorado State University, Bugwood.org","license":"CC BY 3.0 US","licenseUrl":"https://creativecommons.org/licenses/by/3.0/us/","page":"https://www.ipmimages.org/browse/detail.cfm?imgnum=5361426","changes":"Cropped and resized; Bugwood image number removed"},"leatherjackets-1":{"caption":"Leatherjacket","credit":"B. Schoenmakers (waarneming.nl)","license":"CC BY 3.0","licenseUrl":"https://creativecommons.org/licenses/by/3.0","page":"https://commons.wikimedia.org/wiki/File:Tipulidae_indet._(Tipulidae)_(Unidentified_Cranefly)_-_(larva),_Elst_(Gld),_the_Netherlands.jpg","changes":"Cropped and resized"},"leek-moth-1":{"caption":"Leek moth caterpillar","credit":"Patrick Clement","license":"CC BY 2.0","licenseUrl":"https://creativecommons.org/licenses/by/2.0","page":"https://commons.wikimedia.org/wiki/File:19.011_BF473_Leek_Moth,_Acrolepiopsis_assectella,_larva._(7000435603).jpg","changes":"Cropped and resized"},"leek-moth-2":{"caption":"Adult leek moth","credit":"Ben Sale from UK","license":"CC BY 2.0","licenseUrl":"https://creativecommons.org/licenses/by/2.0","page":"https://commons.wikimedia.org/wiki/File:(0473)_Acrolepiopsis_assectella_(14700679938).jpg","changes":"Cropped and resized"},"magnesium-deficiency-1":{"caption":"Yellow between the veins on tomato leaves","credit":"Bruce Watt, University of Maine, Bugwood.org","license":"CC BY-NC 3.0 US","licenseUrl":"https://creativecommons.org/licenses/by-nc/3.0/us/","page":"https://www.ipmimages.org/browse/detail.cfm?imgnum=5507226","changes":"Cropped and resized; Bugwood image number removed"},"mealy-cabbage-aphid-1":{"caption":"Grey waxy clusters on a kale stem","credit":"Rasbak","license":"CC BY-SA 3.0","licenseUrl":"http://creativecommons.org/licenses/by-sa/3.0/","page":"https://commons.wikimedia.org/wiki/File:Melige_koolluis_op_boerenkool_(Brevicoryne_brassicae_on_curley_kale).jpg","changes":"Cropped and resized"},"mice-1":{"caption":"Wood mouse","credit":"Rasbak","license":"CC BY-SA 3.0","licenseUrl":"http://creativecommons.org/licenses/by-sa/3.0/","page":"https://commons.wikimedia.org/wiki/File:Apodemus_sylvaticus_bosmuis.jpg","changes":"Cropped and resized"},"onion-fly-1":{"caption":"Maggots in an onion bulb","credit":"Rasbak","license":"CC BY-SA 3.0","licenseUrl":"http://creativecommons.org/licenses/by-sa/3.0/","page":"https://commons.wikimedia.org/wiki/File:Uienvlieg_maden.jpg","changes":"Cropped and resized"},"onion-white-rot-1":{"caption":"White mould at the base of an onion","credit":"Jochen Kreiselmaier, DLR Rheinpfalz","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Zwiebel_Mehlkrankheit-2-Stromatinia_cepivora-DLR-NW-jk.jpg","changes":"Cropped and resized"},"pea-and-bean-weevil-1":{"caption":"Notched leaf edges","credit":"Schlaghecken Josef","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Erbsen_Blattrandk%C3%A4fer_Fra%C3%9F-JS.jpg","changes":"Cropped and resized"},"pea-and-bean-weevil-2":{"caption":"Adult weevil","credit":"Поляков Александр","license":"CC BY 4.0","licenseUrl":"https://creativecommons.org/licenses/by/4.0","page":"https://commons.wikimedia.org/wiki/File:Sitona_lineatus_294670396_(cropped).jpg","changes":"Cropped and resized"},"pea-moth-1":{"caption":"Caterpillar damage in a pea","credit":"Forstmeister","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Erbsenwickler-raupe-20230713_120453-EDIT.jpg","changes":"Cropped and resized"},"peach-leaf-curl-1":{"caption":"Red, puckered leaves","credit":"Giancarlo Dessì","license":"CC BY-SA 3.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/3.0","page":"https://commons.wikimedia.org/wiki/File:Taphrina_deformans_1.jpg","changes":"Cropped and resized"},"pigeons-1":{"caption":"Woodpigeon","credit":"Alexis LOURS","license":"CC BY 2.0","licenseUrl":"https://creativecommons.org/licenses/by/2.0","page":"https://commons.wikimedia.org/wiki/File:Common_Wood_Pigeon_facing_left.jpg","changes":"Cropped and resized"},"potato-cyst-eelworm-1":{"caption":"Cysts on potato roots","credit":"Xiaohong Wang","license":"Public domain","licenseUrl":"","page":"https://commons.wikimedia.org/wiki/File:PotatoNematodeCysts.jpg","changes":"Cropped and resized"},"powdery-mildew-1":{"caption":"Powdery mildew on a courgette leaf","credit":"Dmitry Brant","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Powdery_mildew_9.jpg","changes":"Cropped and resized"},"red-spider-mite-1":{"caption":"Mites and webbing on a tomato","credit":"Clemson University – USDA Cooperative Extension Slide Series, Bugwood.org","license":"CC BY 3.0 us","licenseUrl":"https://creativecommons.org/licenses/by/3.0/us/deed.en","page":"https://commons.wikimedia.org/wiki/File:Solanum_lycopersicum_-_spider_mite_-Clemson_University_-_USDA.jpg","changes":"Cropped (photo number trimmed off) and resized"},"red-spider-mite-2":{"caption":"Mite with silk threads (red autumn form)","credit":"Gilles San Martin","license":"CC BY-SA 2.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/2.0","page":"https://commons.wikimedia.org/wiki/File:Tetranychus_urticae_with_silk_threads.jpg","changes":"Cropped and resized"},"slugs-and-snails-1":{"caption":"Slug and holed courgette leaf","credit":"Schlaghecken Josef","license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0","page":"https://commons.wikimedia.org/wiki/File:Zucchini_Schneckenbefall-Josef_Schlaghecken.jpg","changes":"Cropped and resized"},"slugs-and-snails-2":{"caption":"Grey field slug","credit":"Bruce Marlin","license":"CC BY-SA 3.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/3.0","page":"https://commons.wikimedia.org/wiki/File:Deroceras_reticulatum.JPG","changes":"Cropped and resized"},"thrips-1":{"caption":"Adult thrips, magnified","credit":"Alton N. Sparks, Jr., University of Georgia, Bugwood.org","license":"CC BY 3.0 us","licenseUrl":"https://creativecommons.org/licenses/by/3.0/us/deed.en","page":"https://commons.wikimedia.org/wiki/File:Thrips_tabaci,_Frankliniella_occidentalis.jpg","changes":"Cropped and resized"},"wireworm-1":{"caption":"Wireworm","credit":"Danny Steaven","license":"CC BY-SA 3.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/3.0","page":"https://commons.wikimedia.org/wiki/File:Agriotes-lineatus-011.jpg","changes":"Cropped and resized"}}};
+const BUGID_BY_ID = Object.fromEntries(BUGID.problems.map(p=>[p.id, p]));
+// "Same group only" entries, spelled out from each entry's own note: only beds growing the same
+// group as the crop it was found on are at risk.
+const BUGID_SAME_GROUPS = {
+'downy-mildew': [{families:['Brassicas']}, {names:['Lettuce','Winter Lettuce']}, {names:['Onion','Autumn Onion','Shallot','Autumn Shallot']}],
+'powdery-mildew': [{families:['Cucurbits']}, {names:['Pea','Autumn Pea','Maincrop Pea']}],
+'bean-rust': [{names:['Broad Bean','Autumn Broad Bean']}, {names:['French Bean','Runner Bean']}]
+};
+// Other names an older, typed-in Problems entry might use for the same thing.
+const BUGID_ALIASES = {
+'clubroot':['club root'], 'onion-white-rot':['white rot'], 'potato-cyst-eelworm':['eelworm','pcn'],
+'wireworm':['wire worm','wireworms'], 'slugs-and-snails':['slugs','slug','snails','snail'],
+'aphids':['aphid','greenfly','blackfly'], 'cabbage-caterpillars':['caterpillars','caterpillar','cabbage white'],
+'leatherjackets':['leatherjacket'], 'cutworms':['cutworm'], 'flea-beetle':['flea beetles']
+};
+// The damping off tip is about seed trays and compost, so it only shows when sowing into a tray.
+const BUGID_TRAY_ONLY_TIPS = ['damping-off'];
+function bugidWords(s){ return ' '+String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()+' '; }
+function bugidTextMentions(text, p){
+if(!text) return false;
+const t = bugidWords(text);
+return [p.name, ...(BUGID_ALIASES[p.id]||[])].some(w=>t.includes(bugidWords(w)));
+}
+// A crop name matches a listed name if it is that name, or that name then a space and a variety -
+// so "Tomato Gardener's Delight" matches "Tomato" but "Peach" never matches "Pea".
+function bugidNameMatches(name, list){
+const n = String(name||'').toLowerCase().trim();
+if(!n) return false;
+return (list||[]).some(x=>{ const l = x.toLowerCase(); return n===l || n.startsWith(l+' '); });
+}
+// What a crop is, for matching: its own name and family, plus the built-in crop it's a variety of.
+function bugidCropInfo(cropOrName){
+if(!cropOrName) return null;
+const name = typeof cropOrName==='string' ? cropOrName.trim() : (cropOrName.name||'');
+if(!name) return null;
+const own = typeof cropOrName==='string' ? STATE.crops.find(c=>c.name.toLowerCase()===name.toLowerCase()) : cropOrName;
+const {crop:m, confident} = matchCropWithConfidence(name);
+let matched = (m && confident) ? m : null;
+// A near-miss spelling match is fine ("Brussel Sprouts"), but not one that's really a different
+// word starting the same way: "Peach" is not a kind of "Pea".
+if(matched){
+const n = name.toLowerCase(), mn = matched.name.toLowerCase();
+if(n.startsWith(mn) && /[a-z]/.test(n.charAt(mn.length))) matched = null;
+}
+return {name, family:(own && own.family) || (matched && matched.family) || null, alsoName: matched ? matched.name : null};
+}
+function bugidCropsMatch(spec, info){
+if(!spec || !info) return false;
+if(spec.any) return true;
+if(info.family && (spec.families||[]).includes(info.family)) return true;
+return bugidNameMatches(info.name, spec.names) || bugidNameMatches(info.alsoName, spec.names);
+}
+function bugidPlaceName(obj, kind){
+if(kind==='beds') return obj.name || 'a bed';
+if(kind==='features') return obj.label || ((FEATURE_TYPES[obj.type] && FEATURE_TYPES[obj.type].label) || 'Container');
+const f = featureForTray(obj);
+const host = f ? (f.label || ((FEATURE_TYPES[f.type] && FEATURE_TYPES[f.type].label) || 'Greenhouse')) : (obj.location || 'Tray');
+return `${host}, tray${obj.number!=null?' #'+obj.number:''}`;
+}
+// Everything growing now, and where it is on the map (trays count as the structure they sit in).
+function bugidGrowingSpots(){
+const spots = [];
+const skip = c => !c || c.name==='Path' || c.name==='Fallow';
+for(const bed of STATE.beds) for(const p of (bed.plantings||[])){
+if(!p.active) continue; const c = cropById(p.cropId); if(skip(c)) continue;
+spots.push({crop:c, mapId:bed.id, place:bed.name||'Bed'});
+}
+for(const f of STATE.features) for(const p of (f.plantings||[])){
+if(!p.active) continue; const c = cropById(p.cropId); if(skip(c)) continue;
+spots.push({crop:c, mapId:f.id, place:bugidPlaceName(f,'features')});
+}
+for(const t of STATE.trays) for(const p of (t.plantings||[])){
+const c = cropById(p.cropId); if(skip(c)) continue;
+const f = featureForTray(t);
+spots.push({crop:c, mapId:f?f.id:null, place:f?bugidPlaceName(f,'features'):(t.location||'Trays')});
+}
+return spots;
+}
+// Watch out: the beds and containers growing something this problem goes for, from the crop list
+// and the entry's own crop list - never from guesswork.
+function bugidWatchOut(p, affected){
+if(!p || p.crops.any) return {names:[], ids:[]};
+let spots = bugidGrowingSpots().filter(s=>bugidCropsMatch(p.crops, bugidCropInfo(s.crop)));
+const groups = BUGID_SAME_GROUPS[p.id];
+if(groups && affected){
+const g = groups.find(gr=>bugidCropsMatch(gr, affected));
+if(g) spots = spots.filter(s=>bugidCropsMatch(g, bugidCropInfo(s.crop)));
+}
+const names = [...new Set(spots.map(s=>s.place))].sort((a,b)=>a.localeCompare(b, undefined, {numeric:true}));
+const ids = [...new Set(spots.map(s=>s.mapId).filter(Boolean))];
+return {names, ids};
+}
+function bugidAllPlaces(){
+return [...STATE.beds.map(o=>({obj:o, kind:'beds'})), ...STATE.features.map(o=>({obj:o, kind:'features'})), ...STATE.trays.map(o=>({obj:o, kind:'trays'}))];
+}
+// Has this problem been logged in this bed or container before, in any year? Picked entries match
+// by their id; older typed-in ones (a treatment's reason, or why a crop was cleared) by name.
+function bugidLoggedAt(obj, p){
+if(!obj) return false;
+if((obj.treatments||[]).some(t=>t.bugid===p.id || bugidTextMentions(t.reason, p) || bugidTextMentions(t.notes, p))) return true;
+return (obj.history||[]).some(h=>bugidTextMentions(h.reason, p) || bugidTextMentions(h.notes, p));
+}
+function bugidHadIds(){
+const had = new Set();
+for(const {obj} of bugidAllPlaces()) for(const p of BUGID.problems) if(!had.has(p.id) && bugidLoggedAt(obj, p)) had.add(p.id);
+for(const r of (STATE.settings.plotProblems||[])) if(r.bugid) had.add(r.bugid);
+for(const h of (STATE.settings.unplacedHistory||[])) for(const p of BUGID.problems) if(bugidTextMentions(h.reason, p)) had.add(p.id);
+return had;
+}
+/* ---- Pictures: one file, kept in its own small store on the device ---- */
+let bugidPics = null, bugidPicsLoading = null;
+function bugidStore(mode, fn){
+return new Promise((res)=>{
+let req;
+try{ req = indexedDB.open('allotmate-bugid', 1); }catch(e){ res(undefined); return; }
+req.onupgradeneeded = ()=>{ req.result.createObjectStore('files'); };
+req.onerror = ()=>res(undefined);
+req.onsuccess = ()=>{
+const dbx = req.result;
+try{
+const r = fn(dbx.transaction('files', mode).objectStore('files'));
+r.onsuccess = ()=>{ res(r.result); dbx.close(); };
+r.onerror = ()=>{ res(undefined); dbx.close(); };
+}catch(e){ res(undefined); dbx.close(); }
+};
+});
+}
+// Fetches bugid-pics.json when there's signal (at most once a day unless asked), keeping just the
+// pictures themselves. Without signal, or if the file isn't there, the list still works - just
+// without pictures.
+async function bugidRefreshPics(force){
+if(!navigator.onLine) return false;
+try{
+const checked = await bugidStore('readonly', s=>s.get('picsChecked'));
+if(!force && checked && Date.now()-checked < 24*60*60*1000) return false;
+const r = await fetch('bugid-pics.json', {cache:'no-cache'});
+if(!r.ok) return false;
+const d = await r.json();
+const pics = {};
+for(const [k,v] of Object.entries(d.pictures||{})) if(v && v.src) pics[k] = v.src;
+await bugidStore('readwrite', s=>s.put({version:d.version, pictures:pics}, 'pics'));
+await bugidStore('readwrite', s=>s.put(Date.now(), 'picsChecked'));
+bugidPics = pics;
+return true;
+}catch(e){ return false; }
+}
+function bugidLoadPics(){
+if(bugidPics) return Promise.resolve(bugidPics);
+if(!bugidPicsLoading) bugidPicsLoading = (async ()=>{
+const rec = await bugidStore('readonly', s=>s.get('pics'));
+if(rec && rec.pictures) bugidPics = rec.pictures;
+else await bugidRefreshPics(true);
+bugidPicsLoading = null;
+return bugidPics;
+})();
+return bugidPicsLoading;
+}
+/* ---- Logging ---- */
+async function bugidLogOnPlot(p){
+const rec = {id:uid(), bugid:p.id, name:p.name, date:todayISO(), by:who()};
+await setMeta('plotProblems', [...(STATE.settings.plotProblems||[]), rec]);
+await afterChange();
+return rec;
+}
+async function bugidLogOnCrop(p, kind, objId, plantingId){
+const obj = plantableById(kind, objId); if(!obj) return null;
+const pl = (obj.plantings||[]).find(x=>x.id===plantingId);
+const crop = pl ? cropById(pl.cropId) : null;
+const rec = {id:uid(), type:'Problem', date:todayISO(), notes:'', reason:p.name, bugid:p.id, by:who(), plantingId};
+if(crop) rec.cropName = crop.name;
+obj.treatments = obj.treatments||[];
+obj.treatments.push(rec);
+await savePlantable(kind, obj); await afterChange();
+return rec;
+}
+// Every picked entry, newest first: those logged on a crop, and those from the Crops tab.
+function gatherBugidLogs(){
+const rows = [];
+for(const {obj, kind} of bugidAllPlaces()){
+for(const t of (obj.treatments||[])){
+if(!t.bugid) continue;
+const pl = (obj.plantings||[]).find(x=>x.id===t.plantingId);
+const c = pl ? cropById(pl.cropId) : null;
+const cropName = (c && c.name) || t.cropName || '';
+rows.push({date:t.date, name:t.reason || (BUGID_BY_ID[t.bugid]||{}).name || 'Problem', bugid:t.bugid,
+where:[cropName, bugidPlaceName(obj, kind)].filter(Boolean).join(' · '), kind, objId:obj.id, plantingId:t.plantingId, recId:t.id});
+}
+}
+for(const r of (STATE.settings.plotProblems||[])) rows.push({date:r.date, name:r.name, bugid:r.bugid, where:'Around the plot', plotRecId:r.id});
+return rows.sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+}
+function renderBugidLogsInto(el){
+const rows = gatherBugidLogs();
+if(!rows.length){ el.innerHTML = ''; return; }
+el.innerHTML = `<div class="row-heading" style="margin-top:0;">Logged</div>` + rows.map((r,i)=>`<div class="planting-row tappable" data-buglogrow="${i}"><span class="pname">${escapeHTML(r.name)}</span><span class="pdate">${escapeHTML(r.where)} · ${dayLabel(r.date)}</span></div>`).join('')
++ `<div class="row-heading">Soil warnings</div>`;
+el.querySelectorAll('[data-buglogrow]').forEach(d=>d.addEventListener('click', ()=>{
+const r = rows[parseInt(d.dataset.buglogrow)];
+openBugidSheet(r.bugid, {kind:r.kind, objId:r.objId, plantingId:r.plantingId, recId:r.recId, plotRecId:r.plotRecId});
+}));
+}
+/* ---- The list ---- */
+let bugidQuery = '';
+function bugidThumbHTML(p){
+const key = p.pics[0];
+const src = key && bugidPics ? bugidPics[key] : null;
+return `<span class="bug-thumb">${src?`<img src="${src}" alt="">`:''}</span>`;
+}
+function bugidRowHTML(p){ return `<div class="bug-row" data-pickbug="${p.id}">${bugidThumbHTML(p)}<span class="bug-name">${escapeHTML(p.name)}</span></div>`; }
+function bugidListRowsHTML(cropRecord, query){
+const q = String(query||'').trim().toLowerCase();
+if(q){
+const scored = BUGID.problems.map(p=>{
+const names = [p.name, p.fullName, ...(BUGID_ALIASES[p.id]||[])].join(' ').toLowerCase();
+const other = [p.goesForText, p.whatItIs].join(' ').toLowerCase();
+return {p, s: names.includes(q) ? 2 : (other.includes(q) ? 1 : 0)};
+}).filter(x=>x.s>0).sort((a,b)=>b.s-a.s);
+return scored.length ? scored.map(x=>bugidRowHTML(x.p)).join('') : `<p class="muted">Nothing on the list matches that.</p>`;
+}
+const used = new Set();
+const groups = [];
+const take = (title, list)=>{ const items = list.filter(p=>!used.has(p.id)); items.forEach(p=>used.add(p.id)); if(items.length) groups.push({title, items}); };
+if(cropRecord){
+const info = bugidCropInfo(cropRecord);
+take(`Goes for ${cropRecord.name}`, BUGID.problems.filter(p=>bugidCropsMatch(p.crops, info)));
+}
+const had = bugidHadIds();
+take('Had before', BUGID.problems.filter(p=>had.has(p.id)));
+const growing = bugidGrowingSpots().map(s=>bugidCropInfo(s.crop));
+const goesForGrowing = p => growing.some(g=>bugidCropsMatch(p.crops, g));
+take('Common problems', [...BUGID.problems.filter(goesForGrowing), ...BUGID.problems.filter(p=>!goesForGrowing(p))]);
+return groups.map(g=>`<div class="row-heading">${escapeHTML(g.title)}</div>${g.items.map(bugidRowHTML).join('')}`).join('');
+}
+// Draws the search box and list into el; onPick(problemId) is called when one is tapped.
+function renderBugidList(el, cropRecord, onPick){
+const hadFocus = document.activeElement && document.activeElement.id==='bugSearch';
+el.innerHTML = `<input type="text" id="bugSearch" placeholder="Search, e.g. whitefly" autocomplete="off" value="${escapeAttr(bugidQuery)}">
+<div id="bugRows">${bugidListRowsHTML(cropRecord, bugidQuery)}</div>`;
+const rowsEl = el.querySelector('#bugRows');
+const wireRows = ()=> rowsEl.querySelectorAll('[data-pickbug]').forEach(r=>r.addEventListener('click', ()=>onPick(r.dataset.pickbug)));
+wireRows();
+const input = el.querySelector('#bugSearch');
+input.addEventListener('input', ()=>{ bugidQuery = input.value; rowsEl.innerHTML = bugidListRowsHTML(cropRecord, bugidQuery); wireRows(); });
+if(hadFocus){ input.focus(); try{ input.setSelectionRange(input.value.length, input.value.length); }catch(e){} }
+if(!bugidPics) bugidLoadPics().then(pics=>{
+if(!pics || !el.isConnected) return;
+rowsEl.innerHTML = bugidListRowsHTML(cropRecord, bugidQuery); wireRows();
+});
+}
+// Route A: the Crops tab's own "What's this?" - nothing attached, logged as around the plot.
+function renderWhatsThisSubList(){
+const el = document.getElementById('whatsThisSubList'); if(!el) return;
+renderBugidList(el, null, async id=>{
+const p = BUGID_BY_ID[id]; if(!p) return;
+const rec = await bugidLogOnPlot(p);
+openBugidSheet(id, {plotRecId:rec.id});
+toast('Logged in History');
+});
+}
+// Route B: from a crop's own screen - "What's this on Kale?", logged against that crop.
+function openWhatsThisOnCrop(kind, objId, plantingId){
+const obj = plantableById(kind, objId); if(!obj){ goHome(); return; }
+const pl = (obj.plantings||[]).find(x=>x.id===plantingId);
+const crop = pl ? cropById(pl.cropId) : null;
+const cropName = (crop && crop.name) || 'this crop';
+const back = ()=> kind==='trays' ? openTrayPlantingInfo(objId, plantingId) : openPlantingInfo(objId, plantingId, kind);
+bugidQuery = '';
+openModal(`<button class="back-link" id="mBack">&larr; Back to ${escapeHTML(cropName)}</button>
+<h3>What's this on ${escapeHTML(cropName)}?</h3><div id="bugCropList"></div>`, true);
+document.getElementById('mBack').addEventListener('click', back);
+renderBugidList(document.getElementById('bugCropList'), crop, async id=>{
+const p = BUGID_BY_ID[id]; if(!p) return;
+const rec = await bugidLogOnCrop(p, kind, objId, plantingId);
+openBugidSheet(id, {kind, objId, plantingId, recId: rec && rec.id});
+toast(`Logged for ${cropName}`);
+});
+}
+/* ---- The short sheet ---- */
+// ctx: kind/objId/plantingId when it's about a particular crop; recId (a crop's entry) or plotRecId
+// (a Crops-tab entry) when it was opened from something logged; onBack to go somewhere other than
+// the crop's own screen (or simply closing, when there's no crop).
+function openBugidSheet(id, ctx){
+ctx = ctx || {};
+const p = BUGID_BY_ID[id]; if(!p){ closeModal(); return; }
+const obj = ctx.kind ? plantableById(ctx.kind, ctx.objId) : null;
+const pl = obj ? (obj.plantings||[]).find(x=>x.id===ctx.plantingId) : null;
+const crop = pl ? cropById(pl.cropId) : null;
+const goBack = ctx.onBack ? ctx.onBack
+: (pl ? ()=>(ctx.kind==='trays' ? openTrayPlantingInfo(ctx.objId, ctx.plantingId) : openPlantingInfo(ctx.objId, ctx.plantingId, ctx.kind)) : closeModal);
+const backLabel = (!ctx.onBack && crop) ? `Back to ${escapeHTML(crop.name)}` : 'Back';
+// An insecticide or pesticide logged on this crop since it went in: its label's wait applies.
+let sprayNote = '';
+if(obj && pl){
+const since = pl.date || pl.sownDate || '';
+const sprays = (obj.treatments||[]).filter(t=>(t.plantingId===pl.id || (!t.plantingId && !isPartTreatment(t))) && (t.type==='Insecticide' || t.type==='Pesticide') && (!since || !t.date || t.date>=since));
+if(sprays.length){
+const types = [...new Set(sprays.map(t=>t.type.toLowerCase()))].join(' and ');
+sprayNote = `<p class="bug-spray">You've logged ${types} on this crop: wait out the harvest interval on its label before picking.</p>`;
+}
+}
+const watch = bugidWatchOut(p, crop ? bugidCropInfo(crop) : null);
+let logLine = '';
+if(ctx.recId && obj){
+const t = (obj.treatments||[]).find(x=>x.id===ctx.recId);
+if(t) logLine = `Logged ${dayLabel(t.date)}${t.by?' by '+escapeHTML(t.by):''}`;
+} else if(ctx.plotRecId){
+const r = (STATE.settings.plotProblems||[]).find(x=>x.id===ctx.plotRecId);
+if(r) logLine = `Logged ${dayLabel(r.date)}${r.by?' by '+escapeHTML(r.by):''}, around the plot`;
+}
+const section = (label, text)=> text ? `<div class="bug-sec"><div class="bug-label">${label}</div><p>${escapeHTML(text)}</p></div>` : '';
+openModal(`<button class="back-link" id="mBack">&larr; ${backLabel}</button>
+<h3>${escapeHTML(p.fullName||p.name)}</h3>
+${p.pics.length?`<div class="bug-pics" id="bugPics"></div>`:''}
+<div class="bug-edible"><div class="bug-label">Still edible?</div><div class="bug-verdict">${escapeHTML(p.edible.verdict)}</div>${p.edible.detail?`<p>${escapeHTML(p.edible.detail)}</p>`:''}${sprayNote}</div>
+${section('What it is', p.whatItIs)}
+${section('Goes for', p.goesForText)}
+${section('What to do', p.whatToDo)}
+${section('When', p.season)}
+${watch.names.length?`<button class="btn bug-watch" id="bugWatch">Watch out: ${escapeHTML(watch.names.join(', '))}</button>`:''}
+<details class="timings" style="margin-top:14px;"><summary>Sources</summary><p class="tiny-muted" style="margin:8px 0 0;">${escapeHTML(p.sources)}</p></details>
+${logLine?`<p class="tiny-muted" style="margin-top:14px;">${logLine}</p><button class="btn small danger" id="bugRemoveLog">Remove from History</button>`:''}`, true);
+document.getElementById('mBack').addEventListener('click', goBack);
+const picsEl = document.getElementById('bugPics');
+const drawPics = ()=>{
+if(!picsEl || !picsEl.isConnected) return;
+const shown = p.pics.filter(k=>bugidPics && bugidPics[k]);
+picsEl.innerHTML = shown.map(k=>`<figure class="bug-pic"><img src="${bugidPics[k]}" alt="${escapeAttr((BUGID.picInfo[k]||{}).caption||'')}"><figcaption>${escapeHTML((BUGID.picInfo[k]||{}).caption||'')}</figcaption></figure>`).join('');
+picsEl.style.display = shown.length ? '' : 'none';
+picsEl.querySelectorAll('.bug-pic').forEach(f=>f.addEventListener('click', ()=>f.classList.toggle('big')));
+};
+if(picsEl){ if(bugidPics) drawPics(); else { picsEl.style.display='none'; bugidLoadPics().then(drawPics); } }
+const watchBtn = document.getElementById('bugWatch');
+if(watchBtn) watchBtn.addEventListener('click', ()=>{
+watchOutState = {name:p.name, names:watch.names, ids:new Set(watch.ids)};
+goHome();
+const area = document.getElementById('mapArea'); if(area) area.scrollIntoView({block:'start'});
+});
+const removeBtn = document.getElementById('bugRemoveLog');
+if(removeBtn) removeBtn.addEventListener('click', async ()=>{
+if(!(await confirmDialog(`Remove this ${p.name} entry from History?`, ()=>openBugidSheet(id, ctx), 'Remove', true))) return;
+if(ctx.plotRecId){
+await setMeta('plotProblems', (STATE.settings.plotProblems||[]).filter(x=>x.id!==ctx.plotRecId));
+} else if(obj){
+obj.treatments = (obj.treatments||[]).filter(x=>x.id!==ctx.recId);
+await recordTombstone(ctx.recId);
+await savePlantable(ctx.kind, obj);
+}
+await afterChange();
+toast('Removed');
+goBack();
+});
+}
+/* ---- Watch out on the map ---- */
+let watchOutState = null;
+function applyWatchOutToMap(){
+const bar = document.getElementById('watchOutBar');
+if(!watchOutState){ if(bar) bar.innerHTML = ''; return; }
+document.querySelectorAll('#mapCanvas .mapObj').forEach(el=>{ if(watchOutState.ids.has(el.dataset.id)) el.classList.add('watch-out'); });
+if(bar){
+bar.innerHTML = `<div class="alert" style="margin:10px 0 0;"><span style="flex:1;">Watch out for ${escapeHTML(watchOutState.name)}: ${escapeHTML(watchOutState.names.join(', '))}</span><button class="alert-dismiss" id="watchOutClear">✕</button></div>`;
+document.getElementById('watchOutClear').addEventListener('click', ()=>{ watchOutState = null; renderMap(); });
+}
+}
+/* ---- Sowing tips ---- */
+// Each gardener's "Got it" record, by name rather than device, so it follows them from phone to
+// iPad; other gardeners keep their own. n=1: tapped once (ignored - it shows again next time);
+// n=2: stopped for good.
+function bugidTipKey(tipId){ return `${who()||'me'}|${tipId}`; }
+function bugidTipCount(tipId){
+const r = (STATE.settings.tipsGotIt||[]).find(x=>x && x.id===bugidTipKey(tipId));
+return r ? (r.n||0) : 0;
+}
+async function bugidTipGotIt(tipId){
+const key = bugidTipKey(tipId);
+const n = Math.min(2, bugidTipCount(tipId)+1);
+const list = (STATE.settings.tipsGotIt||[]).filter(x=>!(x && x.id===key));
+list.push({id:key, n});
+await setMeta('tipsGotIt', list);
+}
+// opts.place: the bed or container being planted into (for the "where it's been" tips);
+// opts.tray: sowing into a tray.
+function bugidTipsFor(info, opts){
+opts = opts || {};
+if(!info) return [];
+if((STATE.settings.notifLevel||'advice')==='quiet') return [];
+const where = [], everyday = [];
+for(const p of BUGID.problems){
+const tip = p.sowingTip; if(!tip) continue;
+if(BUGID_TRAY_ONLY_TIPS.includes(p.id) && !opts.tray) continue;
+if(!bugidCropsMatch(tip.crops, info)) continue;
+if(tip.onlyWhereLogged){ if(opts.place && bugidLoggedAt(opts.place, p)) where.push({p, fixed:true}); continue; }
+if(bugidTipCount(p.id)>=2) continue;
+everyday.push({p, fixed:false});
+}
+return [...where, ...everyday];
+}
+function bugidTipText(p){ const t = p.sowingTip.text; return `${p.name}: ${t.charAt(0).toLowerCase()}${t.slice(1)}`; }
+// Fills box with the tips for whatever getInfo() says is being sown, and keeps it up to date.
+// Returns a function to call again when the crop changes.
+function wireBugidTips(box, getInfo, opts){
+if(!box) return ()=>{};
+const hiddenNow = new Set();
+let lastKey = null;
+// Only redrawn when the crop actually changes: leaving the name box (to tap Got it, say) fires a
+// change event, and redrawing then would swap the button out from under the finger.
+function render(force){
+const info = getInfo();
+const key = info ? [info.name, info.alsoName, info.family].join('|').toLowerCase() : '';
+if(force!==true && key===lastKey) return;
+lastKey = key;
+const tips = bugidTipsFor(info, opts).filter(x=>!hiddenNow.has(x.p.id));
+box.innerHTML = tips.map(x=>`<div class="bug-tip${x.fixed?' where':''}"><span>${escapeHTML(bugidTipText(x.p))}</span>${x.fixed?'':`<button type="button" class="btn small secondary" data-tipgotit="${x.p.id}">Got it</button>`}</div>`).join('');
+box.querySelectorAll('[data-tipgotit]').forEach(b=>b.addEventListener('click', async ()=>{
+hiddenNow.add(b.dataset.tipgotit);
+render(true);
+await bugidTipGotIt(b.dataset.tipgotit);
+}));
+}
+render();
+return render;
+}
+// For the sowing forms: tips follow the crop name as it's typed (or picked from the suggestions).
+function wireBugidTipsToInput(boxId, opts){
+const input = document.getElementById('mCropName');
+const box = document.getElementById(boxId);
+if(!input || !box) return;
+const render = wireBugidTips(box, ()=>bugidCropInfo(input.value), opts);
+input.addEventListener('input', render);
+input.addEventListener('change', render);
+const sug = document.getElementById('cropSuggestBox');
+if(sug) sug.addEventListener('click', ()=>setTimeout(render, 0));
+}
+/* ---- Help: picture credits ---- */
+function renderBugidCredits(){
+const el = document.getElementById('bugidCredits'); if(!el) return;
+const rows = [];
+for(const p of BUGID.problems) for(const k of p.pics){
+const c = BUGID.picInfo[k]; if(!c) continue;
+rows.push(`<p class="tiny-muted" style="margin:0 0 8px;"><strong>${escapeHTML(p.name)}</strong>, ${escapeHTML(c.caption)}: ${escapeHTML(c.credit)}, <a href="${escapeAttr(c.licenseUrl||c.page)}" target="_blank" rel="noopener">${escapeHTML(c.license)}</a>. <a href="${escapeAttr(c.page)}" target="_blank" rel="noopener">Original</a>${c.changes?'. '+escapeHTML(c.changes):''}.</p>`);
+}
+el.innerHTML = rows.join('');
+}
+/* ---- Weather warnings: ✕ stays dismissed ---- */
+// Every warning's key carries its date, so a dismissed one can't hide a later warning; keys more
+// than a week old are dropped.
+function pruneDismissedAlertKeys(keys){
+const cutoff = addDays(todayISO(), -7);
+return (keys||[]).filter(k=>{ const m = String(k).match(/\d{4}-\d{2}-\d{2}/); return m ? m[0]>=cutoff : false; }).slice(-200);
+}
+async function saveDismissedAlertKeys(){
+const keys = pruneDismissedAlertKeys([...dismissedAlertKeys]);
+dismissedAlertKeys = new Set(keys);
+await setMeta('dismissedAlertKeys', keys);
+}
 /* ======================= INIT ======================= */
 async function backfillMissingPositions(){
 let changed = false;
@@ -11740,7 +12272,7 @@ joinFromInvite(su, sk, sc, sn);
 // remembers how to open it again; every one of them looks its bed/crop/tray up fresh when it runs.
 // Forms that are part-way through being filled in (adding a treatment, harvesting, sowing...) are
 // deliberately left off - after an undo those go back to the screen they were opened from.
-['openEditTask','openEditNote','openObjectDetail','openCompostBatchDetail','openUsedOnSpot','openCompostScreen','openFeatureDetail','openContainerDetail','openBedDetail','openPlantingInfo','openEditTrayDetails','openEditPlanting','openTreeDetail','openStructureDetail','openTrayOrPlanting','openTrayInfo','openTrayPlantingInfo','openChangeTier','openSowIntoContainer','openEditWishlistItem','openEditCrop','openHistoryDetail','openRemovedHistoryDetail','openProblemDetail','openGhostDetail','openPlanningMapBedDetail'].forEach(name=>{
+['openEditTask','openEditNote','openObjectDetail','openCompostBatchDetail','openUsedOnSpot','openCompostScreen','openFeatureDetail','openContainerDetail','openBedDetail','openPlantingInfo','openEditTrayDetails','openEditPlanting','openTreeDetail','openStructureDetail','openTrayOrPlanting','openTrayInfo','openTrayPlantingInfo','openChangeTier','openSowIntoContainer','openEditWishlistItem','openEditCrop','openHistoryDetail','openRemovedHistoryDetail','openProblemDetail','openGhostDetail','openPlanningMapBedDetail','openBugidSheet','openWhatsThisOnCrop'].forEach(name=>{
 const orig = window[name];
 if(typeof orig!=='function') return;
 window[name] = function(...args){ currentScreenReopen = ()=>orig(...args); return orig(...args); };
@@ -11752,6 +12284,10 @@ await backfillMissingPositions();
 if(await clocheSameDayCleanup()) await loadAll();
 lastSnapshot = snapshotState();
 renderAll();
+renderBugidCredits();
+// The pest pictures are fetched quietly in the background whenever there's signal, so they're
+// already on the device when the list is opened at the plot.
+if(navigator.onLine) setTimeout(()=>bugidRefreshPics(false), 5000);
 // If we're offline right at launch (exactly your airplane-mode test), fetchWeather() never even
 // gets called - so without this, the offline snapshot would sit there unused and the screen
 // would just stay blank. Show it directly in that case instead.
@@ -11771,6 +12307,7 @@ if(STATE.settings.syncCode && STATE.settings.syncUrl && STATE.settings.syncKey &
 connectSync(STATE.settings.syncUrl, STATE.settings.syncKey, STATE.settings.syncCode).catch(()=>{});
 }
 checkAutoBackup();
+bugidRefreshPics(false);
 });
 window.addEventListener('resize', ()=>{ if(document.getElementById('view-map').classList.contains('active')) renderMap(); });
 })();
