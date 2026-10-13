@@ -352,7 +352,8 @@ html, body{background:#fff !important;}
 .bug-row:active{opacity:0.7;}
 .bug-thumb{width:56px; height:42px; border-radius:6px; background:var(--paper-dark); border:1px solid var(--line-soft); overflow:hidden; flex-shrink:0;}
 .bug-thumb img{width:100%; height:100%; object-fit:cover; display:block;}
-.bug-name{font-size:18px; font-weight:600;}
+.bug-name{font-size:18px; font-weight:600; flex:1; min-width:0;}
+.bug-why{display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; font-size:15px; font-weight:400; opacity:0.85; margin-top:2px;}
 .bug-pics{display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 12px;}
 .bug-pic{flex:1 1 0; min-width:0; margin:0; cursor:pointer;}
 .bug-pic.big{flex-basis:100%;}
@@ -369,6 +370,8 @@ html, body{background:#fff !important;}
 .mapObj.watch-out{outline:3px solid var(--brick); outline-offset:0; z-index:4;}
 .bug-tip{display:flex; align-items:center; gap:10px; font-size:16.5px; background:#EDF2E6; border-left:4px solid var(--leaf); padding:8px 10px; border-radius:var(--radius); margin-bottom:8px;}
 .bug-tip span{flex:1;}
+.bug-where-row{display:flex; align-items:flex-start; gap:12px; padding:10px 0; border-bottom:1px solid var(--line-soft); font-weight:400; cursor:pointer;}
+.bug-where-row input{width:22px; height:22px; margin-top:2px; flex-shrink:0;}
 .bug-tip.where{background:#F7E9E4; border-left-color:var(--brick); color:var(--brick);}
 </style>
 </head>
@@ -785,7 +788,7 @@ html, body{background:#fff !important;}
 </section>
 <section class="panel">
 <h2>What's this? (pests and diseases)</h2>
-<p class="muted">Crops → What's this? lists common allotment pests and diseases, with pictures. Pick one to see whether the crop is still edible and what to do about it, and it goes into History → Problems. From a crop's own screen, What's this? notes it against that crop. Watch out shows which beds grow something it goes for.</p>
+<p class="muted">Crops → What's this? lists common allotment pests and diseases, with pictures. Search by describing what you see — what it looks like, its colour and size, and where on the plant (“small white fly”, “orange spots on leeks”). Open one to compare the pictures and see whether the crop is still edible and what to do. If it matches, tap Yes, it's this, then tick where it is (or pick it on the map) and it goes into History → Problems. From a crop's own screen, that crop is already ticked. Watch out shows which beds grow something it goes for.</p>
 <p class="muted">When you sow or plant something that needs a pest tip, it shows on that screen, unless Setup → Alerts and tips is set to Just the facts. Tap Got it twice, on different days, and that tip stops for you. Tips about something already in that bed's soil always show.</p>
 <details class="timings"><summary>Picture credits</summary><div id="bugidCredits" style="margin-top:8px;"></div></details>
 </section>
@@ -806,7 +809,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.13.5';
+const APP_VERSION = '2026.10.13.7';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -11776,16 +11779,16 @@ const spots = [];
 const skip = c => !c || c.name==='Path' || c.name==='Fallow';
 for(const bed of STATE.beds) for(const p of (bed.plantings||[])){
 if(!p.active) continue; const c = cropById(p.cropId); if(skip(c)) continue;
-spots.push({crop:c, mapId:bed.id, place:bed.name||'Bed'});
+spots.push({crop:c, mapId:bed.id, place:bed.name||'Bed', kind:'beds', objId:bed.id, plantingId:p.id});
 }
 for(const f of STATE.features) for(const p of (f.plantings||[])){
 if(!p.active) continue; const c = cropById(p.cropId); if(skip(c)) continue;
-spots.push({crop:c, mapId:f.id, place:bugidPlaceName(f,'features')});
+spots.push({crop:c, mapId:f.id, place:bugidPlaceName(f,'features'), kind:'features', objId:f.id, plantingId:p.id});
 }
 for(const t of STATE.trays) for(const p of (t.plantings||[])){
 const c = cropById(p.cropId); if(skip(c)) continue;
 const f = featureForTray(t);
-spots.push({crop:c, mapId:f?f.id:null, place:f?bugidPlaceName(f,'features'):(t.location||'Trays')});
+spots.push({crop:c, mapId:f?f.id:null, place:f?bugidPlaceName(f,'features'):(t.location||'Trays'), kind:'trays', objId:t.id, plantingId:p.id, trayPlace:bugidPlaceName(t,'trays')});
 }
 return spots;
 }
@@ -11869,23 +11872,6 @@ return bugidPics;
 return bugidPicsLoading;
 }
 /* ---- Logging ---- */
-async function bugidLogOnPlot(p){
-const rec = {id:uid(), bugid:p.id, name:p.name, date:todayISO(), by:who()};
-await setMeta('plotProblems', [...(STATE.settings.plotProblems||[]), rec]);
-await afterChange();
-return rec;
-}
-async function bugidLogOnCrop(p, kind, objId, plantingId){
-const obj = plantableById(kind, objId); if(!obj) return null;
-const pl = (obj.plantings||[]).find(x=>x.id===plantingId);
-const crop = pl ? cropById(pl.cropId) : null;
-const rec = {id:uid(), type:'Problem', date:todayISO(), notes:'', reason:p.name, bugid:p.id, by:who(), plantingId};
-if(crop) rec.cropName = crop.name;
-obj.treatments = obj.treatments||[];
-obj.treatments.push(rec);
-await savePlantable(kind, obj); await afterChange();
-return rec;
-}
 // Every picked entry, newest first: those logged on a crop, and those from the Crops tab.
 function gatherBugidLogs(){
 const rows = [];
@@ -11912,6 +11898,115 @@ const r = rows[parseInt(d.dataset.buglogrow)];
 openBugidSheet(r.bugid, {kind:r.kind, objId:r.objId, plantingId:r.plantingId, recId:r.recId, plotRecId:r.plotRecId});
 }));
 }
+/* ---- Describe-it search ---- */
+// Searching works from what you can see, not just names: each word counts on its own, words that
+// mean much the same to someone looking at a plant are grouped, words found close together count
+// for more ("small white fly" is three words in a row, not three words a page apart), and a crop
+// name narrows it to problems that go for that crop. Only the researched write-up text is searched.
+const BUGID_WORD_GROUPS = [
+['fly','flies','flying','winged','wings'],
+['small','tiny','little','minute'],
+['big','large','fat'],
+['larva','larvae','maggot','maggots','maggoty','grub','grubs','caterpillar','caterpillars','worm','worms','wireworm','leatherjacket','leatherjackets','cutworm','cutworms'],
+['insect','insects','bug','bugs','beetle','beetles','aphid','aphids','mite','mites'],
+['white','whitish','pale','cream','creamy','silver','silvery'],
+['grey','gray','greyish'],
+['black','blackish','dark','sooty'],
+['green','greenish'],
+['yellow','yellowing','yellowed','yellowish'],
+['orange','rust','rusty','ginger'],
+['brown','brownish','bronze','bronzed','buff'],
+['red','reddish','pink','pinkish','purple','purplish'],
+['mould','mold','mouldy','moldy','fuzz','fuzzy','furry','fluffy','powder','powdery','mildew','felt','coating'],
+['spot','spots','spotted','speckled','specks','speck','dots','dotted','blotch','blotches','patch','patches','pustules','marks','mottled','mottling'],
+['hole','holes','holed','eaten','chewed','nibbled','ragged','notches','pitted','pits'],
+['slime','slimy','trail','trails'],
+['curl','curled','curling','distorted','twisted','puckered','blistered','blisters','deformed','crinkled'],
+['wilt','wilting','wilted','droop','drooping','collapse','collapsed','collapsing','keel','dying','died','flop','flopped','fell','fallen','falling','toppled'],
+['rot','rots','rotting','rotten','rotted','mushy','soft','decay'],
+['sticky','honeydew'],
+['tunnel','tunnels','tunnelling','mines','mined','lines','channels'],
+['web','webs','webbing','silk'],
+['scab','scabby','rough','corky','cracks','cracked','canker'],
+['swollen','swell','swells','swelling','galls','knobbly','lumps','lumpy','club'],
+['leaf','leaves','foliage'],
+['root','roots','underground'],
+['stem','stems','stalk','stalks','shoot','shoots'],
+['fruit','fruits','pod','pods','berry','berries'],
+['tuber','tubers'],
+['seedling','seedlings'],
+['under','underneath','underside','undersides','beneath'],
+['cluster','clusters','colony','colonies','masses'],
+['jump','jumping','hop','hopping','jumps']
+];
+const BUGID_STOP_WORDS = new Set('a an the on in of and or with my some it its is are there lots lot what this that have has got all over at to from like looks look very bit few i ive'.split(' '));
+function bugidSplitWords(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().split(' ').filter(Boolean); }
+function bugidTermsFor(w){ return BUGID_WORD_GROUPS.find(g=>g.includes(w)) || [w]; }
+function bugidWordHit(w, terms){
+return terms.some(t=> w===t || (t.length>=4 && w.startsWith(t)) || (w.length>=4 && t.startsWith(w) && t.length-w.length<=2));
+}
+// Crops named in the search ("beans" covers broad, French and runner beans).
+function bugidCropsInWord(w){
+const sing = w.replace(/ies$/,'y').replace(/oes$/,'o').replace(/s$/,'');
+return KNOWN_CROPS.filter(c=>{
+const n = c.name.toLowerCase(), parts = n.split(' ');
+return n===w || n===sing || (parts.length<=2 && parts[parts.length-1]===sing);
+}).map(c=>({name:c.name, family:c.family||null, alsoName:null}));
+}
+// How many of the described things one piece of text has, and how close together they sit.
+function bugidFieldScore(textWords, groups){
+const ev = [];
+groups.forEach((terms, gi)=> textWords.forEach((w, i)=>{ if(bugidWordHit(w, terms)) ev.push([i, gi]); }));
+const need = new Set(ev.map(e=>e[1])).size;
+if(!need) return {m:0, span:99};
+ev.sort((a,b)=>a[0]-b[0]);
+const cnt = new Map(); let have = 0, best = 99, l = 0;
+for(let r=0; r<ev.length; r++){
+const g = ev[r][1]; cnt.set(g, (cnt.get(g)||0)+1); if(cnt.get(g)===1) have++;
+while(have===need){ best = Math.min(best, ev[r][0]-ev[l][0]); const gl = ev[l][1]; cnt.set(gl, cnt.get(gl)-1); if(cnt.get(gl)===0) have--; l++; }
+}
+return {m:need, span:best};
+}
+// The sentence of the write-up that best fits the search, shown under the name in the results.
+function bugidBestSentence(p, groups){
+const sentences = [p.whatItIs, p.goesForText].flatMap(t=>String(t||'').split(/(?<=[.!?])\s+/)).filter(Boolean);
+let best = null, bestScore = 0;
+for(const sen of sentences){
+const f = bugidFieldScore(bugidSplitWords(sen), groups);
+const sc = f.m*10 - Math.min(f.span, 9);
+if(f.m && sc>bestScore){ best = sen; bestScore = sc; }
+}
+return best || sentences[0] || '';
+}
+function bugidSearch(query, cropRecord){
+const qw = bugidSplitWords(query).filter(w=>!BUGID_STOP_WORDS.has(w));
+const crops = [], groups = [];
+for(const w of qw){ const cs = bugidCropsInWord(w); if(cs.length) crops.push(...cs); else groups.push(bugidTermsFor(w)); }
+const fromCrop = cropRecord ? bugidCropInfo(cropRecord) : null;
+const out = [];
+for(const p of BUGID.problems){
+const nameWords = bugidSplitWords(p.name+' '+p.fullName+' '+(BUGID_ALIASES[p.id]||[]).join(' '));
+const nm = bugidFieldScore(nameWords, groups);
+// Closeness is judged within one sentence, so words either side of a full stop don't count as together.
+const wi = String(p.whatItIs||'').split(/(?<=[.!?])\s+/).map(sen=>bugidFieldScore(bugidSplitWords(sen), groups))
+.reduce((a,b)=> (b.m>a.m || (b.m===a.m && b.span<a.span)) ? b : a, {m:0, span:99});
+const allWords = [...nameWords, ...bugidSplitWords(p.whatItIs), ...bugidSplitWords(p.goesForText)];
+const anyHit = groups.filter(terms=>allWords.some(w=>bugidWordHit(w, terms))).length;
+// Something that goes for almost anything (slugs, aphids) only half counts for a named crop.
+const cropHit = !crops.length ? 0 : (crops.some(c=>bugidCropsMatch(p.crops, c)) ? (p.crops.any ? 0.5 : 1) : 0);
+const matched = anyHit + cropHit;
+if(!matched) continue;
+const best = (nm.m>wi.m || (nm.m===wi.m && nm.span<wi.span)) ? nm : wi;
+const close = best.m>=2 ? Math.max(0, 8-best.span) : 0;
+const forThisCrop = fromCrop && bugidCropsMatch(p.crops, fromCrop) ? 5 : 0;
+// Found by its own name: the opening line of the write-up says most.
+const ownName = bugidSplitWords(p.name+' '+p.fullName);
+const byName = groups.length && groups.every(terms=>ownName.some(w=>terms.includes(w)));
+const why = !groups.length ? '' : (byName ? String(p.whatItIs||'').split(/(?<=[.!?])\s+/)[0] : bugidBestSentence(p, groups));
+out.push({p, score: matched*20 + nm.m*6 + best.m*4 + close*2 + forThisCrop, why});
+}
+return out.sort((a,b)=>b.score-a.score);
+}
 /* ---- The list ---- */
 let bugidQuery = '';
 function bugidThumbHTML(p){
@@ -11919,16 +12014,12 @@ const key = p.pics[0];
 const src = key && bugidPics ? bugidPics[key] : null;
 return `<span class="bug-thumb">${src?`<img src="${src}" alt="">`:''}</span>`;
 }
-function bugidRowHTML(p){ return `<div class="bug-row" data-pickbug="${p.id}">${bugidThumbHTML(p)}<span class="bug-name">${escapeHTML(p.name)}</span></div>`; }
+function bugidRowHTML(p, why){ return `<div class="bug-row" data-pickbug="${p.id}">${bugidThumbHTML(p)}<span class="bug-name">${escapeHTML(p.name)}${why?`<span class="bug-why">${escapeHTML(why)}</span>`:''}</span></div>`; }
 function bugidListRowsHTML(cropRecord, query){
-const q = String(query||'').trim().toLowerCase();
+const q = String(query||'').trim();
 if(q){
-const scored = BUGID.problems.map(p=>{
-const names = [p.name, p.fullName, ...(BUGID_ALIASES[p.id]||[])].join(' ').toLowerCase();
-const other = [p.goesForText, p.whatItIs].join(' ').toLowerCase();
-return {p, s: names.includes(q) ? 2 : (other.includes(q) ? 1 : 0)};
-}).filter(x=>x.s>0).sort((a,b)=>b.s-a.s);
-return scored.length ? scored.map(x=>bugidRowHTML(x.p)).join('') : `<p class="muted">Nothing on the list matches that.</p>`;
+const found = bugidSearch(q, cropRecord);
+return found.length ? found.map(x=>bugidRowHTML(x.p, x.why)).join('') : `<p class="muted">Nothing on the list matches that. Try fewer words, or describe it another way.</p>`;
 }
 const used = new Set();
 const groups = [];
@@ -11942,12 +12033,12 @@ take('Had before', BUGID.problems.filter(p=>had.has(p.id)));
 const growing = bugidGrowingSpots().map(s=>bugidCropInfo(s.crop));
 const goesForGrowing = p => growing.some(g=>bugidCropsMatch(p.crops, g));
 take('Common problems', [...BUGID.problems.filter(goesForGrowing), ...BUGID.problems.filter(p=>!goesForGrowing(p))]);
-return groups.map(g=>`<div class="row-heading">${escapeHTML(g.title)}</div>${g.items.map(bugidRowHTML).join('')}`).join('');
+return groups.map(g=>`<div class="row-heading">${escapeHTML(g.title)}</div>${g.items.map(p=>bugidRowHTML(p)).join('')}`).join('');
 }
 // Draws the search box and list into el; onPick(problemId) is called when one is tapped.
 function renderBugidList(el, cropRecord, onPick){
 const hadFocus = document.activeElement && document.activeElement.id==='bugSearch';
-el.innerHTML = `<input type="text" id="bugSearch" placeholder="Search, e.g. whitefly" autocomplete="off" value="${escapeAttr(bugidQuery)}">
+el.innerHTML = `<input type="text" id="bugSearch" placeholder="Describe it, e.g. small white fly" autocomplete="off" value="${escapeAttr(bugidQuery)}">
 <div id="bugRows">${bugidListRowsHTML(cropRecord, bugidQuery)}</div>`;
 const rowsEl = el.querySelector('#bugRows');
 const wireRows = ()=> rowsEl.querySelectorAll('[data-pickbug]').forEach(r=>r.addEventListener('click', ()=>onPick(r.dataset.pickbug)));
@@ -11963,29 +12054,23 @@ rowsEl.innerHTML = bugidListRowsHTML(cropRecord, bugidQuery); wireRows();
 // Route A: the Crops tab's own "What's this?" - nothing attached, logged as around the plot.
 function renderWhatsThisSubList(){
 const el = document.getElementById('whatsThisSubList'); if(!el) return;
-renderBugidList(el, null, async id=>{
-const p = BUGID_BY_ID[id]; if(!p) return;
-const rec = await bugidLogOnPlot(p);
-openBugidSheet(id, {plotRecId:rec.id});
-toast('Logged in History');
-});
+// Opening one is just to look - nothing is logged until "Yes, it's this" is tapped on its sheet.
+renderBugidList(el, null, id=>{ if(BUGID_BY_ID[id]) openBugidSheet(id, {confirm:true}); });
 }
 // Route B: from a crop's own screen - "What's this on Kale?", logged against that crop.
-function openWhatsThisOnCrop(kind, objId, plantingId){
+function openWhatsThisOnCrop(kind, objId, plantingId, keepQuery){
 const obj = plantableById(kind, objId); if(!obj){ goHome(); return; }
 const pl = (obj.plantings||[]).find(x=>x.id===plantingId);
 const crop = pl ? cropById(pl.cropId) : null;
 const cropName = (crop && crop.name) || 'this crop';
 const back = ()=> kind==='trays' ? openTrayPlantingInfo(objId, plantingId) : openPlantingInfo(objId, plantingId, kind);
-bugidQuery = '';
+if(!keepQuery) bugidQuery = '';
 openModal(`<button class="back-link" id="mBack">&larr; Back to ${escapeHTML(cropName)}</button>
 <h3>What's this on ${escapeHTML(cropName)}?</h3><div id="bugCropList"></div>`, true);
 document.getElementById('mBack').addEventListener('click', back);
-renderBugidList(document.getElementById('bugCropList'), crop, async id=>{
-const p = BUGID_BY_ID[id]; if(!p) return;
-const rec = await bugidLogOnCrop(p, kind, objId, plantingId);
-openBugidSheet(id, {kind, objId, plantingId, recId: rec && rec.id});
-toast(`Logged for ${cropName}`);
+renderBugidList(document.getElementById('bugCropList'), crop, id=>{
+if(!BUGID_BY_ID[id]) return;
+openBugidSheet(id, {kind, objId, plantingId, confirm:true, onBack:()=>openWhatsThisOnCrop(kind, objId, plantingId, true)});
 });
 }
 /* ---- The short sheet ---- */
@@ -12029,6 +12114,7 @@ ${section('What it is', p.whatItIs)}
 ${section('Goes for', p.goesForText)}
 ${section('What to do', p.whatToDo)}
 ${section('When', p.season)}
+${ctx.confirm?`<button class="btn big" id="bugConfirm" style="width:100%; margin:4px 0 10px;">Yes, it's this</button>`:''}
 ${watch.names.length?`<button class="btn bug-watch" id="bugWatch">Watch out: ${escapeHTML(watch.names.join(', '))}</button>`:''}
 <details class="timings" style="margin-top:14px;"><summary>Sources</summary><p class="tiny-muted" style="margin:8px 0 0;">${escapeHTML(p.sources)}</p></details>
 ${logLine?`<p class="tiny-muted" style="margin-top:14px;">${logLine}</p><button class="btn small danger" id="bugRemoveLog">Remove from History</button>`:''}`, true);
@@ -12042,6 +12128,12 @@ picsEl.style.display = shown.length ? '' : 'none';
 picsEl.querySelectorAll('.bug-pic').forEach(f=>f.addEventListener('click', ()=>f.classList.toggle('big')));
 };
 if(picsEl){ if(bugidPics) drawPics(); else { picsEl.style.display='none'; bugidLoadPics().then(drawPics); } }
+const confirmBtn = document.getElementById('bugConfirm');
+if(confirmBtn) confirmBtn.addEventListener('click', ()=>{
+const ticked = new Set();
+if(pl) ticked.add(`${ctx.kind}|${ctx.objId}|${ctx.plantingId}`);
+openBugidWhere(id, {ticked, extra:[], from: pl ? {kind:ctx.kind, objId:ctx.objId, plantingId:ctx.plantingId} : null, sheetCtx:ctx});
+});
 const watchBtn = document.getElementById('bugWatch');
 if(watchBtn) watchBtn.addEventListener('click', ()=>{
 watchOutState = {name:p.name, names:watch.names, ids:new Set(watch.ids)};
@@ -12063,11 +12155,88 @@ toast('Removed');
 goBack();
 });
 }
+/* ---- "Where is it?" - after "Yes, it's this" ---- */
+// A list of what it could be on (everything growing that it goes for, the crop it was opened from
+// already ticked), "Pick on the map" to add a bed's crops by tapping it, and "somewhere else on the
+// plot" for when it isn't on a crop. Nothing is logged until "Log it".
+// state: {ticked:Set of 'kind|objId|plantingId' or 'plot', extra:[keys added from the map], from, sheetCtx}
+function bugidSpotKey(sp){ return `${sp.kind}|${sp.objId}|${sp.plantingId}`; }
+function bugidWhereCandidates(p, state){
+const all = bugidGrowingSpots();
+const keep = new Set([...(state.extra||[]), ...[...state.ticked].filter(k=>k!=='plot')]);
+const list = all.filter(sp=>keep.has(bugidSpotKey(sp)) || bugidCropsMatch(p.crops, bugidCropInfo(sp.crop)));
+const placeOf = sp => sp.trayPlace || sp.place;
+return list.sort((a,b)=>placeOf(a).localeCompare(placeOf(b), undefined, {numeric:true}) || a.crop.name.localeCompare(b.crop.name));
+}
+function openBugidWhere(id, state){
+const p = BUGID_BY_ID[id]; if(!p){ closeModal(); return; }
+const cands = bugidWhereCandidates(p, state);
+const row = (key, label, sub)=>`<label class="bug-where-row"><input type="checkbox" data-wherekey="${escapeAttr(key)}" ${state.ticked.has(key)?'checked':''}><span><strong>${escapeHTML(label)}</strong>${sub?`<br><span class="tiny-muted">${escapeHTML(sub)}</span>`:''}</span></label>`;
+openModal(`<button class="back-link" id="mBack">&larr; Back</button>
+<h3>Where's the ${escapeHTML(p.name.toLowerCase().startsWith('the ')?p.name.slice(4):p.name)}?</h3>
+<p class="tiny-muted" style="margin-top:0;">Tick everything it's on.</p>
+${cands.length ? cands.map(sp=>row(bugidSpotKey(sp), sp.crop.name, sp.trayPlace||sp.place)).join('') : `<p class="muted">Nothing growing now that it usually goes for.</p>`}
+${row('plot', 'Not on a crop', 'Somewhere else on the plot')}
+<button class="btn secondary" id="bugWhereMap" style="width:100%; margin-top:12px;">📍 Pick on the map</button>
+<button class="btn big" id="bugWhereLog" style="width:100%; margin-top:10px;">Log it</button>`, true);
+const readTicks = ()=>{ modalContent.querySelectorAll('[data-wherekey]').forEach(cb=>{ if(cb.checked) state.ticked.add(cb.dataset.wherekey); else state.ticked.delete(cb.dataset.wherekey); }); };
+document.getElementById('mBack').addEventListener('click', ()=>openBugidSheet(id, state.sheetCtx||{confirm:true}));
+document.getElementById('bugWhereMap').addEventListener('click', ()=>{
+readTicks();
+enterBedPickerMode((target, kind)=>{
+// Everything growing in what was tapped (trays too, for a greenhouse or polytunnel); the crops
+// this problem goes for are ticked, or every crop there if none of them is one it goes for.
+const here = bugidGrowingSpots().filter(sp=>sp.mapId===target.id);
+const matching = here.filter(sp=>bugidCropsMatch(p.crops, bugidCropInfo(sp.crop)));
+const pick = matching.length ? matching : here;
+if(!pick.length) toast(`Nothing growing in ${target.name||target.label||'there'}`);
+for(const sp of pick){ const k = bugidSpotKey(sp); state.ticked.add(k); if(!state.extra.includes(k)) state.extra.push(k); }
+openBugidWhere(id, state);
+}, ()=>openBugidWhere(id, state));
+bedPickerMode.bugHighlight = new Set(cands.map(sp=>sp.mapId).filter(Boolean));
+renderMap();
+});
+document.getElementById('bugWhereLog').addEventListener('click', async ()=>{
+readTicks();
+if(!state.ticked.size){ toast('Tick where it is first'); return; }
+const n = await bugidLogMany(p, [...state.ticked]);
+toast(n===1 ? 'Logged in History' : `Logged in ${n} places`);
+const from = state.from;
+if(from) (from.kind==='trays' ? openTrayPlantingInfo(from.objId, from.plantingId) : openPlantingInfo(from.objId, from.plantingId, from.kind));
+else { closeModal(); goToTab('crops'); }   // back where it started, even if the map was used to pick
+});
+}
+async function bugidLogMany(p, keys){
+let n = 0;
+const byObj = new Map();
+for(const k of keys){
+if(k==='plot') continue;
+const [kind, objId, plantingId] = k.split('|');
+const obj = plantableById(kind, objId); if(!obj) continue;
+const pl = (obj.plantings||[]).find(x=>x.id===plantingId);
+const crop = pl ? cropById(pl.cropId) : null;
+const rec = {id:uid(), type:'Problem', date:todayISO(), notes:'', reason:p.name, bugid:p.id, by:who(), plantingId};
+if(crop) rec.cropName = crop.name;
+obj.treatments = obj.treatments||[];
+obj.treatments.push(rec);
+byObj.set(kind+'|'+objId, {kind, obj});
+n++;
+}
+for(const {kind, obj} of byObj.values()) await savePlantable(kind, obj);
+if(keys.includes('plot')){
+await setMeta('plotProblems', [...(STATE.settings.plotProblems||[]), {id:uid(), bugid:p.id, name:p.name, date:todayISO(), by:who()}]);
+n++;
+}
+await afterChange();
+return n;
+}
 /* ---- Watch out on the map ---- */
 let watchOutState = null;
 function applyWatchOutToMap(){
+// While picking where a problem is, the beds growing something it goes for are outlined.
+if(bedPickerMode && bedPickerMode.bugHighlight) document.querySelectorAll('#mapCanvas .mapObj').forEach(el=>{ if(bedPickerMode.bugHighlight.has(el.dataset.id)) el.classList.add('watch-out'); });
 const bar = document.getElementById('watchOutBar');
-if(!watchOutState){ if(bar) bar.innerHTML = ''; return; }
+if(!watchOutState || bedPickerMode){ if(bar) bar.innerHTML = ''; return; }
 document.querySelectorAll('#mapCanvas .mapObj').forEach(el=>{ if(watchOutState.ids.has(el.dataset.id)) el.classList.add('watch-out'); });
 if(bar){
 bar.innerHTML = `<div class="alert" style="margin:10px 0 0;"><span style="flex:1;">Watch out for ${escapeHTML(watchOutState.name)}: ${escapeHTML(watchOutState.names.join(', '))}</span><button class="alert-dismiss" id="watchOutClear">✕</button></div>`;
@@ -12272,7 +12441,7 @@ joinFromInvite(su, sk, sc, sn);
 // remembers how to open it again; every one of them looks its bed/crop/tray up fresh when it runs.
 // Forms that are part-way through being filled in (adding a treatment, harvesting, sowing...) are
 // deliberately left off - after an undo those go back to the screen they were opened from.
-['openEditTask','openEditNote','openObjectDetail','openCompostBatchDetail','openUsedOnSpot','openCompostScreen','openFeatureDetail','openContainerDetail','openBedDetail','openPlantingInfo','openEditTrayDetails','openEditPlanting','openTreeDetail','openStructureDetail','openTrayOrPlanting','openTrayInfo','openTrayPlantingInfo','openChangeTier','openSowIntoContainer','openEditWishlistItem','openEditCrop','openHistoryDetail','openRemovedHistoryDetail','openProblemDetail','openGhostDetail','openPlanningMapBedDetail','openBugidSheet','openWhatsThisOnCrop'].forEach(name=>{
+['openEditTask','openEditNote','openObjectDetail','openCompostBatchDetail','openUsedOnSpot','openCompostScreen','openFeatureDetail','openContainerDetail','openBedDetail','openPlantingInfo','openEditTrayDetails','openEditPlanting','openTreeDetail','openStructureDetail','openTrayOrPlanting','openTrayInfo','openTrayPlantingInfo','openChangeTier','openSowIntoContainer','openEditWishlistItem','openEditCrop','openHistoryDetail','openRemovedHistoryDetail','openProblemDetail','openGhostDetail','openPlanningMapBedDetail','openBugidSheet','openWhatsThisOnCrop','openBugidWhere'].forEach(name=>{
 const orig = window[name];
 if(typeof orig!=='function') return;
 window[name] = function(...args){ currentScreenReopen = ()=>orig(...args); return orig(...args); };
