@@ -842,7 +842,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.14.5';
+const APP_VERSION = '2026.10.15.1';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -11941,13 +11941,7 @@ return rows.sort((a,b)=>String(b.date).localeCompare(String(a.date)));
 }
 function renderBugidLogsInto(el){
 const rows = gatherBugidLogs();
-const me = who()||'me';
-const checked = (STATE.settings.bugidChecks||[]).filter(c=>c && c.status==='answered' && (c.seenBy||[]).includes(me)).sort((a,b)=>(b.at||0)-(a.at||0));
-const checkedHTML = checked.length ? `<div class="row-heading" style="margin-top:0;">Checked</div>` + checked.map(c=>{
-const a = c.answer||{}; const p = BUGID_BY_ID[(a.ids||[])[0]];
-const name = p ? p.name : (a.other || "Couldn't tell");
-return `<div class="planting-row tappable" data-histcheck="${escapeAttr(c.id)}"><span class="pname">${escapeHTML(name)}</span><span class="pdate">${escapeHTML(bugidCheckTitle(c))} · ${dayLabel(c.date)}</span></div>`;
-}).join('') : '';
+const checkedHTML = '';
 if(!rows.length){
 el.innerHTML = checkedHTML ? checkedHTML + `<div class="row-heading">Soil warnings</div>` : '';
 el.querySelectorAll('[data-histcheck]').forEach(d=>d.addEventListener('click', ()=>openBugidCheck(d.dataset.histcheck)));
@@ -12303,8 +12297,7 @@ return 'Waiting to be checked';
 // Front page, between the weather alerts and Coming up: newest first, three, then "and N more".
 function renderBugidCards(){
 const el = document.getElementById('bugCardsBox'); if(!el) return;
-const me = who()||'me';
-const list = (STATE.settings.bugidChecks||[]).filter(c=>c && (c.status==='waiting' || (c.status==='answered' && !(c.seenBy||[]).includes(me))))
+const list = (STATE.settings.bugidChecks||[]).filter(c=>c && (c.status==='waiting' || c.status==='answered'))
 .sort((a,b)=>(b.at||0)-(a.at||0));
 if(!list.length){ el.innerHTML = ''; return; }
 const shown = bugidCardsAll ? list : list.slice(0, 3);
@@ -12321,7 +12314,7 @@ if(!p || !p.crops) return '';
 if(p.crops.any) return 'Goes for almost anything';
 // Names that all belong to one crop family read as that family ("Goes for brassicas").
 const nameFams = (p.crops.names||[]).map(n=>{ const k = KNOWN_CROPS.find(c=>c.name===n); return k ? k.family : null; });
-const oneFam = nameFams.length && nameFams.every(f=>f && f===nameFams[0]) ? nameFams[0] : null;
+const oneFam = nameFams.length && nameFams.every(f=>f && f!=='Other' && f===nameFams[0]) ? nameFams[0] : null;
 if(oneFam && !(p.crops.families||[]).length) return 'Goes for ' + oneFam.toLowerCase();
 const fams = (p.crops.families||[]).map(f=>f.toLowerCase());
 const names = (p.crops.names||[]).filter(n=>!/^(autumn|early|maincrop|winter|spring|first|second|elephant|summer) /i.test(n)).map(n=>n.toLowerCase());
@@ -12344,6 +12337,11 @@ const ps = (a.ids||[]).map(x=>BUGID_BY_ID[x]).filter(Boolean);
 const gotIt = `<button class="btn small" data-bugcheckgot="${id}">Got it</button>`;
 const nameLink = p => `<button class="bug-card-name" data-bugcheckopen="${id}" data-bugid="${p.id}">${escapeHTML(p.name)}</button>`;
 let body = '', actions = gotIt;
+if(a.other && !/nothing wrong/i.test(a.other) && !a.researched){
+const near = ps[0];
+return `<div class="bug-card" data-bugcheck="${id}">${bugidThumbImg(c)}
+<span class="bug-card-text"><span class="bug-card-title">${escapeHTML(a.other)}</span><span class="bug-card-sub">${near?`A kind of ${escapeHTML(near.name.toLowerCase())}. `:'Not on our list yet. '}${navigator.onLine?'Looking it up…':'Will look it up when back online'}</span></span></div>`;
+}
 if(ps.length>=2 && !a.picked){
 // Unsure between two: which do you see?
 body = `<span class="bug-card-title" style="white-space:normal;">Not sure: ${nameLink(ps[0])} or ${nameLink(ps[1])}</span>`;
@@ -12356,11 +12354,9 @@ actions = `<div class="bug-card-sub" style="width:100%; font-weight:700;">Which 
 } else if(ps.length){
 const p = ps[0];
 const watch = bugidWatchOut(p, bugidCheckAffected(c, p));
-body = `${nameLink(p)}<span class="bug-card-sub">${bugidSureText(a)}</span>${bugidGoesForShort(p)?`<span class="bug-card-sub">${escapeHTML(bugidGoesForShort(p))}</span>`:''}`;
+const gen = a.general && BUGID_BY_ID[a.general] && a.general!==p.id ? BUGID_BY_ID[a.general] : null;
+body = `${nameLink(p)}${gen?`<span class="bug-card-sub">A kind of ${escapeHTML(gen.name.toLowerCase())}</span>`:''}<span class="bug-card-sub">${bugidSureText(a)}</span>${bugidGoesForShort(p)?`<span class="bug-card-sub">${escapeHTML(bugidGoesForShort(p))}</span>`:''}`;
 if(watch.names.length) actions = `<button class="btn small bug-watch" style="width:auto; margin:0;" data-bugcheckwatch="${id}" data-bugid="${p.id}">Watch out: ${escapeHTML(watch.names.join(', '))}</button>` + gotIt;
-} else if(a.other && !/nothing wrong/i.test(a.other) && !a.researched){
-return `<div class="bug-card" data-bugcheck="${id}">${bugidThumbImg(c)}
-<span class="bug-card-text"><span class="bug-card-title">${escapeHTML(a.other)}</span><span class="bug-card-sub">${navigator.onLine?'Not on our list yet. Looking it up…':'Not on our list yet. Will look it up when back online'}</span></span></div>`;
 } else if(a.other && a.researched==='none'){
 body = `<span class="bug-card-title" style="white-space:normal;">${escapeHTML(a.other)}</span><span class="bug-card-sub">Not on our list, and nothing trustworthy found. Ask on the site.</span>`;
 } else if(a.other && /nothing wrong/i.test(a.other)){
@@ -12423,14 +12419,18 @@ const list = (STATE.settings.bugidChecks||[]).map(x=>x.id===id ? {...x, ...chang
 await setMeta('bugidChecks', list);
 await afterChange();
 }
-// Got it is per gardener: the card goes for them only, into History, and can be brought back.
+// Got it clears a check completely: the card, its photos, for everyone. A check is a question,
+// not a record; only "Yes, it's this" then "Log it" records anything. Bring it back undoes it.
 async function bugidGotIt(id, quiet){
 const c = (STATE.settings.bugidChecks||[]).find(x=>x.id===id); if(!c) return;
-const me = who()||'me';
-if(!(c.seenBy||[]).includes(me)) await bugidUpdateCheck(id, {seenBy:[...(c.seenBy||[]), me]});
-if(!quiet) toastWithAction('Moved to History', 'Bring it back', async ()=>{
-const cur = (STATE.settings.bugidChecks||[]).find(x=>x.id===id); if(!cur) return;
-await bugidUpdateCheck(id, {seenBy:(cur.seenBy||[]).filter(n=>n!==me)});
+const photos = await bugidStore('readonly', st=>st.get('check:'+id));
+await setMeta('bugidChecks', (STATE.settings.bugidChecks||[]).filter(x=>x.id!==id));
+await bugidStore('readwrite', st=>st.delete('check:'+id));
+await afterChange();
+if(!quiet) toastWithAction('Cleared', 'Bring it back', async ()=>{
+if(Array.isArray(photos)) await bugidStore('readwrite', st=>st.put(photos, 'check:'+id));
+await setMeta('bugidChecks', [...(STATE.settings.bugidChecks||[]).filter(x=>x.id!==id), c]);
+await afterChange();
 });
 }
 /* ---- Stage 3: sending photos to be checked ---- */
@@ -12439,6 +12439,14 @@ await bugidUpdateCheck(id, {seenBy:(cur.seenBy||[]).filter(n=>n!==me)});
 // send them, since only it has them. Tried when a check is saved, when the app opens, and on
 // getting signal back.
 const bugidSending = new Set();
+const BUGID_CHECK_RULES = [
+"ids: up to two ids from the list above, best first. Never an id that isn't on the list.",
+'sure: "very", "fairly" or "unsure".',
+'from: "photos" or "photos and description".',
+'ask: only when unsure between two ids: [{"id":"...","text":"..."}] with one short thing the gardener could look for that would tell each apart, e.g. "White maggots on the roots".',
+'other: the usual UK name of the problem when it is not on the list, or when it is a more specific problem than the nearest one on the list (for example "Woolly aphid" rather than aphids); still put the nearest list id in ids if one fits. If the plant looks healthy, "Nothing wrong". Otherwise "".',
+"seeing: one short plain sentence on what you can see."
+].join("\n");
 function bugidCanSend(){ return !!(STATE.settings.syncUrl && STATE.settings.syncCode); }
 function bugidWhereText(c){
 const w = c.where; if(!w) return '';
@@ -12451,6 +12459,12 @@ const t = bugidCheckTitle(c);
 return t.includes(' · ') ? t.replace(' · ', ' in ') : t;
 }
 async function bugidSendWaiting(){
+const old = (STATE.settings.bugidChecks||[]).filter(c=>c && c.status==='answered' && (c.seenBy||[]).length);
+if(old.length){
+for(const c of old) await bugidStore('readwrite', st=>st.delete('check:'+c.id));
+await setMeta('bugidChecks', (STATE.settings.bugidChecks||[]).filter(c=>!old.includes(c)));
+await afterChange();
+}
 if(!navigator.onLine || !bugidCanSend()) { renderBugidCards(); return; }
 const today = todayISO();
 const waiting = (STATE.settings.bugidChecks||[]).filter(c=>c && c.status==='waiting' && !bugidSending.has(c.id)
@@ -12463,7 +12477,7 @@ let changes = {triedOn:today};
 try{
 const res = await fetch(STATE.settings.syncUrl.replace(/\/+$/,'') + '/functions/v1/bugid-check', {
 method:'POST', headers:{'Content-Type':'application/json'},
-body: JSON.stringify({code:STATE.settings.syncCode, photos, words:c.words||'', where:bugidWhereText(c),
+body: JSON.stringify({code:STATE.settings.syncCode, photos, words:c.words||'', where:bugidWhereText(c), rules:BUGID_CHECK_RULES,
 problems: BUGID.problems.map(p=>({id:p.id, name:p.name, what:p.whatItIs}))})
 });
 const out = await res.json().catch(()=>({}));
@@ -12486,14 +12500,15 @@ async function bugidResearchPending(){
 if(!navigator.onLine || !bugidCanSend()) return;
 const today = todayISO();
 const pending = (STATE.settings.bugidChecks||[]).filter(c=>c && c.status==='answered' && c.answer && c.answer.other
-&& !/nothing wrong/i.test(c.answer.other) && !(c.answer.ids||[]).length && !c.answer.researched
+&& !/nothing wrong/i.test(c.answer.other) && !c.answer.researched
 && !(c.researchError==='limit' && c.researchTriedOn===today));
 for(const c of pending){
 const mine = await bugidStore('readonly', st=>st.get('check:'+c.id));
 if(!Array.isArray(mine) || !mine.length) continue;
 const name = c.answer.other, slug = bugidSlug(name);
 const existing = (STATE.settings.bugidExtra||[]).find(x=>x.id===slug);
-if(existing){ await bugidUpdateCheck(c.id, {answer:{...c.answer, ids:[slug], researched:'yes'}}); continue; }
+const general = (c.answer.ids||[])[0] && !String(c.answer.ids[0]).startsWith('auto-') ? c.answer.ids[0] : (c.answer.general||null);
+if(existing){ await bugidUpdateCheck(c.id, {answer:{...c.answer, ids:[slug], general, researched:'yes'}}); continue; }
 if(bugidResearching.has(slug)) continue;
 bugidResearching.add(slug);
 let changes = {researchTriedOn:today};
@@ -12511,7 +12526,7 @@ sources:(out.sources||[]).map(s=>s.title).join('. '), sourceLinks:out.sources||[
 auto:{date:todayISO(), by:who()||''}};
 await setMeta('bugidExtra', [...(STATE.settings.bugidExtra||[]).filter(e=>e.id!==slug), x]);
 bugidRegisterExtras();
-changes = {...changes, researchError:null, answer:{...c.answer, ids:[slug], researched:'yes'}};
+changes = {...changes, researchError:null, answer:{...c.answer, ids:[slug], general, researched:'yes'}};
 } else if(res.ok && out.found===false){
 changes = {...changes, researchError:null, answer:{...c.answer, researched:'none'}};
 } else changes.researchError = res.status===429 ? 'limit' : 'failed';
@@ -12569,7 +12584,7 @@ openModal(`<button class="back-link" id="mBack">&larr; Back</button>
 <div class="bug-check-pics">${pics.map((src,i)=>`<img src="${src}" alt="Photo ${i+1}">`).join('')}</div>
 ${c.words?`<p>${escapeHTML(c.words)}</p>`:''}
 ${c.status==='answered' ? `<div id="bugCheckAnswer">${bugidCardHTML(c)}</div>${c.answer && c.answer.seeing?`<p class="tiny-muted">${escapeHTML(c.answer.seeing)}</p>`:''}` : `<p class="muted">${bugidWaitingText(c)}</p>`}
-<p class="tiny-muted">Taken ${dayLabel(c.date)}${c.by?' by '+escapeHTML(c.by):''}${(c.seenBy||[]).length?` · Seen by ${escapeHTML(c.seenBy.join(', '))}`:''}</p>
+<p class="tiny-muted">Taken ${dayLabel(c.date)}${c.by?' by '+escapeHTML(c.by):''}</p>
 <button class="btn small danger" id="bugCheckDel">Delete</button>`, true);
 const ans = document.getElementById('bugCheckAnswer'); if(ans) wireBugidCards(ans);
 document.getElementById('mBack').addEventListener('click', ()=>{ closeModal(); goHome(); });
@@ -12766,10 +12781,8 @@ const chk = state.checkId ? (STATE.settings.bugidChecks||[]).find(x=>x.id===stat
 const n = await bugidLogMany(p, [...state.ticked], chk && chk.thumbs ? chk.thumbs[0] : null);
 if(chk){
 // Confirmed: the thumbnail stays with the entry, the full photos go.
-await bugidUpdateCheck(chk.id, {logged:p.id, answer:{...(chk.answer||{}), ids:[p.id], picked:(chk.answer&&chk.answer.picked)||!(chk.answer&&chk.answer.ids&&chk.answer.ids[0]===p.id)}});
-await bugidGotIt(chk.id, true);
 await bugidAddPlotPic(chk, p.id);
-await bugidStore('readwrite', st=>st.delete('check:'+chk.id));
+await bugidGotIt(chk.id, true);
 }
 toast(n===1 ? 'Logged in History' : `Logged in ${n} places`);
 const from = state.from;
