@@ -900,7 +900,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.15.1';
+const APP_VERSION = '2026.10.15.3';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -1059,7 +1059,7 @@ function getMeta(key,fallback){ return new Promise((res)=>{ const r=txStore('met
 // settings (units, weather warning levels, ground colour, notifications...) is personal to each
 // device and never synced at all.
 const SHARED_SINGLE_KEYS = ['plotName','plotWidthM','plotDepthM','plotShape','postcode','lat','lon'];
-const SHARED_LIST_KEYS = ['customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory','costPeople','plotProblems','tipsGotIt','bugidChecks','bugidExtra'];
+const SHARED_LIST_KEYS = ['customContainerSizes','treatmentReasons','userCompanionPairs','unplacedHistory','costPeople','plotProblems','tipsGotIt','bugidChecks','bugidExtra','bugidNearby'];
 function settingListItemKey(item){
   if(typeof item==='string') return 's:'+item.toLowerCase();
   if(item && typeof item==='object'){
@@ -2578,6 +2578,7 @@ async function loadAllInner(){
   STATE.settings.tipsGotIt = await getMeta('tipsGotIt', []);
   STATE.settings.bugidChecks = await getMeta('bugidChecks', []);
   STATE.settings.bugidExtra = await getMeta('bugidExtra', []);
+  STATE.settings.bugidNearby = await getMeta('bugidNearby', []);
   dismissedAlertKeys = new Set(pruneDismissedAlertKeys(await getMeta('dismissedAlertKeys', [])));
   STATE.settings.onboardingAcked = await getMeta('onboardingAcked', false);
   if(!STATE.settings.onboardingAcked && STATE.settings.plotShape){
@@ -11878,6 +11879,11 @@ const BUGID_BY_ID = Object.fromEntries(BUGID.problems.map(p=>[p.id, p]));
 // Write-ups researched automatically (synced as bugidExtra) join the list until a session checks
 // them. They carry auto:{date, by} and sourceLinks; no pictures of their own.
 function bugidRegisterExtras(){
+  const keep = new Set((STATE.settings.bugidExtra||[]).map(x=>x && x.id));
+  for(let i=BUGID.problems.length-1; i>=0; i--){
+    const q = BUGID.problems[i];
+    if(String(q.id).startsWith('auto-') && !keep.has(q.id)){ BUGID.problems.splice(i,1); delete BUGID_BY_ID[q.id]; }
+  }
   for(const x of (STATE.settings.bugidExtra||[])){
     if(!x || !x.id || !String(x.id).startsWith('auto-')) continue;
     const p = {...x, kind:'auto', pics:[], crops:x.crops||{families:[], names:[]}, edible:x.edible||{verdict:'Not sure: ask on the site', detail:''}};
@@ -12204,7 +12210,7 @@ function bugidThumbHTML(p){
   const src = key && bugidPics ? bugidPics[key] : null;
   return `<span class="bug-thumb">${src?`<img src="${src}" alt="">`:''}</span>`;
 }
-function bugidRowHTML(p, why){ return `<div class="bug-row" data-pickbug="${p.id}">${bugidThumbHTML(p)}<span class="bug-name">${escapeHTML(p.name)}${why?`<span class="bug-why">${escapeHTML(why)}</span>`:''}</span></div>`; }
+function bugidRowHTML(p, why, thumb){ return `<div class="bug-row" data-pickbug="${p.id}">${thumb?`<span class="bug-thumb"><img src="${thumb}" alt=""></span>`:bugidThumbHTML(p)}<span class="bug-name">${escapeHTML(p.name)}${why?`<span class="bug-why">${escapeHTML(why)}</span>`:''}</span></div>`; }
 function bugidListRowsHTML(cropRecord, query){
   const q = String(query||'').trim();
   if(q){
@@ -12220,11 +12226,17 @@ function bugidListRowsHTML(cropRecord, query){
     take(focus.title, BUGID.problems.filter(p=>infos.some(ci=>bugidCropsMatch(p.crops, ci))));
   }
   const had = bugidHadIds();
+  // Seen nearby: kept for reference, shared with the plot.
+  const nearby = (STATE.settings.bugidNearby||[]).filter(n=>BUGID_BY_ID[n.bugid] && !used.has(n.bugid)).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  if(nearby.length){
+    nearby.forEach(n=>used.add(n.bugid));
+    groups.push({title:'Seen nearby', html:nearby.map(n=>bugidRowHTML(BUGID_BY_ID[n.bugid], dayLabel(n.date), n.thumb)).join('')});
+  }
   take('Had before', BUGID.problems.filter(p=>had.has(p.id)));
   const growing = bugidGrowingSpots().map(s=>bugidCropInfo(s.crop));
   const goesForGrowing = p => growing.some(g=>bugidCropsMatch(p.crops, g));
   take('Common problems', [...BUGID.problems.filter(goesForGrowing), ...BUGID.problems.filter(p=>!goesForGrowing(p))]);
-  return groups.map(g=>`<div class="row-heading">${escapeHTML(g.title)}</div>${g.items.map(p=>bugidRowHTML(p)).join('')}`).join('');
+  return groups.map(g=>`<div class="row-heading">${escapeHTML(g.title)}</div>${g.html || g.items.map(p=>bugidRowHTML(p)).join('')}`).join('');
 }
 // Draws the camera, the search box and the list into el; onPick(problemId) is called when one is
 // tapped. where: what the photos are of ({kind,objId,plantingId} for a crop, {bedKind,bedId} for a
@@ -12351,6 +12363,8 @@ function renderBugidCamera(root){
   const input = `<input type="file" id="bugCamInput" accept="image/*" capture="environment" style="display:none;"><input type="file" id="bugPickInput" accept="image/*" multiple style="display:none;">`;
   // Once sent, the answer shows here as well as on the front page.
   const lastRec = d.lastCheckId ? (STATE.settings.bugidChecks||[]).find(c=>c.id===d.lastCheckId) : null;
+  // Cleared (Got it, or logged) since it was sent: nothing left to show here.
+  if(d.lastCheckId && !lastRec){ d.lastCheckId = null; d.saved = null; }
   let saved = '';
   if(lastRec && lastRec.status==='answered') saved = `<div id="bugInlineAnswer">${bugidCardHTML(lastRec)}</div>`;
   else if(d.saved) saved = `<div class="bug-saved">${d.saved==='offline' ? "No signal. Saved, and it will be checked when you're back online." : bugidWaitingText(lastRec)}</div>`;
@@ -12461,7 +12475,9 @@ function bugidCardHTML(c){
   }
   const a = c.answer||{};
   const ps = (a.ids||[]).map(x=>BUGID_BY_ID[x]).filter(Boolean);
-  const gotIt = `<button class="btn small" data-bugcheckgot="${id}">Got it</button>`;
+  const gotIt = `<button class="btn small secondary" data-bugcheckgot="${id}">OK</button>`;
+  // Three choices once it's named: information only, kept for reference, or on the plot.
+  const choices = p => `<button class="btn small secondary" data-bugcheckgot="${id}">Just looking</button><button class="btn small secondary" data-bugcheckkeep="${id}" data-bugid="${p.id}">Keep for reference</button><button class="btn small" data-bugcheckplot="${id}" data-bugid="${p.id}">On my plot</button>`;
   const nameLink = p => `<button class="bug-card-name" data-bugcheckopen="${id}" data-bugid="${p.id}">${escapeHTML(p.name)}</button>`;
   let body = '', actions = gotIt;
   if(a.other && !/nothing wrong/i.test(a.other) && !a.researched){
@@ -12473,6 +12489,7 @@ function bugidCardHTML(c){
     // Unsure between two: which do you see?
     body = `<span class="bug-card-title" style="white-space:normal;">Not sure: ${nameLink(ps[0])} or ${nameLink(ps[1])}</span>`;
     const asks = (a.ask||[]).filter(x=>ps.some(p=>p.id===x.id));
+    if(a.cantTell) actions = `<button class="btn small secondary" data-bugcheckgot="${id}">Just looking</button>`;
     if(asks.length && !a.cantTell){
       actions = `<div class="bug-card-sub" style="width:100%; font-weight:700;">Which do you see?</div>`
         + asks.map(x=>`<button class="btn small secondary" data-bugcheckpick="${id}" data-bugid="${escapeAttr(x.id)}">${escapeHTML(x.text)}</button>`).join('')
@@ -12483,7 +12500,7 @@ function bugidCardHTML(c){
     const watch = bugidWatchOut(p, bugidCheckAffected(c, p));
     const gen = a.general && BUGID_BY_ID[a.general] && a.general!==p.id ? BUGID_BY_ID[a.general] : null;
     body = `${nameLink(p)}${gen?`<span class="bug-card-sub">A kind of ${escapeHTML(gen.name.toLowerCase())}</span>`:''}<span class="bug-card-sub">${bugidSureText(a)}</span>${bugidGoesForShort(p)?`<span class="bug-card-sub">${escapeHTML(bugidGoesForShort(p))}</span>`:''}`;
-    if(watch.names.length) actions = `<button class="btn small bug-watch" style="width:auto; margin:0;" data-bugcheckwatch="${id}" data-bugid="${p.id}">Watch out: ${escapeHTML(watch.names.join(', '))}</button>` + gotIt;
+    actions = (watch.names.length ? `<button class="btn small bug-watch" style="width:auto; margin:0;" data-bugcheckwatch="${id}" data-bugid="${p.id}">Watch out: ${escapeHTML(watch.names.join(', '))}</button>` : '') + choices(p);
   } else if(a.other && a.researched==='none'){
     body = `<span class="bug-card-title" style="white-space:normal;">${escapeHTML(a.other)}</span><span class="bug-card-sub">Not on our list, and nothing trustworthy found. Ask on the site.</span>`;
   } else if(a.other && /nothing wrong/i.test(a.other)){
@@ -12525,6 +12542,10 @@ function wireBugidCards(root){
     e.stopPropagation(); const c = find(b.dataset.bugcheckopen); if(c) openBugidSheet(b.dataset.bugid, bugidSheetCtxForCheck(c));
   }));
   root.querySelectorAll('[data-bugcheckgot]').forEach(b=>b.addEventListener('click', ()=>bugidGotIt(b.dataset.bugcheckgot)));
+  root.querySelectorAll('[data-bugcheckkeep]').forEach(b=>b.addEventListener('click', ()=>bugidKeepForReference(b.dataset.bugcheckkeep, b.dataset.bugid)));
+  root.querySelectorAll('[data-bugcheckplot]').forEach(b=>b.addEventListener('click', ()=>{
+    const c = find(b.dataset.bugcheckplot); if(c) bugidStartWhere(b.dataset.bugid, bugidSheetCtxForCheck(c));
+  }));
   root.querySelectorAll('[data-bugcheckpick]').forEach(b=>b.addEventListener('click', async ()=>{
     const c = find(b.dataset.bugcheckpick); if(!c) return;
     await bugidUpdateCheck(c.id, {answer:{...c.answer, ids:[b.dataset.bugid], picked:true}});
@@ -12553,12 +12574,50 @@ async function bugidGotIt(id, quiet){
   const photos = await bugidStore('readonly', st=>st.get('check:'+id));
   await setMeta('bugidChecks', (STATE.settings.bugidChecks||[]).filter(x=>x.id!==id));
   await bugidStore('readwrite', st=>st.delete('check:'+id));
+  // "Just looking" remembers nothing: a write-up researched for this check goes too, unless it's
+  // logged, kept for reference or another check still points to it.
+  let extra = null;
+  const slug = c.answer && (c.answer.ids||[])[0];
+  if(!quiet && slug && String(slug).startsWith('auto-') && !bugidExtraInUse(slug)){
+    extra = (STATE.settings.bugidExtra||[]).find(x=>x.id===slug) || null;
+    if(extra){ await setMeta('bugidExtra', (STATE.settings.bugidExtra||[]).filter(x=>x.id!==slug)); bugidRegisterExtras(); }
+  }
   await afterChange();
   if(!quiet) toastWithAction('Cleared', 'Bring it back', async ()=>{
     if(Array.isArray(photos)) await bugidStore('readwrite', st=>st.put(photos, 'check:'+id));
+    if(extra) await setMeta('bugidExtra', [...(STATE.settings.bugidExtra||[]).filter(x=>x.id!==extra.id), extra]);
     await setMeta('bugidChecks', [...(STATE.settings.bugidChecks||[]).filter(x=>x.id!==id), c]);
     await afterChange();
   });
+}
+function bugidExtraInUse(slug){
+  if((STATE.settings.bugidNearby||[]).some(n=>n.bugid===slug)) return true;
+  if((STATE.settings.plotProblems||[]).some(r=>r.bugid===slug)) return true;
+  if((STATE.settings.bugidChecks||[]).some(c=>c.answer && (c.answer.ids||[]).includes(slug))) return true;
+  return bugidAllPlaces().some(({obj})=>(obj.treatments||[]).some(t=>t.bugid===slug));
+}
+// Keep for reference: not on this plot, but worth having to hand. Shared with the plot (the entry,
+// its small thumbnail and the write-up); the full photo stays on this device. Nothing goes into
+// History and no soil warnings are set.
+async function bugidKeepForReference(checkId, bugid){
+  const c = (STATE.settings.bugidChecks||[]).find(x=>x.id===checkId); if(!c || !BUGID_BY_ID[bugid]) return;
+  const list = (STATE.settings.bugidNearby||[]).filter(n=>n.bugid!==bugid);
+  list.push({id:uid(), bugid, date:c.date||todayISO(), by:who()||'', thumb:(c.thumbs||[])[0]||''});
+  await setMeta('bugidNearby', list);
+  await bugidAddPlotPic(c, bugid, 'nearby');
+  await bugidGotIt(checkId, true);
+  toast('Kept for reference');
+  bugidRefreshCameraNote();
+}
+async function bugidRemoveNearby(bugid){
+  await setMeta('bugidNearby', (STATE.settings.bugidNearby||[]).filter(n=>n.bugid!==bugid));
+  const pics = (await bugidStore('readonly', st=>st.get('plotpics'))) || [];
+  for(const x of pics.filter(q=>q.bugid===bugid && q.kind==='nearby')) await bugidRemovePlotPic(x.id);
+  if(String(bugid).startsWith('auto-') && !bugidExtraInUse(bugid)){
+    await setMeta('bugidExtra', (STATE.settings.bugidExtra||[]).filter(x=>x.id!==bugid));
+    bugidRegisterExtras();
+  }
+  await afterChange();
 }
 
 /* ---- Stage 3: sending photos to be checked ---- */
@@ -12669,13 +12728,13 @@ async function bugidResearchPending(){
 // When a check is confirmed and logged, one of its photos is kept (at 1280 px) and shown on that
 // problem's sheet under "From the plot", with Share (the iPad's share sheet) and Remove.
 // Stored in the bugid store: 'plotpics' is the list {id, bugid, date, where, by}; 'plotpic:<id>' the picture.
-async function bugidAddPlotPic(c, bugid){
+async function bugidAddPlotPic(c, bugid, kind){
   const full = await bugidStore('readonly', st=>st.get('check:'+c.id));
   if(!Array.isArray(full) || !full.length) return;
   const id = uid();
   await bugidStore('readwrite', st=>st.put(full[0], 'plotpic:'+id));
   const list = (await bugidStore('readonly', st=>st.get('plotpics'))) || [];
-  list.push({id, bugid, date:c.date||todayISO(), where:bugidCheckTitle(c), by:c.by||''});
+  list.push({id, bugid, date:c.date||todayISO(), where:bugidCheckTitle(c), by:c.by||'', kind:kind||'plot'});
   await bugidStore('readwrite', st=>st.put(list, 'plotpics'));
 }
 async function bugidPlotPicsFor(bugid){
@@ -12781,7 +12840,9 @@ function openBugidSheet(id, ctx){
     ${section('Goes for', p.goesForText)}
     ${section('What to do', p.whatToDo)}
     ${section('When', p.season)}
-    ${ctx.confirm?`<button class="btn big" id="bugConfirm" style="width:100%; margin:4px 0 10px;">Yes, it's this</button>`:''}
+    ${ctx.confirm ? (ctx.checkId
+      ? `<div style="display:flex; gap:8px; margin:4px 0 10px;"><button class="btn secondary" id="bugKeepRef" style="flex:1;">Keep for reference</button><button class="btn big" id="bugConfirm" style="flex:1;">On my plot</button></div>`
+      : `<button class="btn big" id="bugConfirm" style="width:100%; margin:4px 0 10px;">Yes, it's this</button>`) : ''}
     ${watch.names.length?`<button class="btn bug-watch" id="bugWatch">Watch out: ${escapeHTML(watch.names.join(', '))}</button>`:''}
     <details class="timings" style="margin-top:14px;"><summary>Sources</summary>${(p.sourceLinks||[]).length ? `<p class="tiny-muted" style="margin:8px 0 0;">${p.sourceLinks.map(s=>`<a href="${escapeAttr(s.url)}" target="_blank" rel="noopener">${escapeHTML(s.title)}</a>`).join('<br>')}${p.rhs?'':'<br>No RHS page was found.'}</p>` : `<p class="tiny-muted" style="margin:8px 0 0;">${escapeHTML(p.sources)}</p>`}</details>
     ${logLine?`<p class="tiny-muted" style="margin-top:14px;">${logLine}</p><button class="btn small danger" id="bugRemoveLog">Remove from History</button>`:''}`, true);
@@ -12790,8 +12851,25 @@ function openBugidSheet(id, ctx){
   const drawPlotPics = async ()=>{
     const pics = await bugidPlotPicsFor(p.id);
     if(!plotEl.isConnected) return;
-    plotEl.innerHTML = pics.length ? `<div class="bug-label" style="margin-top:4px;">From the plot</div><div class="bug-plot-pics">${pics.map(x=>`<figure class="bug-plot-pic"><img src="${x.src}" alt="${escapeAttr(p.name)}" data-plotbig><figcaption>${dayLabel(x.date)}${x.where?', '+escapeHTML(x.where):''}</figcaption>
-      <span style="display:flex; gap:6px;"><button class="btn small secondary" data-plotshare="${x.id}">Share</button><button class="btn small secondary" data-plotremove="${x.id}">Remove</button></span></figure>`).join('')}</div>` : '';
+    const fig = x=>`<figure class="bug-plot-pic"><img src="${x.src}" alt="${escapeAttr(p.name)}" data-plotbig><figcaption>${dayLabel(x.date)}${x.kind==='nearby'?'':(x.where?', '+escapeHTML(x.where):'')}</figcaption>
+      <span style="display:flex; gap:6px;"><button class="btn small secondary" data-plotshare="${x.id}">Share</button><button class="btn small secondary" data-plotremove="${x.id}">Remove</button></span></figure>`;
+    const onPlot = pics.filter(x=>x.kind!=='nearby'), near = pics.filter(x=>x.kind==='nearby');
+    const entries = (STATE.settings.bugidNearby||[]).filter(n=>n.bugid===p.id);
+    let html = onPlot.length ? `<div class="bug-label" style="margin-top:4px;">From the plot</div><div class="bug-plot-pics">${onPlot.map(fig).join('')}</div>` : '';
+    if(entries.length || near.length){
+      const shared = near.length ? '' : entries.filter(n=>n.thumb).map(n=>`<figure class="bug-plot-pic"><img src="${n.thumb}" alt="${escapeAttr(p.name)}" data-plotbig><figcaption>${dayLabel(n.date)}${n.by?', '+escapeHTML(n.by):''}</figcaption></figure>`).join('');
+      html += `<div class="bug-label" style="margin-top:4px;">Seen nearby</div>${entries.length && !near.length && !shared ? `<p style="margin:2px 0 6px;">${dayLabel(entries[0].date)}${entries[0].by?', '+escapeHTML(entries[0].by):''}</p>` : ''}
+        <div class="bug-plot-pics">${near.map(fig).join('')}${shared}</div>
+        ${entries.length ? `<button class="btn small secondary" id="bugNearbyRemove" style="margin-bottom:12px;">Remove from Seen nearby</button>` : ''}`;
+    }
+    plotEl.innerHTML = html;
+    const nb = plotEl.querySelector('#bugNearbyRemove');
+    if(nb) nb.addEventListener('click', async ()=>{
+      if(!(await confirmDialog(`Remove ${p.name} from Seen nearby?`, ()=>openBugidSheet(id, ctx), 'Remove', true))) return;
+      await bugidRemoveNearby(id);
+      toast('Removed');
+      if(BUGID_BY_ID[id]) openBugidSheet(id, ctx); else goBack();
+    });
     plotEl.querySelectorAll('[data-plotbig]').forEach(im=>im.addEventListener('click', ()=>im.closest('figure').classList.toggle('big')));
     plotEl.querySelectorAll('[data-plotshare]').forEach(b=>b.addEventListener('click', ()=>{ const x = pics.find(q=>q.id===b.dataset.plotshare); if(x) bugidSharePic(x.src, `${p.name} ${x.date}`); }));
     plotEl.querySelectorAll('[data-plotremove]').forEach(b=>b.addEventListener('click', async ()=>{
@@ -12811,8 +12889,38 @@ function openBugidSheet(id, ctx){
   };
   if(picsEl){ if(bugidPics) drawPics(); else { picsEl.style.display='none'; bugidLoadPics().then(drawPics); } }
   const confirmBtn = document.getElementById('bugConfirm');
-  if(confirmBtn) confirmBtn.addEventListener('click', ()=>{
-    const ticked = new Set();
+  if(confirmBtn) confirmBtn.addEventListener('click', ()=>bugidStartWhere(id, ctx));
+  const keepBtn = document.getElementById('bugKeepRef');
+  if(keepBtn) keepBtn.addEventListener('click', ()=>{ bugidKeepForReference(ctx.checkId, id); goHome(); });
+  const watchBtn = document.getElementById('bugWatch');
+  if(watchBtn) watchBtn.addEventListener('click', ()=>{
+    watchOutState = {name:p.name, names:watch.names, ids:new Set(watch.ids)};
+    goHome();
+    const area = document.getElementById('mapArea'); if(area) area.scrollIntoView({block:'start'});
+  });
+  const removeBtn = document.getElementById('bugRemoveLog');
+  if(removeBtn) removeBtn.addEventListener('click', async ()=>{
+    if(!(await confirmDialog(`Remove this ${p.name} entry from History?`, ()=>openBugidSheet(id, ctx), 'Remove', true))) return;
+    if(ctx.plotRecId){
+      await setMeta('plotProblems', (STATE.settings.plotProblems||[]).filter(x=>x.id!==ctx.plotRecId));
+    } else if(obj){
+      obj.treatments = (obj.treatments||[]).filter(x=>x.id!==ctx.recId);
+      await recordTombstone(ctx.recId);
+      await savePlantable(ctx.kind, obj);
+    }
+    await afterChange();
+    toast('Removed');
+    goBack();
+  });
+}
+
+// "Yes, it's this" / "On my plot": the Where screen, with the right things ticked.
+function bugidStartWhere(id, ctx){
+  ctx = ctx || {};
+  const p = BUGID_BY_ID[id]; if(!p) return;
+  const obj = ctx.kind ? plantableById(ctx.kind, ctx.objId) : null;
+  const pl = obj ? (obj.plantings||[]).find(x=>x.id===ctx.plantingId) : null;
+  const ticked = new Set();
     if(pl) ticked.add(`${ctx.kind}|${ctx.objId}|${ctx.plantingId}`);
     if(ctx.checkId && !ctx.bedId && !pl){
       openBugidWhere(id, {ticked, extra:[], from:{home:true}, checkId:ctx.checkId, sheetCtx:ctx});
@@ -12838,27 +12946,6 @@ function openBugidSheet(id, ctx){
       return;
     }
     openBugidWhere(id, {ticked, extra:[], from: ctx.checkId ? {home:true} : (pl ? {kind:ctx.kind, objId:ctx.objId, plantingId:ctx.plantingId} : null), checkId:ctx.checkId, sheetCtx:ctx});
-  });
-  const watchBtn = document.getElementById('bugWatch');
-  if(watchBtn) watchBtn.addEventListener('click', ()=>{
-    watchOutState = {name:p.name, names:watch.names, ids:new Set(watch.ids)};
-    goHome();
-    const area = document.getElementById('mapArea'); if(area) area.scrollIntoView({block:'start'});
-  });
-  const removeBtn = document.getElementById('bugRemoveLog');
-  if(removeBtn) removeBtn.addEventListener('click', async ()=>{
-    if(!(await confirmDialog(`Remove this ${p.name} entry from History?`, ()=>openBugidSheet(id, ctx), 'Remove', true))) return;
-    if(ctx.plotRecId){
-      await setMeta('plotProblems', (STATE.settings.plotProblems||[]).filter(x=>x.id!==ctx.plotRecId));
-    } else if(obj){
-      obj.treatments = (obj.treatments||[]).filter(x=>x.id!==ctx.recId);
-      await recordTombstone(ctx.recId);
-      await savePlantable(ctx.kind, obj);
-    }
-    await afterChange();
-    toast('Removed');
-    goBack();
-  });
 }
 
 /* ---- "Where is it?" - after "Yes, it's this" ---- */
