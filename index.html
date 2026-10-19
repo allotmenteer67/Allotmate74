@@ -900,7 +900,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.15.3';
+const APP_VERSION = '2026.10.15.4';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -12483,7 +12483,7 @@ function bugidCardHTML(c){
   if(a.other && !/nothing wrong/i.test(a.other) && !a.researched){
     const near = ps[0];
     return `<div class="bug-card" data-bugcheck="${id}">${bugidThumbImg(c)}
-      <span class="bug-card-text"><span class="bug-card-title">${escapeHTML(a.other)}</span><span class="bug-card-sub">${near?`A kind of ${escapeHTML(near.name.toLowerCase())}. `:'Not on our list yet. '}${navigator.onLine?'Looking it up…':'Will look it up when back online'}</span></span></div>`;
+      <span class="bug-card-text"><span class="bug-card-title">${escapeHTML(a.other)}</span><span class="bug-card-sub">${near?`A kind of ${escapeHTML(near.name.toLowerCase())}. `:'Not on our list yet. '}${!navigator.onLine?'Will look it up when back online':c.researchError==='limit'?"Today's checks are used up, so it will be looked up tomorrow":c.researchError?"Couldn't look it up just now. It will try again":'Looking it up…'}</span></span></div>`;
   }
   if(ps.length>=2 && !a.picked){
     // Unsure between two: which do you see?
@@ -12503,12 +12503,14 @@ function bugidCardHTML(c){
     actions = (watch.names.length ? `<button class="btn small bug-watch" style="width:auto; margin:0;" data-bugcheckwatch="${id}" data-bugid="${p.id}">Watch out: ${escapeHTML(watch.names.join(', '))}</button>` : '') + choices(p);
   } else if(a.other && a.researched==='none'){
     body = `<span class="bug-card-title" style="white-space:normal;">${escapeHTML(a.other)}</span><span class="bug-card-sub">Not on our list, and nothing trustworthy found. Ask on the site.</span>`;
+  } else if(a.other && a.researched==='failed'){
+    body = `<span class="bug-card-title" style="white-space:normal;">${escapeHTML(a.other)}</span><span class="bug-card-sub">Not on our list, and it couldn't be looked up. Ask on the site.</span>`;
   } else if(a.other && /nothing wrong/i.test(a.other)){
     body = `<span class="bug-card-title">Nothing wrong spotted</span><span class="bug-card-sub">${escapeHTML(bugidCheckTitle(c))}</span>`;
   } else if(a.other){
     body = `<span class="bug-card-title" style="white-space:normal;">${escapeHTML(a.other)}</span><span class="bug-card-sub">Not on our list yet, so not checked. Ask on the site.</span>`;
   } else {
-    body = `<span class="bug-card-title">Couldn't tell from the photos</span><span class="bug-card-sub">${escapeHTML(bugidCheckTitle(c))}</span>`;
+    body = `<span class="bug-card-title">Couldn't tell what it is</span>${a.seeing?`<span class="bug-card-sub" style="white-space:normal;">What it could see: ${escapeHTML(a.seeing)}</span>`:''}<span class="bug-card-sub">Try again with a closer photo or a few words, or ask on the site.</span>`;
   }
   const asking = actions.includes('data-bugcheckpick');
   return `<div class="bug-card answered"><div class="bug-card-top" data-bugcheck="${id}">${bugidThumbImg(c)}<span class="bug-card-text">${body}</span></div>
@@ -12632,6 +12634,7 @@ const BUGID_CHECK_RULES = [
   'from: "photos" or "photos and description".',
   'ask: only when unsure between two ids: [{"id":"...","text":"..."}] with one short thing the gardener could look for that would tell each apart, e.g. "White maggots on the roots".',
   'other: the usual UK name of the problem when it is not on the list, or when it is a more specific problem than the nearest one on the list (for example "Woolly aphid" rather than aphids); still put the nearest list id in ids if one fits. If the plant looks healthy, "Nothing wrong". Otherwise "".',
+  "A problem need not be a pest or disease. Also consider growing problems: shortage of nitrogen, potassium, magnesium or iron, or too much feed; too little, too much or uneven watering; frost, cold nights, sun or heat scorch, wind damage; weedkiller drift; and normal ageing, such as lower leaves yellowing. Name these in other the same way, for example \"Nitrogen deficiency\" or \"Frost damage\".",
   "seeing: one short plain sentence on what you can see."
 ].join("\n");
 function bugidCanSend(){ return !!(STATE.settings.syncUrl && STATE.settings.syncCode); }
@@ -12716,8 +12719,15 @@ async function bugidResearchPending(){
         changes = {...changes, researchError:null, answer:{...c.answer, ids:[slug], general, researched:'yes'}};
       } else if(res.ok && out.found===false){
         changes = {...changes, researchError:null, answer:{...c.answer, researched:'none'}};
-      } else changes.researchError = res.status===429 ? 'limit' : 'failed';
-    }catch(e){ changes.researchError = 'failed'; }
+      } else {
+        changes.researchError = res.status===429 ? 'limit' : 'failed';
+        changes.researchDetail = [res.status, out.error, out.detail].filter(Boolean).join(': ').slice(0, 200);
+      }
+    }catch(e){ changes.researchError = 'failed'; changes.researchDetail = 'No connection to the checker'; }
+    if(changes.researchError==='failed'){
+      changes.researchTries = (c.researchTries||0) + 1;
+      if(changes.researchTries>=3) changes.answer = {...c.answer, researched:'failed'};
+    }
     bugidResearching.delete(slug);
     await bugidUpdateCheck(c.id, changes);
     bugidRefreshCameraNote();
@@ -12773,6 +12783,7 @@ async function openBugidCheck(id){
     ${c.words?`<p>${escapeHTML(c.words)}</p>`:''}
     ${c.status==='answered' ? `<div id="bugCheckAnswer">${bugidCardHTML(c)}</div>${c.answer && c.answer.seeing?`<p class="tiny-muted">${escapeHTML(c.answer.seeing)}</p>`:''}` : `<p class="muted">${bugidWaitingText(c)}</p>`}
     <p class="tiny-muted">Taken ${dayLabel(c.date)}${c.by?' by '+escapeHTML(c.by):''}</p>
+    ${c.researchDetail?`<p class="tiny-muted">Looking it up went wrong: ${escapeHTML(c.researchDetail)}</p>`:''}
     <button class="btn small danger" id="bugCheckDel">Delete</button>`, true);
   const ans = document.getElementById('bugCheckAnswer'); if(ans) wireBugidCards(ans);
   document.getElementById('mBack').addEventListener('click', ()=>{ closeModal(); goHome(); });
