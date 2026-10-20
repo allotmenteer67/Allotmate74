@@ -900,7 +900,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.15.4';
+const APP_VERSION = '2026.10.15.5';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -12505,6 +12505,7 @@ function bugidCardHTML(c){
     body = `<span class="bug-card-title" style="white-space:normal;">${escapeHTML(a.other)}</span><span class="bug-card-sub">Not on our list, and nothing trustworthy found. Ask on the site.</span>`;
   } else if(a.other && a.researched==='failed'){
     body = `<span class="bug-card-title" style="white-space:normal;">${escapeHTML(a.other)}</span><span class="bug-card-sub">Not on our list, and it couldn't be looked up. Ask on the site.</span>`;
+    actions = `<button class="btn small secondary" data-bugcheckretry="${id}">Try again</button>` + gotIt;
   } else if(a.other && /nothing wrong/i.test(a.other)){
     body = `<span class="bug-card-title">Nothing wrong spotted</span><span class="bug-card-sub">${escapeHTML(bugidCheckTitle(c))}</span>`;
   } else if(a.other){
@@ -12544,6 +12545,12 @@ function wireBugidCards(root){
     e.stopPropagation(); const c = find(b.dataset.bugcheckopen); if(c) openBugidSheet(b.dataset.bugid, bugidSheetCtxForCheck(c));
   }));
   root.querySelectorAll('[data-bugcheckgot]').forEach(b=>b.addEventListener('click', ()=>bugidGotIt(b.dataset.bugcheckgot)));
+  root.querySelectorAll('[data-bugcheckretry]').forEach(b=>b.addEventListener('click', async ()=>{
+    const c = find(b.dataset.bugcheckretry); if(!c) return;
+    const ans = {...c.answer}; delete ans.researched;
+    await bugidUpdateCheck(c.id, {answer:ans, researchTries:0, researchError:null, researchDetail:null});
+    bugidSendWaiting();
+  }));
   root.querySelectorAll('[data-bugcheckkeep]').forEach(b=>b.addEventListener('click', ()=>bugidKeepForReference(b.dataset.bugcheckkeep, b.dataset.bugid)));
   root.querySelectorAll('[data-bugcheckplot]').forEach(b=>b.addEventListener('click', ()=>{
     const c = find(b.dataset.bugcheckplot); if(c) bugidStartWhere(b.dataset.bugid, bugidSheetCtxForCheck(c));
