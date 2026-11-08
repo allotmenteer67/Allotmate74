@@ -900,7 +900,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.10.15.5';
+const APP_VERSION = '2026.11.08.1';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
@@ -1498,7 +1498,10 @@ const KNOWN_CROPS = [
   // Overwintering onions can also be raised from seed (SimplySeed's Toughball, sown in August): RHS says
   // sow indoors in late summer and plant out in early autumn - so about 6 weeks to planting out, then
   // roughly 260 days to a June/July harvest.
-  {name:'Autumn Onion', group:'onion', family:'Alliums', sowToPotOn:42, transplantToHarvest:260, directSowToHarvest:250, tender:false, repeatHarvest:false, words:['autumn onion','overwintering onion','japanese onion','winter onion'], varieties:['Autumn Champion','Radar','Red Winter','Senshyu','Snowball','Yellow Winter','Toughball'], underCoverMonth:8, directSowMonth:10},
+  // 'Electric' added Nov 2026: a red autumn-planting set, planted September to November and lifted
+  // late May to July (Taylors, Van Meuwen, Marshalls, Mr Fothergill's all agree within a couple of
+  // weeks), so this crop's timings fit it as they are.
+  {name:'Autumn Onion', group:'onion', family:'Alliums', sowToPotOn:42, transplantToHarvest:260, directSowToHarvest:250, tender:false, repeatHarvest:false, words:['autumn onion','overwintering onion','japanese onion','winter onion'], varieties:['Autumn Champion','Radar','Red Winter','Senshyu','Snowball','Yellow Winter','Toughball','Electric'], underCoverMonth:8, directSowMonth:10},
   // Autumn-planted garlic: RHS says ready from late spring to early summer.
   {name:'Garlic', group:'garlic', family:'Alliums', sowToPotOn:null, transplantToHarvest:null, directSowToHarvest:240, tender:false, repeatHarvest:false, words:['garlic'], varieties:['Solent Wight','Germidour','Ashmoor White','Autumn Early','Garland Purple','Carcassonne Wight','Provence Wight'], underCoverMonth:10, directSowMonth:10},
   // Spring-planted garlic: planted January to March (RHS, Suttons, Dobies), ready from mid-summer to early

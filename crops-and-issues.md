@@ -2,7 +2,7 @@
 
 Generated from the app's own lists (`KNOWN_CROPS` and `CROP_ISSUES`) in version **2026.10.10.8**, 10 October 2026. Regenerate whenever the lists change.
 
-**143 crops, 564 varieties.** Timings are in days; months are the first month to sow under cover or direct (1 = Jan). A dash means nothing is set.
+**143 crops, 565 varieties.** (Electric added to Autumn Onion by hand, 8 November 2026, version 2026.11.08.1.) Timings are in days; months are the first month to sow under cover or direct (1 = Jan). A dash means nothing is set.
 
 
 ## Alliums
@@ -11,7 +11,7 @@ Generated from the app's own lists (`KNOWN_CROPS` and `CROP_ISSUES`) in version 
 - Timings: sow to pot on 42; planting out to harvest 260; direct sow to harvest 250
 - Sowing: under cover from Aug, direct sow from Oct
 - Common issues: Onion Fly, White Rot
-- Varieties (7): Autumn Champion, Radar, Red Winter, Senshyu, Snowball, Yellow Winter, Toughball
+- Varieties (8): Autumn Champion, Radar, Red Winter, Senshyu, Snowball, Yellow Winter, Toughball, Electric
 
 ### Autumn Shallot
 - Timings: sow to pot on –; planting out to harvest –; direct sow to harvest 270
