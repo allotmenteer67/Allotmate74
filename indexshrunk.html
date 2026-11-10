@@ -406,6 +406,46 @@ html, body{background:#fff !important;}
 .bug-check-pics{display:flex; flex-direction:column; gap:8px; margin:8px 0 12px;}
 .bug-check-pics img{width:100%; border-radius:var(--radius); border:1px solid var(--line); display:block;}
 </style>
+<!-- iPad top-edge fade fix (Nov 2026), same idea as the one in Cloude.
+     From iPadOS 27.2 a home-screen web app on the iPad gets a soft fade
+     across the top strip of its window, and the window's three coloured
+     dots sit in that strip too, so anything placed there comes out washed
+     out. Reduce Transparency clears it, but nobody should have to change a
+     system setting for one app. Phones on 27.2 were checked and don't get
+     the fade, so this only switches on for an iPad running My Plot from the
+     home screen; phones and Safari tabs are untouched.
+     It does three things on the iPad only:
+      - drops the top bar's contents (logo, plot name, Undo/Redo) below the
+        faded strip, with the bar's own colour filling the strip above;
+      - pins the tabs just below that strip when scrolling, with a solid
+        strip of the same colour above them, so scrolled content never
+        shows through faded;
+      - drops every pop-up's top bar (the Close button etc.) by the same
+        amount, with the pop-up's own top padding matched.
+     40px clears the dots and the fade with a small margin, measured in
+     Cloude from on-device screenshots: the page starts about 33px below
+     the top of an iPad window and the dots end about 65px down it. -->
+<style>
+  html.ipad-app .top{padding-top:40px;}
+  html.ipad-app nav.tabs{top:40px;}
+  html.ipad-app body::before{content:""; position:fixed; top:0; left:0; right:0; height:40px; background:var(--card); z-index:11; pointer-events:none;}
+  html.ipad-app .modal-topbar{padding-top:40px;}
+  html.ipad-app .modal{padding-top:94px;}
+</style>
+<script>
+(function(){
+  try{
+    var ua = navigator.userAgent || "", touch = navigator.maxTouchPoints || 0;
+    var shortSide = Math.min(screen.width || 0, screen.height || 0);
+    var mm = function(q){ return !!(window.matchMedia && window.matchMedia(q).matches); };
+    // Newer iPads report themselves as a Mac with a touch screen; a touch
+    // screen with an iPad-sized short side catches any that don't.
+    var isIPad = /iPad/.test(ua) || (/Macintosh/.test(ua) && touch > 1) || (touch > 1 && shortSide >= 700);
+    var homeApp = navigator.standalone === true || mm("(display-mode: standalone)") || mm("(display-mode: fullscreen)");
+    if (isIPad && homeApp) document.documentElement.classList.add("ipad-app");
+  }catch(e){}
+})();
+</script>
 </head>
 <body>
 <div class="top">
@@ -842,7 +882,7 @@ const DB_NAME='plotbook4', DB_VERSION=6; let db;
 // Bumped by hand on each delivered build so Setup can show which one is actually running -
 // there's no build pipeline here to generate this automatically. Format: the date it was put
 // together, plus a same-day counter for more than one delivery in a day.
-const APP_VERSION = '2026.11.08.1';
+const APP_VERSION = '2026.11.10.1';
 // Shared sync backend, set up once by the app's own developer - not something any user of the
 // app ever needs to see or enter. Every "Turn on sharing" tap connects here automatically.
 const SHARED_SYNC_URL = 'https://yhlmrarektsjrfardrkc.supabase.co';
